@@ -346,7 +346,7 @@ PyImport_Cleanup(void)
     Py_ssize_t pos;
     PyObject *key, *value, *dict;
     PyInterpreterState *interp = PyThreadState_GET()->interp;
-    PyObject *modules = interp->modules;
+    PyObject *modules = PyImport_GetModuleDict();
     PyObject *weaklist = NULL;
     const char * const *p;
 
@@ -1368,7 +1368,6 @@ resolve_name(PyObject *name, PyObject *globals, int level)
     PyObject *abs_name;
     PyObject *package = NULL;
     PyObject *spec;
-    PyInterpreterState *interp = PyThreadState_GET()->interp;
     Py_ssize_t last_dot;
     PyObject *base;
     int level_up;
@@ -1472,11 +1471,14 @@ resolve_name(PyObject *name, PyObject *globals, int level)
                 "attempted relative import with no known parent package");
         goto error;
     }
-    else if (PyDict_GetItem(interp->modules, package) == NULL) {
-        PyErr_Format(PyExc_SystemError,
-                "Parent module %R not loaded, cannot perform relative "
-                "import", package);
-        goto error;
+    else {
+        PyObject *modules = PyImport_GetModuleDict();
+        if (PyDict_GetItem(modules, package) == NULL) {
+            PyErr_Format(PyExc_SystemError,
+                    "Parent module %R not loaded, cannot perform relative "
+                    "import", package);
+            goto error;
+        }
     }
 
     for (level_up = 1; level_up < level; level_up += 1) {
@@ -1555,7 +1557,8 @@ PyImport_ImportModuleLevelObject(PyObject *name, PyObject *globals,
         Py_INCREF(abs_name);
     }
 
-    mod = PyDict_GetItem(interp->modules, abs_name);
+    PyObject *modules = PyImport_GetModuleDict();
+    mod = PyDict_GetItem(modules, abs_name);
     if (mod == Py_None) {
         PyObject *msg = PyUnicode_FromFormat("import of %R halted; "
                                              "None in sys.modules", abs_name);
@@ -1661,7 +1664,8 @@ PyImport_ImportModuleLevelObject(PyObject *name, PyObject *globals,
                     goto error;
                 }
 
-                final_mod = PyDict_GetItem(interp->modules, to_return);
+                PyObject *modules = PyImport_GetModuleDict();
+                final_mod = PyDict_GetItem(modules, to_return);
                 Py_DECREF(to_return);
                 if (final_mod == NULL) {
                     PyErr_Format(PyExc_KeyError,
