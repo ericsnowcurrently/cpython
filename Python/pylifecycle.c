@@ -382,7 +382,6 @@ _Py_InitializeEx_Private(int install_sigs, int install_importlib)
     PyObject *modules = PyDict_New();
     if (modules == NULL)
         Py_FatalError("Py_Initialize: can't make modules dictionary");
-    interp->modules = modules;
 
     sysmod = _PySys_Init();
     if (sysmod == NULL)
@@ -796,7 +795,6 @@ Py_NewInterpreter(void)
     PyObject *modules = PyDict_New();
     if (modules == NULL)
         Py_FatalError("Py_NewInterpreter: can't make modules dictionary");
-    interp->modules = modules;
 
     sysmod = _PyImport_FindBuiltin("sys", modules);
     if (sysmod != NULL) {

@@ -28,7 +28,6 @@ typedef struct _is {
     struct _is *next;
     struct _ts *tstate_head;
 
-    PyObject *modules;
     PyObject *modules_by_index;
     PyObject *sysdict;
     PyObject *builtins;
