@@ -798,7 +798,7 @@ Py_NewInterpreter(void)
         Py_FatalError("Py_NewInterpreter: can't make modules dictionary");
     interp->modules = modules;
 
-    sysmod = _PyImport_FindBuiltin("sys");
+    sysmod = _PyImport_FindBuiltin("sys", modules);
     if (sysmod != NULL) {
         interp->sysdict = PyModule_GetDict(sysmod);
         if (interp->sysdict == NULL)
@@ -808,7 +808,7 @@ Py_NewInterpreter(void)
         PySys_SetPath(Py_GetPath());
     }
 
-    bimod = _PyImport_FindBuiltin("builtins");
+    bimod = _PyImport_FindBuiltin("builtins", modules);
     if (bimod != NULL) {
         interp->builtins = PyModule_GetDict(bimod);
         if (interp->builtins == NULL)
@@ -819,7 +819,6 @@ Py_NewInterpreter(void)
     /* initialize builtin exceptions */
     _PyExc_Init(bimod);
 
-    sysmod = _PyImport_FindBuiltin("sys");
     if (bimod != NULL && sysmod != NULL) {
         PyObject *pstderr;
 
