@@ -391,7 +391,7 @@ _Py_InitializeEx_Private(int install_sigs, int install_importlib)
         Py_FatalError("Py_Initialize: can't initialize sys dict");
     Py_INCREF(interp->sysdict);
     PyDict_SetItemString(interp->sysdict, "modules", modules);
-    _PyImport_FixupBuiltin(sysmod, "sys");
+    _PyImport_FixupBuiltin(sysmod, "sys", modules);
     PySys_SetPath(Py_GetPath());
 
     /* Init Unicode implementation; relies on the codec registry */
@@ -403,7 +403,7 @@ _Py_InitializeEx_Private(int install_sigs, int install_importlib)
     bimod = _PyBuiltin_Init();
     if (bimod == NULL)
         Py_FatalError("Py_Initialize: can't initialize builtins modules");
-    _PyImport_FixupBuiltin(bimod, "builtins");
+    _PyImport_FixupBuiltin(bimod, "builtins", modules);
     interp->builtins = PyModule_GetDict(bimod);
     if (interp->builtins == NULL)
         Py_FatalError("Py_Initialize: can't initialize builtins dict");
