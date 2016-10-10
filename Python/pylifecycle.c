@@ -410,10 +410,6 @@ _Py_InitializeEx_Private(int install_sigs, int install_importlib)
     /* initialize builtin exceptions */
     _PyExc_Init(bimod);
 
-    PySys_SetPath(Py_GetPath());
-    PyDict_SetItemString(interp->sysdict, "modules",
-                         modules);
-
     /* Set up a preliminary stderr printer until we have enough
        infrastructure for the io module in place. */
     pstderr = PyFile_NewStdPrinter(fileno(stderr));
@@ -423,9 +419,7 @@ _Py_InitializeEx_Private(int install_sigs, int install_importlib)
     PySys_SetObject("__stderr__", pstderr);
     Py_DECREF(pstderr);
 
-    _PyImport_Init();
-
-    _PyImportHooks_Init();
+    PyDict_SetItemString(interp->sysdict, "modules", modules);
 
     /* Initialize _warnings. */
     _PyWarnings_Init();
@@ -433,10 +427,13 @@ _Py_InitializeEx_Private(int install_sigs, int install_importlib)
     if (!install_importlib)
         return;
 
+    _PyImport_Init();
+    _PyImportHooks_Init();
+    PySys_SetPath(Py_GetPath());
+    import_init(interp, sysmod);
+
     if (_PyTime_Init() < 0)
         Py_FatalError("Py_Initialize: can't initialize time");
-
-    import_init(interp, sysmod);
 
     /* initialize the faulthandler module */
     if (_PyFaulthandler_Init())
@@ -801,16 +798,20 @@ Py_NewInterpreter(void)
     sysmod = _PyImport_FindBuiltin("sys", modules);
     if (sysmod != NULL) {
         interp->sysdict = PyModule_GetDict(sysmod);
-        if (interp->sysdict == NULL)
+        if (interp->sysdict == NULL) {
+            Py_DECREF(modules);
             goto handle_error;
+        }
         Py_INCREF(interp->sysdict);
     }
 
     bimod = _PyImport_FindBuiltin("builtins", modules);
     if (bimod != NULL) {
         interp->builtins = PyModule_GetDict(bimod);
-        if (interp->builtins == NULL)
+        if (interp->builtins == NULL) {
+            Py_DECREF(modules);
             goto handle_error;
+        }
         Py_INCREF(interp->builtins);
     }
 
@@ -819,10 +820,6 @@ Py_NewInterpreter(void)
 
     if (bimod != NULL && sysmod != NULL) {
         PyObject *pstderr;
-
-        PySys_SetPath(Py_GetPath());
-        PyDict_SetItemString(interp->sysdict, "modules",
-                             modules);
 
         /* Set up a preliminary stderr printer until we have enough
            infrastructure for the io module in place. */
@@ -833,8 +830,9 @@ Py_NewInterpreter(void)
         PySys_SetObject("__stderr__", pstderr);
         Py_DECREF(pstderr);
 
+        PyDict_SetItemString(interp->sysdict, "modules", modules);
         _PyImportHooks_Init();
-
+        PySys_SetPath(Py_GetPath());
         import_init(interp, sysmod);
 
         if (initfsencoding(interp) < 0)
