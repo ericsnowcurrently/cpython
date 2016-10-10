@@ -8,6 +8,8 @@ extern "C" {
 #endif
 
 #ifndef Py_LIMITED_API
+PyAPI_FUNC(void) _PyImport_InitState(PyInterpreterState *interp,
+                                     PyObject *modules, const wchar_t *path);
 PyAPI_FUNC(void) _PyImportZip_Init(void);
 
 PyMODINIT_FUNC PyInit_imp(void);

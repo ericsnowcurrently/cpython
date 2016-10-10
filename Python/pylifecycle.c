@@ -424,10 +424,8 @@ _Py_InitializeEx_Private(int install_sigs, int install_importlib)
         return;
     }
 
-    _PyImport_Init();
-    PyDict_SetItemString(interp->sysdict, "modules", modules);
-    _PyImportHooks_Init();
-    PySys_SetPath(Py_GetPath());
+    _PyImport_Init(interp);
+    _PyImport_InitState(interp, modules, Py_GetPath());
     import_init(interp, sysmod);
 
     if (_PyTime_Init() < 0)
@@ -828,9 +826,7 @@ Py_NewInterpreter(void)
         PySys_SetObject("__stderr__", pstderr);
         Py_DECREF(pstderr);
 
-        PyDict_SetItemString(interp->sysdict, "modules", modules);
-        _PyImportHooks_Init();
-        PySys_SetPath(Py_GetPath());
+        _PyImport_InitState(interp, modules, Py_GetPath());
         import_init(interp, sysmod);
 
         if (initfsencoding(interp) < 0)

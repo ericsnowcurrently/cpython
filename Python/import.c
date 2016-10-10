@@ -41,24 +41,28 @@ module _imp
 /* Initialize things */
 
 void
-_PyImport_Init(void)
+_PyImport_Init(PyInterpreterState *interp)
 {
-    PyInterpreterState *interp = PyThreadState_Get()->interp;
     initstr = PyUnicode_InternFromString("__init__");
     if (initstr == NULL)
         Py_FatalError("Can't initialize import variables");
+
     interp->builtins_copy = PyDict_Copy(interp->builtins);
     if (interp->builtins_copy == NULL)
         Py_FatalError("Can't backup builtins dict");
 }
 
 void
-_PyImportHooks_Init(void)
+_PyImport_InitState(PyInterpreterState *interp, PyObject *modules,
+                    const wchar_t *path)
 {
-    PyObject *v, *path_hooks = NULL;
+    PyObject *v;
     int err = 0;
 
-    /* adding sys.path_hooks and sys.path_importer_cache */
+    PyDict_SetItemString(interp->sysdict, "modules", modules);
+    PySys_SetPath(path);
+
+    /* Add sys.meta_path. */
     v = PyList_New(0);
     if (v == NULL)
         goto error;
@@ -66,6 +70,8 @@ _PyImportHooks_Init(void)
     Py_DECREF(v);
     if (err)
         goto error;
+
+    /* Add sys.path_importer_cache. */
     v = PyDict_New();
     if (v == NULL)
         goto error;
@@ -73,17 +79,22 @@ _PyImportHooks_Init(void)
     Py_DECREF(v);
     if (err)
         goto error;
-    path_hooks = PyList_New(0);
-    if (path_hooks == NULL)
+
+    /* Add sys.path_hooks. */
+    v = PyList_New(0);
+    if (v == NULL)
         goto error;
-    err = PySys_SetObject("path_hooks", path_hooks);
-    if (err) {
+    err = PySys_SetObject("path_hooks", v);
+    Py_DECREF(v);
+    if (err)
+        goto error;
+
+    return;
+
   error:
     PyErr_Print();
     Py_FatalError("initializing sys.meta_path, sys.path_hooks, "
                   "or path_importer_cache failed");
-    }
-    Py_DECREF(path_hooks);
 }
 
 void
