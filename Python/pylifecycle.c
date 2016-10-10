@@ -419,15 +419,13 @@ _Py_InitializeEx_Private(int install_sigs, int install_importlib)
     PySys_SetObject("__stderr__", pstderr);
     Py_DECREF(pstderr);
 
-    PyDict_SetItemString(interp->sysdict, "modules", modules);
-
-    /* Initialize _warnings. */
-    _PyWarnings_Init();
-
-    if (!install_importlib)
+    if (!install_importlib) {
+        PyDict_SetItemString(interp->sysdict, "modules", modules);
         return;
+    }
 
     _PyImport_Init();
+    PyDict_SetItemString(interp->sysdict, "modules", modules);
     _PyImportHooks_Init();
     PySys_SetPath(Py_GetPath());
     import_init(interp, sysmod);
