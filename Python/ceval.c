@@ -253,7 +253,7 @@ PyEval_ReInitThreads(void)
 
     /* Update the threading module with the new state.
      */
-    PyObject *modules = _PyImport_GetModuleDict(current_tstate);
+    PyObject *modules = PyImport_GetModuleDict();
     threading = PyMapping_GetItemString(modules, "threading");
     if (threading == NULL) {
         /* threading not imported */
