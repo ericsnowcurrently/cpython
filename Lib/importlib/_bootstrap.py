@@ -825,6 +825,51 @@ class FrozenImporter:
         return _imp.is_frozen_package(fullname)
 
 
+# Import state ################################################################
+
+class ImportState:
+    """The encapsulation of the import state."""
+
+    __slots__ = ('modules', 'finders', 'search_locations', 'path_finder')
+
+    def __init__(self, modules=None, finders=None, search_locations=None,
+                 path_finder=None):
+        if modules is None:
+            modules = {}
+        if finders is None:
+            finders = []
+        if search_locations is None:
+            search_locations = []
+
+        self.modules = modules
+        self.finders = finders
+        self.search_locations = search_locations
+        self.path_finder = path_finder
+
+    def __repr__(self):
+        args = ('{}={!r}'.format(name, getattr(self, name))
+                for name in self.__slots__)
+        return '{}({})'.format(type(self).__name__, ', '.join(args))
+
+    def __eq__(self, other):
+        try:
+            other_modules = other.modules
+            other_finders = other.finders
+            other_search_locations = other.search_locations
+            other_path_finder = other.path_finder
+        except AttributeError:
+            return False
+        if self.modules != other_modules:
+            return False
+        if self.finders != other_finders:
+            return False
+        if self.search_locations != other_search_locations:
+            return False
+        if self.path_finder != other_path_finder:
+            return False
+        return True
+
+
 # Import itself ###############################################################
 
 class _ImportLockContext:
