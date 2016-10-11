@@ -273,6 +273,15 @@ import_init(PyInterpreterState *interp, PyObject *sysmod)
         Py_FatalError("Py_Initialize: __import__ not found");
     Py_INCREF(interp->import_func);
 
+    /* Init the import state. */
+    PyObject *state = PyObject_CallMethod(importlib, "ImportState", "");
+    if (state == NULL)
+        Py_FatalError("Py_Initialize: could not init import state");
+    _Py_IDENTIFIER(__import_state__);
+    _Py_IDENTIFIER(import_state);
+    _PySys_SetObjectId(&PyId___import_state__, state);
+    _PySys_SetObjectId(&PyId_import_state, state);
+
     /* Import the _imp module */
     impmod = PyInit_imp();
     if (impmod == NULL) {
