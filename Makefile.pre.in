@@ -228,6 +228,8 @@ LIBOBJS=	@LIBOBJS@
 
 PYTHON=		python$(EXE)
 BUILDPYTHON=	python$(BUILDEXE)
+# TODO: Be able to build this under Programs without it crashing when run
+SYSPYTHON=	system-python$(EXE)
 
 PYTHON_FOR_REGEN=@PYTHON_FOR_REGEN@
 PYTHON_FOR_BUILD=@PYTHON_FOR_BUILD@
@@ -320,6 +322,7 @@ PYTHON_OBJS=	\
 		Python/asdl.o \
 		Python/ast.o \
 		Python/bltinmodule.o \
+		Python/bootstrap_hash.o \
 		Python/ceval.o \
 		Python/compile.o \
 		Python/codecs.o \
@@ -440,7 +443,7 @@ DTRACE_DEPS = \
 
 # Default target
 all:		@DEF_MAKE_ALL_RULE@
-build_all:	$(BUILDPYTHON) oldsharedmods sharedmods gdbhooks Programs/_testembed python-config
+build_all:	$(BUILDPYTHON) $(SYSPYTHON) oldsharedmods sharedmods gdbhooks Programs/_testembed python-config
 
 # Compile a binary with profile guided optimization.
 profile-opt:
@@ -531,6 +534,9 @@ clinic: $(BUILDPYTHON) $(srcdir)/Modules/_blake2/blake2s_impl.c
 
 # Build the interpreter
 $(BUILDPYTHON):	Programs/python.o $(LIBRARY) $(LDLIBRARY) $(PY3LIBRARY)
+	$(LINKCC) $(PY_LDFLAGS) $(LINKFORSHARED) -o $@ Programs/python.o $(BLDLIBRARY) $(LIBS) $(MODLIBS) $(SYSLIBS) $(LDLAST)
+
+$(SYSPYTHON):	Programs/system-python.o $(LIBRARY) $(LDLIBRARY) $(PY3LIBRARY)
 	$(LINKCC) $(PY_LDFLAGS) $(LINKFORSHARED) -o $@ Programs/python.o $(BLDLIBRARY) $(LIBS) $(MODLIBS) $(SYSLIBS) $(LDLAST)
 
 platform: $(BUILDPYTHON) pybuilddir.txt
@@ -1092,6 +1098,9 @@ $(DESTSHARED):
 			fi; \
 		done
 
+# TODO: Decide how to handle installation of $(SYSPYTHON)
+#       (A dedicated make target likely makes the most sense)
+
 # Install the interpreter with $(VERSION) affixed
 # This goes into $(exec_prefix)
 altbininstall: $(BUILDPYTHON) @FRAMEWORKPYTHONW@
@@ -1274,7 +1283,7 @@ libinstall:	build_all $(srcdir)/Modules/xxmodule.c
 		else \
 			$(INSTALL_DATA) $$i $(DESTDIR)$(LIBDEST); \
 			echo $(INSTALL_DATA) $$i $(LIBDEST); \
-		fi; \
+		fi;
 	done
 	@for d in $(LIBSUBDIRS); \
 	do \

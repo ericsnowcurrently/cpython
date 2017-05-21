@@ -2,6 +2,7 @@
 # Ignore ./python binary on Unix but still look into ./Python/ directory.
 /python
 !/Python/
+/system-python
 *.cover
 *.iml
 *.o
