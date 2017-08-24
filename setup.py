@@ -1,10 +1,11 @@
 # Autodetecting setup.py script for building the Python extensions
 #
 
-import sys, os, importlib.machinery, re, optparse
+import os, importlib.machinery, re, optparse
 from glob import glob
 import importlib._bootstrap
 import importlib.util
+import _sys as sys
 import sysconfig
 
 from distutils import log

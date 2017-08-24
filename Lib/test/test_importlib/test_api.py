@@ -5,7 +5,7 @@ util = test_util.import_importlib('importlib.util')
 machinery = test_util.import_importlib('importlib.machinery')
 
 import os.path
-import sys
+import _sys as sys
 from test import support
 import types
 import unittest
@@ -206,8 +206,8 @@ class ReloadTests:
 
     def test_module_replaced(self):
         def code():
-            import sys
-            module = type(sys)('top_level')
+            import _sys
+            module = type(_sys)('top_level')
             module.spam = 3
             sys.modules['top_level'] = module
         mock = test_util.mock_modules('top_level',

@@ -1,7 +1,7 @@
 """Access to Python's configuration information."""
 
 import os
-import sys
+import _sys as sys  # We use the low-level module during interpreter init.
 from os.path import pardir, realpath
 
 __all__ = [

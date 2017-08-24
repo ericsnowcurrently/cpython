@@ -4,8 +4,8 @@ import weakref
 from test.support import gc_collect, requires_type_collecting
 from test.support.script_helper import assert_python_ok
 
-import sys
-ModuleType = type(sys)
+import _sys
+ModuleType = type(_sys)
 
 class FullLoader:
     @classmethod
@@ -204,7 +204,7 @@ a = A(destroyed)"""
         self.assertEqual(repr(m), "<module 'foo' (crafted)>")
 
     def test_module_repr_builtin(self):
-        self.assertEqual(repr(sys), "<module 'sys' (built-in)>")
+        self.assertEqual(repr(_sys), "<module '_sys' (built-in)>")
 
     def test_module_repr_source(self):
         r = repr(unittest)

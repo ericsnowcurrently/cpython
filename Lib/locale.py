@@ -10,7 +10,7 @@ also includes default encodings for all supported locale names.
 
 """
 
-import sys
+import _sys as sys
 import encodings
 import encodings.aliases
 import re

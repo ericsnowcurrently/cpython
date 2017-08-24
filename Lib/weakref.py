@@ -22,7 +22,7 @@ from _weakref import (
 from _weakrefset import WeakSet, _IterationGuard
 
 import collections.abc  # Import after _weakref to avoid circular import.
-import sys
+import _sys as sys
 import itertools
 
 ProxyTypes = (ProxyType, CallableProxyType)

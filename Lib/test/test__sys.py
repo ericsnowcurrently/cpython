@@ -1,11 +1,9 @@
 import unittest, test.support
 from test.support.script_helper import assert_python_ok, assert_python_failure
-import io
-import os
-import _sys
-import sys
+import io, os
 import struct
 import subprocess
+import _sys as sys
 import textwrap
 import warnings
 import operator
@@ -13,76 +11,28 @@ import codecs
 import gc
 import sysconfig
 import locale
-import threading
-
 
 # count the number of test runs, used to create unique
 # strings to intern in test_intern()
 numruns = 0
 
-MODULE_ATTRS = {
-        "__name__",
-        "__doc__",
-        "__loader__",
-        "__spec__",
-        "__package__",
-        "__file__",
-        "__cached__",
-        "__builtins__",
-        }
-
+try:
+    import threading
+except ImportError:
+    threading = None
 
 class SysModuleTest(unittest.TestCase):
 
     def setUp(self):
-        self.orig_stdout = _sys.stdout
-        self.orig_stderr = _sys.stderr
-        self.orig_displayhook = _sys.displayhook
-        self.orig_excepthook = _sys.excepthook
+        self.orig_stdout = sys.stdout
+        self.orig_stderr = sys.stderr
+        self.orig_displayhook = sys.displayhook
 
     def tearDown(self):
-        _sys.stdout = self.orig_stdout
-        _sys.stderr = self.orig_stderr
-        _sys.displayhook = self.orig_displayhook
-        _sys.excepthook = self.orig_excepthook
-
-    def test_get_existing_attr_backward_compatible(self):
-        for name, expected in vars(_sys).items():
-            if name in MODULE_ATTRS:
-                continue
-            with self.subTest(name):
-                value = getattr(sys, name)
-                self.assertIs(value, expected)
-
-    def test_get_missing_attr_backward_compatible(self):
-        with self.assertRaises(AttributeError):
-            sys.spamspamspam
-
-    def test_set_new_attr_backward_compatible(self):
-        value = 'eggs'
-        sys.spamspamspam = value
-        self.assertIs(sys.spamspamspam, value)
-        self.assertIs(_sys.spamspamspam, value)
-
-    def test_set_existing_attr_backward_compatible(self):
-        out = io.StringIO()
-        def hook(obj):
-            raise RuntimeError
-        sys.displayhook = hook
-        sys.excepthook = hook
-        sys.stdout = out
-
-        self.assertIs(_sys.displayhook, hook)
-        self.assertIs(_sys.excepthook, hook)
-        self.assertIs(_sys.stdout, out)
-
-    def test_del_new_attr_backward_compatible(self):
-        _sys.spamspamspam = 'eggs'
-        del sys.spamspamspam
-        with self.assertRaises(AttributeError):
-            sys.spamspamspam
-        with self.assertRaises(AttributeError):
-            _sys.spamspamspam
+        sys.stdout = self.orig_stdout
+        sys.stderr = self.orig_stderr
+        sys.displayhook = self.orig_displayhook
+        test.support.reap_children()
 
     def test_original_displayhook(self):
         import builtins
@@ -223,6 +173,7 @@ class SysModuleTest(unittest.TestCase):
                 sys.setcheckinterval(n)
                 self.assertEqual(sys.getcheckinterval(), n)
 
+    @unittest.skipUnless(threading, 'Threading required for this test.')
     def test_switchinterval(self):
         self.assertRaises(TypeError, sys.setswitchinterval)
         self.assertRaises(TypeError, sys.setswitchinterval, "a")
@@ -398,8 +349,21 @@ class SysModuleTest(unittest.TestCase):
         )
 
     # sys._current_frames() is a CPython-only gimmick.
-    @test.support.reap_threads
     def test_current_frames(self):
+        have_threads = True
+        try:
+            import _thread
+        except ImportError:
+            have_threads = False
+
+        if have_threads:
+            self.current_frames_with_threads()
+        else:
+            self.current_frames_without_threads()
+
+    # Test sys._current_frames() in a WITH_THREADS build.
+    @test.support.reap_threads
+    def current_frames_with_threads(self):
         import threading
         import traceback
 
@@ -462,6 +426,15 @@ class SysModuleTest(unittest.TestCase):
         # Reap the spawned thread.
         leave_g.set()
         t.join()
+
+    # Test sys._current_frames() when thread support doesn't exist.
+    def current_frames_without_threads(self):
+        # Not much happens here:  there is only one thread, with artificial
+        # "thread id" 0.
+        d = sys._current_frames()
+        self.assertEqual(len(d), 1)
+        self.assertIn(0, d)
+        self.assertTrue(d[0] is sys._getframe())
 
     def test_attributes(self):
         self.assertIsInstance(sys.api_version, int)
@@ -544,6 +517,8 @@ class SysModuleTest(unittest.TestCase):
         if not sys.platform.startswith('win'):
             self.assertIsInstance(sys.abiflags, str)
 
+    @unittest.skipUnless(hasattr(sys, 'thread_info'),
+                         'Threading required for this test.')
     def test_thread_info(self):
         info = sys.thread_info
         self.assertEqual(len(info), 3)
@@ -1025,7 +1000,7 @@ class SizeofTest(unittest.TestCase):
         nfrees = len(x.f_code.co_freevars)
         extras = x.f_code.co_stacksize + x.f_code.co_nlocals +\
                   ncells + nfrees - 1
-        check(x, vsize('8P2c4P3ic' + CO_MAXBLOCKS*'3i' + 'P' + extras*'P'))
+        check(x, vsize('12P3ic' + CO_MAXBLOCKS*'3i' + 'P' + extras*'P'))
         # function
         def func(): pass
         check(func, size('12P'))

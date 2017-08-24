@@ -1,6 +1,6 @@
 """Utilities for with-statement contexts.  See PEP 343."""
 import abc
-import sys
+import _sys as sys
 import _collections_abc
 from collections import deque
 from functools import wraps

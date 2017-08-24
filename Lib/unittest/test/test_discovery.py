@@ -1,7 +1,7 @@
 import os.path
 from os.path import abspath
 import re
-import sys
+import _sys as sys
 import types
 import pickle
 import builtins
@@ -812,7 +812,7 @@ class TestDiscovery(unittest.TestCase):
         self.addCleanup(restore)
 
         with self.assertRaises(TypeError) as cm:
-            loader.discover('sys')
+            loader.discover('_sys')
         self.assertEqual(str(cm.exception),
                          'Can not use builtin modules '
                          'as dotted module names')

@@ -410,7 +410,7 @@ class Doc:
         basedir = os.path.normcase(basedir)
         if (isinstance(object, type(os)) and
             (object.__name__ in ('errno', 'exceptions', 'gc', 'imp',
-                                 'marshal', 'posix', 'signal', 'sys',
+                                 'marshal', 'posix', 'signal', '_sys',
                                  '_thread', 'zipimport') or
              (file.startswith(basedir) and
               not file.startswith(os.path.join(basedir, 'site-packages')))) and
