@@ -296,7 +296,7 @@ initimport(PyInterpreterState *interp, PyObject *sysmod)
     importlib = PyImport_AddModule("_frozen_importlib");
     if (importlib == NULL) {
         Py_FatalError("Py_Initialize: couldn't get _frozen_importlib from "
-                      "sys.modules");
+                      "_sys.modules");
     }
     interp->importlib = importlib;
     Py_INCREF(interp->importlib);
@@ -315,7 +315,7 @@ initimport(PyInterpreterState *interp, PyObject *sysmod)
         PySys_FormatStderr("import _imp # builtin\n");
     }
     if (_PyImport_SetModuleString("_imp", impmod) < 0) {
-        Py_FatalError("Py_Initialize: can't save _imp to sys.modules");
+        Py_FatalError("Py_Initialize: can't save _imp to _sys.modules");
     }
 
     /* Install importlib as the implementation of import */
@@ -683,7 +683,7 @@ void _Py_InitializeCore(const _PyCoreConfig *config)
         Py_FatalError("Py_InitializeCore: can't initialize sys dict");
     Py_INCREF(interp->sysdict);
     PyDict_SetItemString(interp->sysdict, "modules", modules);
-    _PyImport_FixupBuiltin(sysmod, "sys", modules);
+    _PyImport_FixupBuiltin(sysmod, "_sys", modules);
 
     /* Init Unicode implementation; relies on the codec registry */
     if (_PyUnicode_Init() < 0)
@@ -1202,7 +1202,7 @@ Py_NewInterpreter(void)
     if (modules == NULL)
         Py_FatalError("Py_NewInterpreter: can't make modules dictionary");
 
-    sysmod = _PyImport_FindBuiltin("sys", modules);
+    sysmod = _PyImport_FindBuiltin("_sys", modules);
     if (sysmod != NULL) {
         interp->sysdict = PyModule_GetDict(sysmod);
         if (interp->sysdict == NULL)

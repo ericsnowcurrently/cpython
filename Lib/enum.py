@@ -1,4 +1,4 @@
-import sys
+import _sys as sys
 from types import MappingProxyType, DynamicClassAttribute
 from functools import reduce
 from operator import or_ as _or_

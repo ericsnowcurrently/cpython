@@ -3,7 +3,7 @@
   Nick Mathewson
 """
 
-import sys
+import _sys
 import os
 import shutil
 import importlib
@@ -235,7 +235,7 @@ class LongReprTest(unittest.TestCase):
         create_empty_file(os.path.join(self.subpkgname, '__init__.py'))
         # Remember where we are
         self.here = os.getcwd()
-        sys.path.insert(0, self.here)
+        _sys.path.insert(0, self.here)
         # When regrtest is run with its -j option, this command alone is not
         # enough.
         importlib.invalidate_caches()
@@ -253,7 +253,7 @@ class LongReprTest(unittest.TestCase):
                 os.rmdir(p)
             else:
                 os.remove(p)
-        del sys.path[0]
+        del _sys.path[0]
 
     def _check_path_limitations(self, module_name):
         # base directory
@@ -281,7 +281,7 @@ class LongReprTest(unittest.TestCase):
         from areallylongpackageandmodulenametotestreprtruncation.areallylongpackageandmodulenametotestreprtruncation import areallylongpackageandmodulenametotestreprtruncation
         module = areallylongpackageandmodulenametotestreprtruncation
         self.assertEqual(repr(module), "<module %r from %r>" % (module.__name__, module.__file__))
-        self.assertEqual(repr(sys), "<module 'sys' (built-in)>")
+        self.assertEqual(repr(_sys), "<module '_sys' (built-in)>")
 
     def test_type(self):
         self._check_path_limitations('foo')

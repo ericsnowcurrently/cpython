@@ -6,7 +6,7 @@ module as os.path.
 """
 
 import os
-import sys
+import _sys as sys  # We use the low-level module during interpreter init.
 import stat
 import genericpath
 from genericpath import *

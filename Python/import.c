@@ -1175,7 +1175,7 @@ _imp_create_builtin(PyObject *module, PyObject *spec)
         PyModuleDef *def;
         if (_PyUnicode_EqualToASCIIString(name, p->name)) {
             if (p->initfunc == NULL) {
-                /* Cannot re-init internal module ("sys" or "builtins") */
+                /* Cannot re-init internal module ("_sys" or "builtins") */
                 mod = PyImport_AddModule(namestr);
                 Py_DECREF(name);
                 return mod;

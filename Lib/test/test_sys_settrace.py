@@ -2,7 +2,7 @@
 
 from test import support
 import unittest
-import sys
+import _sys as sys
 import difflib
 import gc
 

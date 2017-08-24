@@ -36,7 +36,7 @@
      opcodes can take an arbitrary time to execute.
 
      The `interval` value is available for the user to read and modify
-     using the Python API `sys.{get,set}switchinterval()`.
+     using the Python API `_sys.{get,set}switchinterval()`.
 
    - When a thread releases the GIL and gil_drop_request is set, that thread
      ensures that another GIL-awaiting thread gets scheduled.

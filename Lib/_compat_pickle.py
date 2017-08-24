@@ -57,7 +57,7 @@ IMPORT_MAPPING = {
 NAME_MAPPING = {
     ('__builtin__', 'xrange'):     ('builtins', 'range'),
     ('__builtin__', 'reduce'):     ('functools', 'reduce'),
-    ('__builtin__', 'intern'):     ('sys', 'intern'),
+    ('__builtin__', 'intern'):     ('_sys', 'intern'),
     ('__builtin__', 'unichr'):     ('builtins', 'chr'),
     ('__builtin__', 'unicode'):    ('builtins', 'str'),
     ('__builtin__', 'long'):       ('builtins', 'int'),

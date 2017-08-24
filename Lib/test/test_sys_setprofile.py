@@ -1,6 +1,6 @@
 import gc
 import pprint
-import sys
+import _sys as sys
 import unittest
 
 

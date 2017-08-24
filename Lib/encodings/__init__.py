@@ -29,7 +29,7 @@ Written by Marc-Andre Lemburg (mal@lemburg.com).
 """#"
 
 import codecs
-import sys
+import _sys as sys
 from . import aliases
 
 _cache = {}

@@ -7,7 +7,7 @@ Unit tests are in test_collections.
 """
 
 from abc import ABCMeta, abstractmethod
-import sys
+import _sys as sys  # We use the low-level module during interpreter init.
 
 __all__ = ["Awaitable", "Coroutine",
            "AsyncIterable", "AsyncIterator", "AsyncGenerator",

@@ -12,7 +12,7 @@ from ._bootstrap_external import spec_from_file_location
 
 from contextlib import contextmanager
 import functools
-import sys
+import _sys as sys
 import types
 import warnings
 
