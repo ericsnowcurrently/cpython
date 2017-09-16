@@ -1,6 +1,6 @@
 from test.support import run_unittest, unload, check_warnings, CleanImport
 import unittest
-import sys
+import _sys as sys
 import importlib
 from importlib.util import spec_from_file_location
 import pkgutil
@@ -418,7 +418,7 @@ class ImportlibMigrationTests(unittest.TestCase):
 
     def test_get_loader_avoids_emulation(self):
         with check_warnings() as w:
-            self.assertIsNotNone(pkgutil.get_loader("sys"))
+            self.assertIsNotNone(pkgutil.get_loader("_sys"))
             self.assertIsNotNone(pkgutil.get_loader("os"))
             self.assertIsNotNone(pkgutil.get_loader("test.support"))
             self.assertEqual(len(w.warnings), 0)
@@ -469,7 +469,7 @@ class ImportlibMigrationTests(unittest.TestCase):
 
     def test_find_loader_avoids_emulation(self):
         with check_warnings() as w:
-            self.assertIsNotNone(pkgutil.find_loader("sys"))
+            self.assertIsNotNone(pkgutil.find_loader("_sys"))
             self.assertIsNotNone(pkgutil.find_loader("os"))
             self.assertIsNotNone(pkgutil.find_loader("test.support"))
             self.assertEqual(len(w.warnings), 0)

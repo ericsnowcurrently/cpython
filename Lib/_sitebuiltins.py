@@ -8,7 +8,7 @@ The objects used by the site module to add custom builtins.
 # Note this means this module should also avoid keep things alive in its
 # globals.
 
-import sys
+import _sys as sys  # We use the low-level module during interpreter init.
 
 class Quitter(object):
     def __init__(self, name, eof):

@@ -7,7 +7,7 @@ import importlib.util
 import importlib.machinery
 import os
 import os.path
-import sys
+import _sys as sys
 from types import ModuleType
 import warnings
 

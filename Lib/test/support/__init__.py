@@ -22,7 +22,7 @@ import socket
 import stat
 import struct
 import subprocess
-import sys
+import _sys as sys
 import sysconfig
 import tempfile
 import _thread

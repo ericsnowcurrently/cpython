@@ -1,6 +1,6 @@
 """Python part of the warnings subsystem."""
 
-import sys
+import _sys as sys  # We use the low-level module to avoid a circular dep.
 
 
 __all__ = ["warn", "warn_explicit", "showwarning",

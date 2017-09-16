@@ -10,7 +10,7 @@ __all__ = ['__import__', 'import_module', 'invalidate_caches', 'reload']
 # of a fully initialised version (either the frozen one or the one
 # initialised below if the frozen one is not available).
 import _imp  # Just the builtin component, NOT the full Python module
-import sys
+import _sys as sys
 
 try:
     import _frozen_importlib as _bootstrap

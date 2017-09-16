@@ -3,7 +3,7 @@
 
 /*
 Various bits of information used by the interpreter are collected in
-module 'sys'.
+module '_sys'.
 Function member:
 - exit(sts): raise SystemExit
 Data members:
@@ -1909,7 +1909,7 @@ error:
 
 static struct PyModuleDef sysmodule = {
     PyModuleDef_HEAD_INIT,
-    "sys",
+    "_sys",
     sys_doc,
     -1, /* multiple "initialization" just copies the module dict. */
     sys_methods,

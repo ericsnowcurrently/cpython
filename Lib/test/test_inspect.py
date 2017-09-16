@@ -11,7 +11,7 @@ from os.path import normcase
 import _pickle
 import pickle
 import shutil
-import sys
+import _sys as sys
 import types
 import textwrap
 import unicodedata
@@ -3658,7 +3658,7 @@ class TestMain(unittest.TestCase):
     def test_builtins(self):
         module = importlib.import_module('unittest')
         _, out, err = assert_python_failure('-m', 'inspect',
-                                            'sys')
+                                            '_sys')
         lines = err.decode().splitlines()
         self.assertEqual(lines, ["Can't get info for builtin modules."])
 

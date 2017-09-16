@@ -209,7 +209,7 @@ def _normalize_module(module, depth=2):
     elif module is None:
         return sys.modules[sys._getframe(depth).f_globals['__name__']]
     else:
-        raise TypeError("Expected a module, string, or None")
+        raise TypeError("Expected a module, string, or None, got {}".format(type(module)))
 
 def _load_testfile(filename, package, module_relative, encoding):
     if module_relative:

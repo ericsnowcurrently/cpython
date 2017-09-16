@@ -155,7 +155,7 @@ static void RunStartupFile(PyCompilerFlags *cf)
 static void RunInteractiveHook(void)
 {
     PyObject *sys, *hook, *result;
-    sys = PyImport_ImportModule("sys");
+    sys = PyImport_ImportModule("_sys");
     if (sys == NULL)
         goto error;
     hook = PyObject_GetAttrString(sys, "__interactivehook__");

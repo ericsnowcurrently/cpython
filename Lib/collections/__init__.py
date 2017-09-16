@@ -25,7 +25,7 @@ __all__ += _collections_abc.__all__
 
 from operator import itemgetter as _itemgetter, eq as _eq
 from keyword import iskeyword as _iskeyword
-import sys as _sys
+import _sys  # We use the low-level module during interpreter init.
 import heapq as _heapq
 from _weakref import proxy as _proxy
 from itertools import repeat as _repeat, chain as _chain, starmap as _starmap

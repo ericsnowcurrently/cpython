@@ -4,7 +4,7 @@ import gc
 import itertools
 import math
 import pickle
-import sys
+import _sys as sys
 import types
 import unittest
 import warnings

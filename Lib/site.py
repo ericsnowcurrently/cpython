@@ -69,7 +69,7 @@ site-specific customizations.  If this import fails with an
 ImportError exception, it is silently ignored.
 """
 
-import sys
+import _sys as sys  # We use the low-level module during interpreter init.
 import os
 import builtins
 import _sitebuiltins

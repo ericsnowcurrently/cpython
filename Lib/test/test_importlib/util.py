@@ -120,7 +120,7 @@ def uncache(*names):
 
     """
     for name in names:
-        if name in ('sys', 'marshal', 'imp'):
+        if name in ('_sys', 'marshal', 'imp'):
             raise ValueError(
                 "cannot uncache {0}".format(name))
         try:

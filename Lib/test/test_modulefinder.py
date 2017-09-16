@@ -30,7 +30,7 @@ TEST_PATH = [TEST_DIR, os.path.dirname(tempfile.__file__)]
 
 maybe_test = [
     "a.module",
-    ["a", "a.module", "sys",
+    ["a", "a.module", "_sys",
      "b"],
     ["c"], ["b.something"],
     """\
@@ -39,12 +39,12 @@ a/module.py
                                 from b import something
                                 from c import something
 b/__init__.py
-                                from sys import *
+                                from _sys import *
 """]
 
 maybe_test_new = [
     "a.module",
-    ["a", "a.module", "sys",
+    ["a", "a.module", "_sys",
      "b", "__future__"],
     ["c"], ["b.something"],
     """\
@@ -54,12 +54,12 @@ a/module.py
                                 from c import something
 b/__init__.py
                                 from __future__ import absolute_import
-                                from sys import *
+                                from _sys import *
 """]
 
 package_test = [
     "a.module",
-    ["a", "a.b", "a.c", "a.module", "mymodule", "sys"],
+    ["a", "a.b", "a.c", "a.module", "mymodule", "_sys"],
     ["blahblah", "c"], [],
     """\
 mymodule.py
@@ -68,35 +68,35 @@ a/__init__.py
                                 from a import b
                                 import c
 a/module.py
-                                import sys
+                                import _sys
                                 from a import b as x
                                 from a.c import sillyname
 a/b.py
 a/c.py
                                 from a.module import x
                                 import mymodule as sillyname
-                                from sys import version_info
+                                from _sys import version_info
 """]
 
 absolute_import_test = [
     "a.module",
     ["a", "a.module",
      "b", "b.x", "b.y", "b.z",
-     "__future__", "sys", "gc"],
+     "__future__", "_sys", "gc"],
     ["blahblah", "z"], [],
     """\
 mymodule.py
 a/__init__.py
 a/module.py
                                 from __future__ import absolute_import
-                                import sys # sys
+                                import _sys # _sys
                                 import blahblah # fails
                                 import gc # gc
                                 import b.x # b.x
                                 from b import y # b.y
                                 from b.z import * # b.z.*
 a/gc.py
-a/sys.py
+a/_sys.py
                                 import mymodule
 a/b/__init__.py
 a/b/x.py
@@ -128,7 +128,7 @@ a/module.py
                                 from __future__ import absolute_import # __future__
                                 import gc # gc
 a/gc.py
-a/sys.py
+a/_sys.py
 a/b/__init__.py
                                 from ..b import x # a.b.x
                                 #from a.b.c import moduleC
@@ -149,7 +149,7 @@ a/b/c/x.py
 relative_import_test_2 = [
     "a.module",
     ["a", "a.module",
-     "a.sys",
+     "a._sys",
      "a.b", "a.b.y", "a.b.z",
      "a.b.c", "a.b.c.d",
      "a.b.c.e",
@@ -161,12 +161,12 @@ relative_import_test_2 = [
     """\
 mymodule.py
 a/__init__.py
-                                from . import sys # a.sys
+                                from . import _sys # a._sys
 a/another.py
 a/module.py
                                 from .b import y, z # a.b.y, a.b.z
 a/gc.py
-a/sys.py
+a/_sys.py
 a/b/__init__.py
                                 from .c import moduleC # a.b.c.moduleC
                                 from .c import d # a.b.c.d
@@ -255,13 +255,13 @@ class ModuleFinderTest(unittest.TestCase):
             if report:
                 mf.report()
 ##                # This wouldn't work in general when executed several times:
-##                opath = sys.path[:]
-##                sys.path = TEST_PATH
+##                opath = _sys.path[:]
+##                _sys.path = TEST_PATH
 ##                try:
 ##                    __import__(import_this)
 ##                except:
 ##                    import traceback; traceback.print_exc()
-##                sys.path = opath
+##                _sys.path = opath
 ##                return
             modules = sorted(set(modules))
             found = sorted(mf.modules)

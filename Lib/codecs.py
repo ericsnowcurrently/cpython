@@ -8,7 +8,7 @@ Written by Marc-Andre Lemburg (mal@lemburg.com).
 """
 
 import builtins
-import sys
+import _sys as sys  # We use the low-level module during interpreter init.
 
 ### Registry and builtin stateless codec functions
 

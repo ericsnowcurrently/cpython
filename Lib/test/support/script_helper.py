@@ -3,7 +3,7 @@
 
 import collections
 import importlib
-import sys
+import _sys as sys
 import os
 import os.path
 import subprocess

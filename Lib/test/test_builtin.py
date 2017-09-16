@@ -12,7 +12,7 @@ import pickle
 import platform
 import random
 import re
-import sys
+import _sys as sys  # ...the *builtin* module.
 import traceback
 import types
 import unittest
@@ -142,15 +142,15 @@ class BuiltinTest(unittest.TestCase):
         self.assertEqual(list(it), seq[1:])
 
     def test_import(self):
-        __import__('sys')
+        __import__('_sys')
         __import__('time')
         __import__('string')
-        __import__(name='sys')
+        __import__(name='_sys')
         __import__(name='time', level=0)
         self.assertRaises(ImportError, __import__, 'spamspam')
         self.assertRaises(TypeError, __import__, 1, 2, 3, 4)
         self.assertRaises(ValueError, __import__, '')
-        self.assertRaises(TypeError, __import__, 'sys', name='sys')
+        self.assertRaises(TypeError, __import__, '_sys', name='_sys')
         # embedded null character
         self.assertRaises(ModuleNotFoundError, __import__, 'string\x00')
 

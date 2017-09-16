@@ -23,7 +23,8 @@ and opendir), and leave all pathname manipulation to os.path
 
 #'
 import abc
-import sys, errno
+import errno
+import _sys as sys  # We use the low-level module during interpreter init.
 import stat as st
 
 _names = sys.builtin_module_names
