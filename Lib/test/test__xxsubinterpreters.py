@@ -1231,10 +1231,8 @@ class ChannelTests(TestBase):
 
         out = _run_output(interp, dedent("""
             import _xxsubinterpreters as _interpreters
-            print(chan.end)
-            _interpreters.channel_send(chan, b'spam')
-            #print(chan.id.end)
-            #_interpreters.channel_send(chan.id, b'spam')
+            print(chan.id.end)
+            _interpreters.channel_send(chan.id, b'spam')
             """),
             dict(chan=cid.send))
         obj = interpreters.channel_recv(cid)
