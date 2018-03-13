@@ -1,326 +1,217 @@
-import time
-import _xxsubinterpreters as _interpreters
+import contextlib
+import os
+from textwrap import dedent
+import threading
+import unittest
+
+from ._interpreters import *
 
 
-def is_shareable(obj):
-    """Return True if the object may be "shared" with other interpreters.
-
-    Note that when a Python object is "shared", the receiving
-    interpreter actually gets a new object derived from the original
-    object's data.  Due to interpreter isolation, using the same object
-    in multiple interpreters leads to undefined behavior.
-
-    So, for the sake of efficiency and interpreter isolation,
-    "shareable" objects are typically immutable objects that serialize
-    to small amounts of data.  Not all objects are shareable.  A class
-    must opt in to being "shareable" (in CPython: via the C-API).
-    Examples of shareable objects include str and None.
-    """
-    return _interpreters.is_shareable(obj)
+def clean_up_interpreters():
+    for interp in list_all():
+        if interp.id == 0:  # main
+            continue
+        try:
+            interp.destroy()
+        except RuntimeError:
+            pass  # already destroyed
 
 
-class _LowLevelWrapper:
+def clean_up_channels():
+    import _xxsubinterpreters as _interpreters
+    for chan in list_all_channels():
+        try:
+            _interpreters.channel_destroy(chan.id)
+        except ChannelNotFoundError:
+            pass  # already destroyed
 
-    def __init__(self, id):
-        self.id = id
 
-    def __repr__(self):
-        return '{}(id={!r})'.format(
-            type(self).__name__,
-            int(self.id),
+def interpreter_runner(script, *, interp=None, **channels):
+    script = dedent(script)
+    if interp is None:
+        interp = interpreters.create()
+    def func():
+        interp.run(script, channels=channels)
+    return func
+
+
+def capture_script(channame, script, *, close=False):
+    script = dedent(script)
+    indent = """
+            """  # lines up with {script} below...
+    script = indent[1:] + indent.join(script.splitlines())
+    # XXX: Also capture stdout & stderr?
+    return dedent(f"""
+        try:
+            {script}
+        except Exception:
+            import traceback
+            {channame}.send_nowait(
+                traceback.format_exc().encode('utf-8'))
+            # XXX del traceback?
+        else:
+            {channame}.send_nowait(None)
+        if {close}:
+            {channame}.close()
+        """)
+
+
+def captured_runner(script, *, interp=None, **channels):
+    script = capture_script('_capture_chan', script, close=True)
+
+    rchan, schan = create_channel()
+    channels['_capture_chan'] = schan
+
+    if interp is None:
+        interp = interpreters.create()
+    def run():
+        interp.run(script, channels=channels)
+
+    def resolve():
+        err = rchan.recv()
+        rchan.close()
+        return err.decode('utf-8')
+
+    return run, resolve
+
+
+def channel_from_end(end, *, create=True):
+    if isinstance(end, RecvChannel):
+        opposite = SendChannel(end.id)
+    elif isinstance(end, SendChannel):
+        opposite = RecvChannel(end.id)
+    else:
+        if not create:
+            raise ValueError('unsupported end {!r}'.format(end))
+        end, opposite = _channel_from_kind(end)
+    return end, opposite
+
+
+def match_channel(end, opposite=None, *, create=True):
+    if opposite is None:
+        return = channel_from_end(end)
+
+    if isinstance(end, RecvChannel):
+        if not isinstance(opposite, SendChannel):
+            raise ValueError(f'mismatch ({opposite})')
+    elif isinstance(end, SendChannel):
+        if not isinstance(opposite, RecvChannel):
+            raise ValueError(f'mismatch ({opposite})')
+    else:
+        raise ValueError(f'bad end ({end})')
+    if opposite.id != end.id:
+        raise ValueError(f'mismatch ({opposite.id} != {end.id})')
+    return end, opposite
+
+
+class ChannelWrapper:
+
+    def __init__(self, end, opposite=None):
+        end, opposite = match_channel(end, opposite)
+        rch, sch = (end, opposite) if end.end == 'recv' else (opposite, end)
+        self.end = end
+        self.opposite = opposite
+        self.rchan = rch
+        self.schan = sch
+
+    def resolve_end(self, end):
+        if isinstance(end, interpreters.ChannelEnd):
+            return end
+        elif isinstance(end, str):
+            if end == 'recv':
+                return self.rchan
+            elif end == 'send':
+                return self.schan
+            elif end == 'end':
+                return self.end
+            elif end == 'opposite':
+                return self.opposite
+        raise ValueError('unsupported end {!r}'.format(end))
+
+    def install(self, name, interp):
+        channels = dict(
+            __ChannelWrapper_end=self.end,
+            __ChannelWrapper_opposite=self.opposite,
+        )
+        interp.run(dedent(f"""
+            from test.support.interpreters import ChannelWrapper
+            {name} = ChannelWrapper(
+                __ChannelWrapper_end,
+                __ChannelWrapper_opposite,
             )
-
-    def __eq__(self, other):
-        if type(other) is not type(self):
-            return NotImplemented
-        return self.id == other.id
-
-    def __hash__(self):
-        return hash(self.id)
-
-
-##################################
-# interpreters
-
-RunFailedError = _interpreters.RunFailedError
-
-
-def list_all():
-    """Return a list of all interpreters in the current process."""
-    return [Interpreter(id)
-            for id in _interpreters.list_all()]
-
-
-def get_current():
-    """Return the currently running interpreter."""
-    id = _interpreters.get_current()
-    return Interpreter(id)
-
-
-def get_main():
-    """Return the main interpreter.
-
-    The main interpreter is the one created by the Python runtime during
-    initialization.  It will also be the last one left during runtime
-    finalization (when the process ends).
-    """
-    id = _interpreters.get_main()
-    return Interpreter(id)
-
-
-def create():
-    """Return a new interpreter.
-
-    The caller is responsible for destroying the interpreter when done.
-    """
-    id = _interpreters.create()
-    return Interpreter(id)
-
-
-class Interpreter(_LowLevelWrapper):
-    """A single Python interpreter in the current process."""
-
-    def __init__(self, id):
-        if not isinstance(id, _interpreters.InterpreterID):
-            id = _interpreters.InterpreterID(id)
-        super().__init__(id)
-
-    def is_running(self):
-        """Return True if the interpreter is currently executing code."""
-        return _interpreters.is_running(self.id)
-
-    def destroy(self):
-        """Finaliza and delete the interpreter.
-
-        A running interpreter may not be destroyed.  Consequently,
-        calling destroy() on the current interpreter is an error.  So
-        is destroying the main interpreter.
-        """
-        _interpreters.destroy(self.id)
-
-    def run(self, code, *, channels=None):
-        """Execute the given object in the interpreter.
-
-        "code" is the object to run the the interpreter.  Currently
-        only source code (str) is supported.
-
-        "channels" is an optional mapping of identifiers to channel
-        ends (RecvChannel/SendChannel).  The __main__ module of the
-        interpreter will be updated with this mapping before execution
-        begins.
-
-        Calling run() on an already-running interpreter is an error.
-
-        Execution in Current Thread
-        ---------------------------
-
-        The current Python thread will effectively block while the
-        target interpreter executes the object in the current OS thread.
-        Once execution ends, the Python thread of the original
-        interpreter will resume running in the current OS thread.  This
-        is effectively the same as any other blocking operation; only
-        the current thread is involved and other threads of the original
-        interpreter are not affected.
-
-        Consequently, if the caller does not want the current thread
-        to block then they should follow the existing pattern for
-        calling blocking code: create a new thread in which to call
-        run().
-
-        The __main__ Module
-        -------------------
-
-        When an interpreter runs, it executes in the namespace of its
-        __main__ module.  This module is created when the interpreter
-        is created and is initially minimally populated.  Each time
-        run() is called, the __main__ module is re-used as-is.
-
-        run() never cleans up __main__, neither before execution nor
-        after.  So anything added to the __main__ globals in one run()
-        call will still be available in the __main__ globals during
-        subsequent run() calls.  This behavior may be used to prepare
-        an interpreter ahead of time (e.g. import modules, add channels)
-        for later usage.
-
-        If you want a fresh __main__ in a run() call, or do not want
-        leave lingering data then you will need to either use a new
-        interpreter or clean up the __main__ globals manually (in the
-        code you passed to run()).
-
-        Unhandled Exceptions
-        --------------------
-
-        Due to intepreter isolation, each unhandled exception during
-        execution is caught in the target interpreter and converted to
-        a RunFailedError object that represents the unhandled exception.
-        This representation is lossy and a RunFailedError is not a
-        faithful proxy for the original exception.
-
-        So if information from that exception (e.g. type, attributes,
-        traceback) is important, the caller should wrap their top-level
-        code in a try-except block that preserves the information.  For
-        example, the exception and traceback could be encoded into a
-        string that is sent back via a channel.
-        """
-        if channels:
-            for key, value in channels.items():
-                if isinstance(value, (RecvChannel, SendChannel)):
-                    channels[key] = value.id
-        self._run_string(code, channels)
-
-    def _run_string(self, src, channels):
-        _interpreters.run_string(self.id, src, channels)
-
-
-##################################
-# channels
-
-ChannelError = _interpreters.ChannelError
-ChannelNotFoundError = _interpreters.ChannelNotFoundError
-ChannelClosedError = _interpreters.ChannelClosedError
-ChannelEmptyError = _interpreters.ChannelEmptyError
-
-
-def list_all_channels():
-    """Return a list of (recv, send) for all channels in the current process.
-
-    Note that the list will include more channels than just the ones
-    associated with the current interpreter.
-    """
-    return [(RecvChannel(id), SendChannel(id))
-            for id in _interpreters.list_all_channels()]
-
-
-def create_channel():
-    """Create a new cross-interpreter object channel.
-
-    A result of isolation between interpreters is that the a Python
-    object may not be used in multiple interpreters at the same time.
-    The benefits of using multiple interpreters are increased if there's
-    a way to share data between interpreters.  A channel is the provided
-    mechanism for "sharing" objects between interpreters.
-
-    See "is_shareable()" for more on what "sharing" objects means.
-
-    Associated Interpreters
-    -----------------------
-
-    A channels is a low-level entity that exists at the runtime level
-    rather than on a per-interpreter basis.  However, knowing which
-    interpreters are *using* a channel is useful.
-
-    So the first time an interpreter uses a channel it gets associated
-    with the channel (effectively added to a list of interpreters using
-    the channel).  By "uses a channel" we mean "calls send() or recv()".
-    Simply creating a channel or having a RecvChannel or SendChannel
-    object does not count.  Interpreters are associated with either the
-    recv end of the channel, the send end, or both.
-
-    When a channel is closed (via RecvChannel.close() or
-    SendChannel.close(), it gets un-associated with that end of the
-    channel.  If the interpreter wasn't already associated then this
-    is a noop (...unless the channel has never been associated with any
-    interpreter.  In that case the channel gets closed).  If the
-    interpreter was alraedy un-associated (via close()), or already
-    completely closed, then ChannelClosedError is raised.  When the last
-    associated interpreter is un-associated, then channel is closed and
-    further use of the channel raises ChannelClosedError.
-    """
-    id = _interpreters.channel_create()
-    return RecvChannel(id), SendChannel(id)
-
-
-class RecvChannel(_LowLevelWrapper):
-    """The receiving end of a channel."""
-
-    _sleep = time.sleep
-
-    def __init__(self, id):
-        id = _interpreters._channel_id(id, recv=True, _resolve=True)
-        super().__init__(id)
-
-    def recv(self):
-        """Get the next object from the channel.
-
-        If there aren't any objects then block until one is sent.
-
-        Calling recv() associates the current interpreter with
-        the recv end of the channel.  See create_channel() for more
-        about associated interpreters.
-        """
-        # XXX Support a timeout?
-        # XXX Handle blocking correctly in the low-level code.
-        # This # can be done more efficiently there.  We also
-        # want to make sure that concurrent recv() calls are
-        # handled in the proper order.
-        while True:
-            try:
-                return _interpreters.channel_recv(self.id)
-            except ChannelEmptyError:
-                self._sleep(0.1)  # seconds
-
-    def recv_nowait(self):
-        """Get the next object from the channel.
-
-        If there aren't any objects then raise ChannelEmptyError.
-
-        Calling recv_nowait() associates the current interpreter with
-        the recv end of the channel.  See create_channel() for more
-        about associated interpreters.
-        """
-        return _interpreters.channel_recv(self.id)
-
-    def close(self):
-        """Drop the interpreter association with the channel's recv end.
-
-        Depending on how other interpreters are associated, this may
-        close the channel to further operations.  See create_channel()
-        for more about associated interpreters and how channels get
-        closed.
-        """
-        _interpreters.channel_drop_interpreter(self.id, recv=True)
-
-
-class SendChannel(_LowLevelWrapper):
-    """The sending end of a channel."""
-
-    def __init__(self, id):
-        id = _interpreters._channel_id(id, send=True, _resolve=True)
-        super().__init__(id)
-
-    def send(self, obj):
-        """Push the object onto the channel's queue.
-
-        send() blocks until the object is popped via the recv end of
-        the channel.
-
-        Calling send() associates the current interpreter with
-        the send end of the channel.  See create_channel() for more
-        about associated interpreters.
-        """
-        raise NotImplementedError
-
-    def send_nowait(self, obj):
-        """Push the object onto the channel's queue.
-
-        send_nowait() returns immediately, rather than waiting for the
-        object to be received.
-
-        Calling send_nowait() associates the current interpreter with
-        the send end of the channel.  See create_channel() for more
-        about associated interpreters.
-        """
-        _interpreters.channel_send(self.id, obj)
-
-    def close(self):
-        """Drop the interpreter association with the channel's send end.
-
-        Depending on how other interpreters are associated, this may
-        close the channel to further operations.  See create_channel()
-        for more about associated interpreters and how channels get
-        closed.
-        """
-        _interpreters.channel_drop_interpreter(self.id, send=True)
-
-
-del time
+            del __ChannelWrapper_end
+            del __ChannelWrapper_opposite
+            del ChannelWrapper
+        """), channels=channels)
+
+
+class TestCase(unittest.TestCase):
+
+    def tearDown(self):
+        clean_up_interpreters()
+        clean_up_channels()
+        super().tearDown()
+
+    @contextlib.contextmanager
+    def thread_running(self, func, **kwargs):
+        with _thread_running(func, **kwargs) as t:
+            yield t
+        self.assertFalse(t.is_alive(), 'function never returned')
+
+    def run_in_thread(self, func):
+        with self.thread_running(func):
+            pass
+
+    def interpreter_runner(self, script, **channels):
+        script = dedent(script)
+        interp = interpreters.create()
+        def func():
+            interp.run(script, channels=channels)
+        return func
+
+    def run_captured(self, interp, script, *, threaded=False, **channels):
+        run, resolve = captured_runner(script, interp=interp, **channels)
+        if threaded:
+            with _thread_running(run):
+                pass
+        else:
+            run()
+        return resolve()
+
+
+########################
+# internal functions
+
+@contextlib.contextmanager
+def _thread_running(func, timeout=1):
+    t = threading.Thread(target=func)
+    t.start()
+    try:
+        yield t
+    finally:
+        t.join(timeout=timeout)
+
+
+@contextlib.contextmanager
+def _running(interp):
+    r, w = os.pipe()
+    def run():
+        interp.run(dedent(f"""
+            # wait for "signal"
+            with open({r}) as chan:
+                chan.read()
+            """))
+    with _thread_running(run) as t:
+        yield
+        with open(w, 'w') as chan:
+            chan.write('done')
+
+
+def _channel_from_kind(kind):
+    rchan, schan = create_channel()
+    if kind == 'recv':
+        return rchan, schan
+    elif kind == 'send':
+        return schan, rchan
+    else:
+        raise ValueError('unsupported kind {!r}'.format(kind))
