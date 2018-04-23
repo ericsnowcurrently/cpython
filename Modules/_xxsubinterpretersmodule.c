@@ -304,6 +304,269 @@ _sharedexception_apply(_sharedexception *exc, PyObject *wrapperclass)
 }
 
 
+/* lock-specific code *******************************************************/
+
+typedef struct crossinterpreterlock {
+    PyThread_type_lock raw;
+    Py_ssize_t refcount;
+    PyThread_type_lock mutex;
+    char locked;
+} _xilock;
+
+static _xilock *
+_xilock_new(void)
+{
+    _xilock *lock = PyMem_NEW(_xilock, 1);
+    if (lock == NULL) {
+        PyErr_NoMemory();
+        return NULL;
+    }
+    lock->raw = PyThread_allocate_lock();
+    if (lock->raw == NULL) {
+        PyMem_Free(lock);
+        PyErr_SetString(PyExc_RuntimeError, "can't initialize mutex");
+        return NULL;
+    }
+    lock->refcount = 1;
+    lock->mutex = PyThread_allocate_lock();
+    if (lock->mutex == NULL) {
+        PyThread_free_lock(lock->raw);
+        PyMem_Free(lock);
+        PyErr_SetString(PyExc_RuntimeError, "can't initialize mutex");
+        return NULL;
+    }
+    lock->locked = 0;
+    return lock;
+}
+
+static void
+_xilock_free(_xilock *lock)
+{
+    PyThread_free_lock(lock->raw);
+    // XXX Will this blow up if currently locked?
+    PyThread_free_lock(lock->mutex);
+    PyMem_Free(lock);
+}
+
+static void
+_xilock_incref(_xilock *lock)
+{
+    PyThread_acquire_lock(lock->mutex, WAIT_LOCK);
+    lock->refcount++;
+    PyThread_release_lock(lock->mutex);
+}
+
+static void
+_xilock_decref(_xilock *lock)
+{
+    PyThread_acquire_lock(lock->mutex, WAIT_LOCK);
+    lock->refcount--;
+    if (lock->refcount == 1) {
+        _xilock_free(lock);
+        return;
+    }
+    PyThread_release_lock(lock->mutex);
+}
+
+static void
+_xilock_acquire(_xilock *lock)
+{
+    PyThread_acquire_lock(lock->raw, WAIT_LOCK);
+    lock->locked = 1;
+}
+
+static PyLockStatus _lock_acquire_timed(PyThread_type_lock, _PyTime_t);
+
+static PyLockStatus
+_xilock_acquire_timed(_xilock *lock, _PyTime_t timeout)
+{
+    PyLockStatus result = _lock_acquire_timed(lock->raw, timeout);
+    if (result == PY_LOCK_ACQUIRED) {
+        lock->locked = 1;
+    }
+    return result;
+}
+
+static void
+_xilock_release(_xilock *lock)
+{
+    if (lock->locked == 0) {
+        return;
+    }
+    lock->locked = 0;
+    PyThread_release_lock(lock->raw);
+}
+
+// XXX Export acquire_timed() from _threadmodule.c and use it here.
+
+static PyLockStatus
+_lock_acquire_timed(PyThread_type_lock lock, _PyTime_t timeout)
+{
+    PyLockStatus r;
+    _PyTime_t endtime = 0;
+    _PyTime_t microseconds;
+
+    if (timeout > 0) {
+        endtime = _PyTime_GetMonotonicClock() + timeout;
+    }
+
+    do {
+        microseconds = _PyTime_AsMicroseconds(timeout, _PyTime_ROUND_CEILING);
+
+        /* first a simple non-blocking try without releasing the GIL */
+        r = PyThread_acquire_lock_timed(lock, 0, 0);
+        if (r == PY_LOCK_FAILURE && microseconds != 0) {
+            Py_BEGIN_ALLOW_THREADS
+            r = PyThread_acquire_lock_timed(lock, microseconds, 1);
+            Py_END_ALLOW_THREADS
+        }
+
+        if (r == PY_LOCK_INTR) {
+            /* Run signal handlers if we were interrupted.  Propagate
+             * exceptions from signal handlers, such as KeyboardInterrupt, by
+             * passing up PY_LOCK_INTR.  */
+            if (Py_MakePendingCalls() < 0) {
+                return PY_LOCK_INTR;
+            }
+
+            /* If we're using a timeout, recompute the timeout after processing
+             * signals, since those can take time.  */
+            if (timeout > 0) {
+                timeout = endtime - _PyTime_GetMonotonicClock();
+
+                /* Check for negative values, since those mean block forever.
+                 */
+                if (timeout < 0) {
+                    r = PY_LOCK_FAILURE;
+                }
+            }
+        }
+    } while (r == PY_LOCK_INTR);  /* Retry if we were interrupted. */
+
+    return r;
+}
+
+/* CrossInterpreterLock objects */
+
+typedef struct crossinterpreterlockobject {
+    PyObject_HEAD
+    _xilock *lock;
+} xilockobject;
+
+static xilockobject *
+xilockobject_new(PyTypeObject *cls, _xilock *lock)
+{
+    xilockobject *self = PyObject_New(xilockobject, cls);
+    if (self == NULL) {
+        return NULL;
+    }
+    _xilock_incref(lock);
+    self->lock = lock;
+    return self;
+}
+
+static void
+xilockobject_dealloc(PyObject *v)
+{
+    xilockobject *self = (xilockobject *)v;
+    if (self->lock != NULL) {
+        _xilock_decref(self->lock);
+    }
+    Py_TYPE(v)->tp_free(v);
+}
+
+static PyObject *
+xilockobject_wait(PyObject *self, PyObject *args, PyObject *kwds)
+{
+    // Parse the args.
+    char *kwlist[] = {"timeout", NULL};
+    PyObject *timeout_obj = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds,
+                                     "|O:wait", kwlist, &timeout_obj)) {
+        return NULL;
+    }
+    const _PyTime_t unset_timeout = _PyTime_FromSeconds(-1);
+    _PyTime_t timeout = unset_timeout;
+    if (timeout_obj) {
+        if (_PyTime_FromSecondsObject(&timeout, timeout_obj,
+                                      _PyTime_ROUND_TIMEOUT) < 0) {
+            return NULL;
+        }
+        if (timeout != unset_timeout) {
+            if (timeout < 0) {
+                PyErr_SetString(PyExc_ValueError,
+                                "timeout value must be positive");
+                return NULL;
+            }
+            _PyTime_t micro = _PyTime_AsMicroseconds(timeout,
+                                                     _PyTime_ROUND_TIMEOUT);
+            if (micro >= PY_TIMEOUT_MAX) {
+                PyErr_SetString(PyExc_OverflowError,
+                                "timeout value is too large");
+                return NULL;
+            }
+        }
+    }
+
+    // Wait for the lock.
+    _xilock *waitlock = ((xilockobject *)self)->lock;
+    PyLockStatus r = _xilock_acquire_timed(waitlock, timeout);
+    if (r == PY_LOCK_INTR) {
+        return NULL;
+    }
+    if (r == PY_LOCK_FAILURE) {
+        Py_RETURN_FALSE;
+    }
+    // XXX There's a problem here.
+    _xilock_release(waitlock);
+    Py_RETURN_TRUE;
+}
+
+PyDoc_STRVAR(xilockobject_wait_doc,
+"wait(timeout=None) -> bool\n\
+\n\
+Wait for the sent object to be received (or the channel closed).  The\n\
+returned True/False value indicates whether or not the object was\n\
+received.\n\
+\n\
+If no timeout is provided then wait() will block indefinitely (at least\n\
+until the channel is closed).  Once the object is received, wait()\n\
+returns True.  If the channel was closed then False is returned.\n\
+\n\
+If a timeout is provided then wait() will block until the object is\n\
+received, the channel is closed, or the timeout is reached.  In the\n\
+latter case, False is returned.");
+
+
+static PyMethodDef xilockobject_methods[] = {
+    {"wait", (PyCFunction)xilockobject_wait,
+      METH_VARARGS | METH_KEYWORDS, xilockobject_wait_doc},
+    {NULL,   NULL}  /* Sentinel */
+};
+
+PyDoc_STRVAR(xilockobject_doc,
+"A cross-interpreter lock is like threading.Lock, but may be safely\n\
+passed between interpreters.");
+
+static PyTypeObject CrossInterpreterLocktype = {
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)
+    .tp_name = "_xxsubinterpreters.CrossIntepreterLock",
+    .tp_basicsize = sizeof(xilockobject),
+    .tp_dealloc = (destructor)xilockobject_dealloc,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+    .tp_doc = xilockobject_doc,
+    .tp_methods = xilockobject_methods,
+    // For now we explicitly disallow creation from Python code.
+    .tp_new = NULL,
+};
+
+static PyObject *
+newxilockobject(_xilock *lock)
+{
+    return (PyObject *)xilockobject_new(&CrossInterpreterLocktype, lock);
+}
+
+
 /* channel-specific code ****************************************************/
 
 #define CHANNEL_SEND 1
@@ -380,11 +643,13 @@ struct _channelitem;
 
 typedef struct _channelitem {
     _PyCrossInterpreterData *data;
+    _xilock *waitlock;
+
     struct _channelitem *next;
 } _channelitem;
 
 static _channelitem *
-_channelitem_new(void)
+_channelitem_new(_xilock *waitlock)
 {
     _channelitem *item = PyMem_NEW(_channelitem, 1);
     if (item == NULL) {
@@ -392,7 +657,16 @@ _channelitem_new(void)
         return NULL;
     }
     item->data = NULL;
+    item->waitlock = waitlock;
     item->next = NULL;
+
+    if (waitlock != NULL) {
+        _xilock_incref(waitlock);
+        // Acquire the lock right away.  We'll release it
+        //in _channelitem_popped().
+        _xilock_acquire(waitlock);
+    }
+
     return item;
 }
 
@@ -403,6 +677,13 @@ _channelitem_clear(_channelitem *item)
         _PyCrossInterpreterData_Release(item->data);
         PyMem_Free(item->data);
         item->data = NULL;
+    }
+    if (item->waitlock != NULL) {
+        // Release the lock just in case.
+        // XXX Will this blow up if not locked?
+        _xilock_release(item->waitlock);
+        _xilock_decref(item->waitlock);
+        item->waitlock = NULL;
     }
     item->next = NULL;
 }
@@ -427,6 +708,10 @@ _channelitem_free_all(_channelitem *item)
 static _PyCrossInterpreterData *
 _channelitem_popped(_channelitem *item)
 {
+    if (item->waitlock != NULL) {
+        _xilock_release(item->waitlock);
+        _xilock_decref(item->waitlock);
+    }
     _PyCrossInterpreterData *data = item->data;
     item->data = NULL;
     _channelitem_free(item);
@@ -470,9 +755,10 @@ _channelqueue_free(_channelqueue *queue)
 }
 
 static int
-_channelqueue_put(_channelqueue *queue, _PyCrossInterpreterData *data)
+_channelqueue_put(_channelqueue *queue, _PyCrossInterpreterData *data,
+                  _xilock *waitlock)
 {
-    _channelitem *item = _channelitem_new();
+    _channelitem *item = _channelitem_new(waitlock);
     if (item == NULL) {
         return -1;
     }
@@ -788,7 +1074,7 @@ _channel_free(_PyChannelState *chan)
 
 static int
 _channel_add(_PyChannelState *chan, int64_t interp,
-             _PyCrossInterpreterData *data)
+             _PyCrossInterpreterData *data, _xilock *waitlock)
 {
     int res = -1;
     PyThread_acquire_lock(chan->mutex, WAIT_LOCK);
@@ -801,7 +1087,7 @@ _channel_add(_PyChannelState *chan, int64_t interp,
         goto done;
     }
 
-    if (_channelqueue_put(chan->queue, data) != 0) {
+    if (_channelqueue_put(chan->queue, data, waitlock) != 0) {
         goto done;
     }
 
@@ -1311,7 +1597,8 @@ _channel_destroy(_channels *channels, int64_t id)
 }
 
 static int
-_channel_send(_channels *channels, int64_t id, PyObject *obj)
+_channel_send(_channels *channels, int64_t id, PyObject *obj,
+              _xilock **waitlock)
 {
     PyInterpreterState *interp = _get_current();
     if (interp == NULL) {
@@ -1344,7 +1631,13 @@ _channel_send(_channels *channels, int64_t id, PyObject *obj)
     }
 
     // Add the data to the channel.
-    int res = _channel_add(chan, interp->id, data);
+    *waitlock = _xilock_new();
+    if (*waitlock == NULL) {
+        PyThread_release_lock(mutex);
+        return -1;
+    }
+    _xilock_incref(*waitlock);  // The caller must decref.
+    int res = _channel_add(chan, interp->id, data, *waitlock);
     PyThread_release_lock(mutex);
     if (res != 0) {
         _PyCrossInterpreterData_Release(data);
@@ -2627,16 +2920,29 @@ channel_send(PyObject *self, PyObject *args, PyObject *kwds)
         return NULL;
     }
 
-    if (_channel_send(&_globals.channels, cid, obj) != 0) {
+    _xilock *lock = NULL;
+    if (_channel_send(&_globals.channels, cid, obj, &lock) != 0) {
         return NULL;
     }
-    Py_RETURN_NONE;
+    PyObject *xil = newxilockobject(lock);
+    _xilock_decref(lock);
+    if (xil == NULL) {
+        return NULL;
+    }
+    return PyObject_GetAttrString(xil, "wait");
 }
 
 PyDoc_STRVAR(channel_send_doc,
 "channel_send(cid, obj)\n\
 \n\
-Add the object's data to the channel's queue.");
+Return a wait func after adding the object's data to the channel's\n\
+queue.  The wait func blocks until the sent object has been received\n\
+on the recv end of the channel (or the channel is closed).  The\n\
+function optionally take a timeout.  If no timeout is given then the\n\
+function blocks indefinitely.  When the sent object is received, the\n\
+wait func returns True.  If a timeout was provided and the object was\n\
+not received in the requested time then wait() returns False.  The\n\
+wait func may be called any number of times.");
 
 static PyObject *
 channel_recv(PyObject *self, PyObject *args, PyObject *kwds)
@@ -2823,6 +3129,9 @@ PyInit__xxsubinterpreters(void)
     }
 
     /* Initialize types */
+    if (PyType_Ready(&CrossInterpreterLocktype) != 0) {
+        return NULL;
+    }
     ChannelIDtype.tp_base = &PyLong_Type;
     if (PyType_Ready(&ChannelIDtype) != 0) {
         return NULL;

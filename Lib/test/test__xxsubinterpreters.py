@@ -1287,6 +1287,45 @@ class ChannelTests(TestBase):
 
         self.assertEqual(obj, b'eggs')
 
+    def test_send_blocking_no_timeout(self):
+        cid = interpreters.channel_create()
+        orig = b'spam'
+        wait = interpreters.channel_send(cid, orig)
+        waited = None
+
+        def run():
+            nonlocal waited
+            waited = wait()
+        t = threading.Thread(target=run)
+        t.start()
+        interpreters.channel_recv(cid)
+        after = wait()
+
+        self.assertTrue(waited)
+        self.assertTrue(after)
+
+    def test_send_blocking_timeout(self):
+        cid = interpreters.channel_create()
+        orig = b'spam'
+        wait = interpreters.channel_send(cid, orig)
+        before = wait(timeout=0.1)
+        interpreters.channel_recv(cid)
+        after = wait(timeout=10)  # Doesn't block.
+
+        self.assertFalse(before)
+        self.assertTrue(after)
+
+    def test_send_blocking_channel_closed(self):
+        cid = interpreters.channel_create()
+        orig = b'spam'
+        wait = interpreters.channel_send(cid, orig)
+        before = wait(timeout=0.5)
+        interpreters.channel_close(cid)
+        after = wait()
+
+        self.assertFalse(before)
+        self.assertTrue(after)
+
     def test_send_not_found(self):
         with self.assertRaises(interpreters.ChannelNotFoundError):
             interpreters.channel_send(10, b'spam')
