@@ -1271,6 +1271,19 @@ PyGILState_Release(PyGILState_STATE oldstate)
 /* cross-interpreter data */
 /**************************/
 
+static int
+_pending_decref(void *obj)
+{
+    Py_DECREF((PyObject *)obj);
+    return 0;
+}
+
+int
+_Py_Decref_In_Interpreter(PyObject *obj, PyInterpreterState *interp)
+{
+    return _Py_AddPendingCall(interp, 0, _pending_decref, obj);
+}
+
 /* cross-interpreter data */
 
 crossinterpdatafunc _PyCrossInterpreterData_Lookup(PyObject *);
