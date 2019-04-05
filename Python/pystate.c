@@ -1271,6 +1271,22 @@ PyGILState_Release(PyGILState_STATE oldstate)
 /* cross-interpreter data */
 /**************************/
 
+static int
+_pending_callback(void *arg)
+{
+    PyObject *callback = (PyObject *)arg;
+    PyObject *res = PyObject_CallObject(callback, NULL);
+    Py_DECREF(callback);
+    Py_XDECREF(res);
+    return res == NULL ? -1 : 0;
+}
+
+int
+_Py_Callback_In_Interpreter(PyObject *callback, PyInterpreterState *interp)
+{
+    return _Py_AddPendingCall(interp, 0, _pending_callback, callback);
+}
+
 /* cross-interpreter data */
 
 crossinterpdatafunc _PyCrossInterpreterData_Lookup(PyObject *);

@@ -249,6 +249,8 @@ PyAPI_FUNC(void) _PyCrossInterpreterData_Release(_PyCrossInterpreterData *);
 
 PyAPI_FUNC(int) _PyObject_CheckCrossInterpreterData(PyObject *);
 
+PyAPI_FUNC(int) _Py_Callback_In_Interpreter(PyObject *, PyInterpreterState *);
+
 /* cross-interpreter data registry */
 
 typedef int (*crossinterpdatafunc)(PyObject *, struct _xid *);
