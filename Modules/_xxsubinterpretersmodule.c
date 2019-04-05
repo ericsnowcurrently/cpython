@@ -6,6 +6,34 @@
 #include "frameobject.h"
 #include "interpreteridobject.h"
 
+static int
+_PyLock_Release_Raw(PyObject *lock)
+{
+    // XXX release the underlying PyThread_type_lock.
+    PyObject *res = PyObject_CallMethod(lock, "release", NULL);
+    Py_XDECREF(res);
+    return res == NULL ? -1 : 0;
+}
+
+static void
+_release_waitlock(PyObject *waitlock, int64_t interpid)
+{
+    PyInterpreterState *interp = _PyInterpreterState_LookUpID(interpid);
+    if (interp == NULL) {
+        // The original interpreter is gone so there's no point in
+        // reporting a problem, releasing the lock, or decref'ing it
+        PyErr_Clear();
+        return;
+    }
+    if (_PyLock_Release_Raw(waitlock) != 0) {
+        PyErr_Print();
+        PyErr_Clear();
+    }
+    if (!_Py_Decref_In_Interpreter(waitlock, interp)) {
+        // The queue was full.
+        // XXX ...
+    }
+}
 
 static char *
 _copy_raw_string(PyObject *strobj)
@@ -351,6 +379,9 @@ struct _channelitem;
 
 typedef struct _channelitem {
     _PyCrossInterpreterData *data;
+    // The waitlock refcount is managed by channel_send()
+    // and _release_waitlock().
+    PyObject *waitlock;
     struct _channelitem *next;
 } _channelitem;
 
@@ -363,6 +394,7 @@ _channelitem_new(void)
         return NULL;
     }
     item->data = NULL;
+    item->waitlock = NULL;
     item->next = NULL;
     return item;
 }
@@ -371,9 +403,15 @@ static void
 _channelitem_clear(_channelitem *item)
 {
     if (item->data != NULL) {
+        if (item->waitlock != NULL) {
+            _release_waitlock(item->waitlock, item->data->interp);
+            item->waitlock = NULL;
+        }
         _PyCrossInterpreterData_Release(item->data);
         PyMem_Free(item->data);
         item->data = NULL;
+    } else {
+        assert(item->waitlock == NULL);
     }
     item->next = NULL;
 }
@@ -398,6 +436,10 @@ _channelitem_free_all(_channelitem *item)
 static _PyCrossInterpreterData *
 _channelitem_popped(_channelitem *item)
 {
+    if (item->waitlock != NULL) {
+        _release_waitlock(item->waitlock, item->data->interp);
+        item->waitlock = NULL;
+    }
     _PyCrossInterpreterData *data = item->data;
     item->data = NULL;
     _channelitem_free(item);
@@ -441,13 +483,15 @@ _channelqueue_free(_channelqueue *queue)
 }
 
 static int
-_channelqueue_put(_channelqueue *queue, _PyCrossInterpreterData *data)
+_channelqueue_put(_channelqueue *queue, _PyCrossInterpreterData *data,
+                  PyObject *waitlock)
 {
     _channelitem *item = _channelitem_new();
     if (item == NULL) {
         return -1;
     }
     item->data = data;
+    item->waitlock = waitlock;
 
     queue->count += 1;
     if (queue->first == NULL) {
@@ -759,7 +803,7 @@ _channel_free(_PyChannelState *chan)
 
 static int
 _channel_add(_PyChannelState *chan, int64_t interp,
-             _PyCrossInterpreterData *data)
+             _PyCrossInterpreterData *data, PyObject *waitlock)
 {
     int res = -1;
     PyThread_acquire_lock(chan->mutex, WAIT_LOCK);
@@ -772,7 +816,7 @@ _channel_add(_PyChannelState *chan, int64_t interp,
         goto done;
     }
 
-    if (_channelqueue_put(chan->queue, data) != 0) {
+    if (_channelqueue_put(chan->queue, data, waitlock) != 0) {
         goto done;
     }
 
@@ -1283,7 +1327,8 @@ _channel_destroy(_channels *channels, int64_t id)
 }
 
 static int
-_channel_send(_channels *channels, int64_t id, PyObject *obj)
+_channel_send(_channels *channels, int64_t id, PyObject *obj,
+              PyObject *waitlock)
 {
     PyInterpreterState *interp = _get_current();
     if (interp == NULL) {
@@ -1317,7 +1362,7 @@ _channel_send(_channels *channels, int64_t id, PyObject *obj)
     }
 
     // Add the data to the channel.
-    int res = _channel_add(chan, PyInterpreterState_GetID(interp), data);
+    int res = _channel_add(chan, PyInterpreterState_GetID(interp), data, waitlock);
     PyThread_release_lock(mutex);
     if (res != 0) {
         _PyCrossInterpreterData_Release(data);
@@ -2330,28 +2375,42 @@ Return the list of all IDs for active channels.");
 static PyObject *
 channel_send(PyObject *self, PyObject *args, PyObject *kwds)
 {
-    static char *kwlist[] = {"cid", "obj", NULL};
+    static char *kwlist[] = {"cid", "obj", "waitlock", NULL};
     PyObject *id;
     PyObject *obj;
+    PyObject *waitlock = NULL;
     if (!PyArg_ParseTupleAndKeywords(args, kwds,
-                                     "OO:channel_send", kwlist, &id, &obj)) {
+                                     "OO|O:channel_send", kwlist,
+                                     &id, &obj, &waitlock)) {
         return NULL;
     }
     int64_t cid = _Py_CoerceID(id);
     if (cid < 0) {
         return NULL;
     }
+    if (waitlock == Py_None) {
+        waitlock = NULL;
+    } else if (waitlock != NULL) {
+        // XXX Make sure it's a Lock object?
 
-    if (_channel_send(&_globals.channels, cid, obj) != 0) {
+        // The object is decref'ed once it is received.
+        Py_INCREF(waitlock);
+    }
+
+    if (_channel_send(&_globals.channels, cid, obj, waitlock) != 0) {
+        Py_XDECREF(waitlock);
         return NULL;
     }
     Py_RETURN_NONE;
 }
 
 PyDoc_STRVAR(channel_send_doc,
-"channel_send(cid, obj)\n\
+"channel_send(cid, obj, waitlock=None)\n\
 \n\
-Add the object's data to the channel's queue.");
+Add the object's data to the channel's queue.\n\
+\n\
+If a lock is provided then it will be released once the object\n\
+has been received.");
 
 static PyObject *
 channel_recv(PyObject *self, PyObject *args, PyObject *kwds)

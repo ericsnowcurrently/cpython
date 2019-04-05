@@ -1289,6 +1289,69 @@ class ChannelTests(TestBase):
 
         self.assertEqual(obj, b'eggs')
 
+    def test_send_recv_main_with_callback(self):
+        lock = threading.Lock()
+        lock.acquire()
+        cid = interpreters.channel_create()
+        orig = b'spam'
+        interpreters.channel_send(cid, orig, lock)
+        obj = interpreters.channel_recv(cid)
+        if locked := lock.acquire(blocking=False):
+            lock.release()
+
+        self.assertTrue(locked)
+        self.assertEqual(obj, orig)
+
+    def test_send_recv_same_interpreter_with_callback(self):
+        id1 = interpreters.create()
+        out = _run_output(id1, dedent("""
+            import threading
+            lock = threading.Lock()
+            lock.acquire()
+            import _xxsubinterpreters as _interpreters
+            cid = _interpreters.channel_create()
+            orig = b'spam'
+            _interpreters.channel_send(cid, orig, lock)
+            obj = _interpreters.channel_recv(cid)
+            if locked := lock.acquire(blocking=False):
+                lock.release()
+            assert obj is not orig
+            assert locked
+            """))
+
+    def test_send_recv_different_interpreters_and_threads_with_callback(self):
+        cid = interpreters.channel_create()
+        id1 = interpreters.create()
+        out = None
+
+        def f():
+            nonlocal out
+            out = _run_output(id1, dedent(f"""
+                import time
+                import _xxsubinterpreters as _interpreters
+                while True:
+                    try:
+                        obj = _interpreters.channel_recv({cid})
+                        break
+                    except _interpreters.ChannelEmptyError:
+                        time.sleep(0.1)
+                assert(obj == b'spam')
+                _interpreters.channel_send({cid}, b'eggs')
+                """))
+        t = threading.Thread(target=f)
+        t.start()
+
+        lock = threading.Lock()
+        lock.acquire()
+        interpreters.channel_send(cid, b'spam', lock)
+        t.join()
+        if locked := lock.acquire(blocking=False):
+            lock.release()
+        obj = interpreters.channel_recv(cid)
+
+        self.assertEqual(obj, b'eggs')
+        self.assertTrue(locked)
+
     def test_send_not_found(self):
         with self.assertRaises(interpreters.ChannelNotFoundError):
             interpreters.channel_send(10, b'spam')
