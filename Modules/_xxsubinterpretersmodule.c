@@ -6,6 +6,21 @@
 #include "frameobject.h"
 #include "interpreteridobject.h"
 
+static void
+_notify_popped(PyObject *callback, int64_t interpid)
+{
+    PyInterpreterState *interp = _PyInterpreterState_LookUpID(interpid);
+    if (interp == NULL) {
+        // The original interpreter is gone so there's no point in
+        // reporting a problem, making the callback, or decref'ing it
+        PyErr_Clear();
+        return;
+    }
+    if (!_Py_Callback_In_Interpreter(callback, interp)) {
+        // The queue was full.
+        // XXX ...
+    }
+}
 
 static char *
 _copy_raw_string(PyObject *strobj)
@@ -351,6 +366,9 @@ struct _channelitem;
 
 typedef struct _channelitem {
     _PyCrossInterpreterData *data;
+    // The callback refcount is managed by channel_send()
+    // and _notify_popped().
+    PyObject *callback;
     struct _channelitem *next;
 } _channelitem;
 
@@ -363,6 +381,7 @@ _channelitem_new(void)
         return NULL;
     }
     item->data = NULL;
+    item->callback = NULL;
     item->next = NULL;
     return item;
 }
@@ -371,9 +390,15 @@ static void
 _channelitem_clear(_channelitem *item)
 {
     if (item->data != NULL) {
+        if (item->callback != NULL) {
+            _notify_popped(item->callback, item->data->interp);
+            item->callback = NULL;
+        }
         _PyCrossInterpreterData_Release(item->data);
         PyMem_Free(item->data);
         item->data = NULL;
+    } else {
+        assert(item->callback == NULL);
     }
     item->next = NULL;
 }
@@ -398,6 +423,10 @@ _channelitem_free_all(_channelitem *item)
 static _PyCrossInterpreterData *
 _channelitem_popped(_channelitem *item)
 {
+    if (item->callback != NULL) {
+        _notify_popped(item->callback, item->data->interp);
+        item->callback = NULL;
+    }
     _PyCrossInterpreterData *data = item->data;
     item->data = NULL;
     _channelitem_free(item);
@@ -441,13 +470,15 @@ _channelqueue_free(_channelqueue *queue)
 }
 
 static int
-_channelqueue_put(_channelqueue *queue, _PyCrossInterpreterData *data)
+_channelqueue_put(_channelqueue *queue, _PyCrossInterpreterData *data,
+                  PyObject *callback)
 {
     _channelitem *item = _channelitem_new();
     if (item == NULL) {
         return -1;
     }
     item->data = data;
+    item->callback = callback;
 
     queue->count += 1;
     if (queue->first == NULL) {
@@ -759,7 +790,7 @@ _channel_free(_PyChannelState *chan)
 
 static int
 _channel_add(_PyChannelState *chan, int64_t interp,
-             _PyCrossInterpreterData *data)
+             _PyCrossInterpreterData *data, PyObject *callback)
 {
     int res = -1;
     PyThread_acquire_lock(chan->mutex, WAIT_LOCK);
@@ -772,7 +803,7 @@ _channel_add(_PyChannelState *chan, int64_t interp,
         goto done;
     }
 
-    if (_channelqueue_put(chan->queue, data) != 0) {
+    if (_channelqueue_put(chan->queue, data, callback) != 0) {
         goto done;
     }
 
@@ -1283,7 +1314,8 @@ _channel_destroy(_channels *channels, int64_t id)
 }
 
 static int
-_channel_send(_channels *channels, int64_t id, PyObject *obj)
+_channel_send(_channels *channels, int64_t id, PyObject *obj,
+              PyObject *callback)
 {
     PyInterpreterState *interp = _get_current();
     if (interp == NULL) {
@@ -1317,7 +1349,7 @@ _channel_send(_channels *channels, int64_t id, PyObject *obj)
     }
 
     // Add the data to the channel.
-    int res = _channel_add(chan, PyInterpreterState_GetID(interp), data);
+    int res = _channel_add(chan, PyInterpreterState_GetID(interp), data, callback);
     PyThread_release_lock(mutex);
     if (res != 0) {
         _PyCrossInterpreterData_Release(data);
@@ -2330,28 +2362,47 @@ Return the list of all IDs for active channels.");
 static PyObject *
 channel_send(PyObject *self, PyObject *args, PyObject *kwds)
 {
-    static char *kwlist[] = {"cid", "obj", NULL};
+    static char *kwlist[] = {"cid", "obj", "callback", NULL};
     PyObject *id;
     PyObject *obj;
+    PyObject *callback = NULL;
     if (!PyArg_ParseTupleAndKeywords(args, kwds,
-                                     "OO:channel_send", kwlist, &id, &obj)) {
+                                     "OO|O:channel_send", kwlist,
+                                     &id, &obj, &callback)) {
         return NULL;
     }
     int64_t cid = _Py_CoerceID(id);
     if (cid < 0) {
         return NULL;
     }
+    if (callback == Py_None) {
+        callback = NULL;
+    } else if (callback != NULL) {
+        if (!PyCallable_Check(callback)) {
+            PyErr_Format(PyExc_TypeError, "callback must be callable, got %R", callback);
+            return NULL;
+        }
+        // XXX Maybe make sure the callback can be called with no args?
 
-    if (_channel_send(&_globals.channels, cid, obj) != 0) {
+        // The object is decref'ed once it is received.
+        Py_INCREF(callback);
+    }
+
+    if (_channel_send(&_globals.channels, cid, obj, callback) != 0) {
+        Py_XDECREF(callback);
         return NULL;
     }
     Py_RETURN_NONE;
 }
 
 PyDoc_STRVAR(channel_send_doc,
-"channel_send(cid, obj)\n\
+"channel_send(cid, obj, callback=None)\n\
 \n\
-Add the object's data to the channel's queue.");
+Add the object's data to the channel's queue.\n\
+\n\
+If a callback is provided then it will be called once the object\n\
+has been received.  The callback will be passed no arguments.  Any\n\
+return value will be discarded.");
 
 static PyObject *
 channel_recv(PyObject *self, PyObject *args, PyObject *kwds)
