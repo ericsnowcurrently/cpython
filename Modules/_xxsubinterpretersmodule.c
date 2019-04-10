@@ -1329,7 +1329,7 @@ _channel_send(_channels *channels, int64_t id, PyObject *obj)
 }
 
 static PyObject *
-_channel_recv(_channels *channels, int64_t id)
+_channel_recv(_channels *channels, int64_t id, PyThread_type_lock waitlock)
 {
     PyInterpreterState *interp = _get_current();
     if (interp == NULL) {
@@ -1348,7 +1348,7 @@ _channel_recv(_channels *channels, int64_t id)
     _PyCrossInterpreterData *data = _channel_next(chan, PyInterpreterState_GetID(interp));
     PyThread_release_lock(mutex);
     if (data == NULL) {
-        if (!PyErr_Occurred()) {
+        if (!PyErr_Occurred() && waitlock != NULL) {
             PyErr_Format(ChannelEmptyError, "channel %" PRId64 " is empty", id);
         }
         return NULL;
@@ -2356,10 +2356,12 @@ Add the object's data to the channel's queue.");
 static PyObject *
 channel_recv(PyObject *self, PyObject *args, PyObject *kwds)
 {
-    static char *kwlist[] = {"cid", NULL};
+    static char *kwlist[] = {"cid", "default", NULL};
     PyObject *id;
+    PyObject *dflt = NULL;
     if (!PyArg_ParseTupleAndKeywords(args, kwds,
-                                     "O:channel_recv", kwlist, &id)) {
+                                     "O|O:channel_recv", kwlist,
+                                     &id, &dflt)) {
         return NULL;
     }
     int64_t cid = _Py_CoerceID(id);
@@ -2367,13 +2369,34 @@ channel_recv(PyObject *self, PyObject *args, PyObject *kwds)
         return NULL;
     }
 
-    return _channel_recv(&_globals.channels, cid);
+    if (dflt != NULL) {
+        // Don't wait for an object to be sent.
+        PyObject *obj = _channel_recv(&_globals.channels, cid, NULL);
+        if (obj == NULL && !PyErr_Occurred()) {
+            Py_INCREF(dflt);  // XXX necessary? a leak?
+            return dflt;
+        }
+        return obj;
+    }
+
+    // Wait for an object to be sent.
+    PyThread_type_lock waitlock = PyThread_allocate_lock();
+    if (waitlock == NULL) {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "channel_recv: can't initialize waitlock");
+        return NULL;
+    }
+    PyObject *obj = _channel_recv(&_globals.channels, cid, waitlock);
+    PyThread_free_lock(waitlock);
+    return obj;
 }
 
 PyDoc_STRVAR(channel_recv_doc,
-"channel_recv(cid) -> obj\n\
+"channel_recv(cid, [default]) -> obj\n\
 \n\
-Return a new object from the data at the from of the channel's queue.");
+Return a new object from the data at the front of the channel's queue.\n\
+If no default is provided then wait until an object is sent.  Otherwise,\n\
+if no object has been sent then return the provided default.");
 
 static PyObject *
 channel_close(PyObject *self, PyObject *args, PyObject *kwds)
