@@ -98,6 +98,17 @@ def run_interp_threaded(id, source, **shared):
     t.join()
 
 
+EMPTY = object()
+
+
+def recv_or_fail(cid):
+    obj = interpreters.channel_recv(cid, EMPTY)
+    if obj is EMPTY:
+        raise interpreters.ChannelEmptyError(
+            'channel {} is empty'.format(int(cid)))
+    return obj
+
+
 class Interpreter(namedtuple('Interpreter', 'name id')):
 
     @classmethod
@@ -244,12 +255,11 @@ def _run_action(cid, action, end, state):
             return state.incr()
         elif end == 'recv':
             if not state.pending:
-                try:
-                    interpreters.channel_recv(cid)
-                except interpreters.ChannelEmptyError:
+                obj = interpreters.channel_recv(cid, EMPTY)
+                if obj is EMPTY:
                     return state
                 else:
-                    raise Exception('expected ChannelEmptyError')
+                    raise Exception('expected channel to be empty')
             else:
                 interpreters.channel_recv(cid)
                 return state.decr()
@@ -1246,11 +1256,11 @@ class ChannelTests(TestBase):
 
         def f():
             while True:
-                try:
-                    obj = interpreters.channel_recv(cid)
-                    break
-                except interpreters.ChannelEmptyError:
+                obj = interpreters.channel_recv(cid, EMPTY)
+                if obj is EMPTY:
                     time.sleep(0.1)
+                else:
+                    break
             interpreters.channel_send(cid, obj)
         t = threading.Thread(target=f)
         t.start()
@@ -1271,12 +1281,13 @@ class ChannelTests(TestBase):
             out = _run_output(id1, dedent(f"""
                 import time
                 import _xxsubinterpreters as _interpreters
+                EMPTY = object()
                 while True:
-                    try:
-                        obj = _interpreters.channel_recv({cid})
-                        break
-                    except _interpreters.ChannelEmptyError:
+                    obj = _interpreters.channel_recv({cid}, EMPTY)
+                    if obj is EMPTY:
                         time.sleep(0.1)
+                    else:
+                        break
                 assert(obj == b'spam')
                 _interpreters.channel_send({cid}, b'eggs')
                 """))
@@ -1297,10 +1308,11 @@ class ChannelTests(TestBase):
         with self.assertRaises(interpreters.ChannelNotFoundError):
             interpreters.channel_recv(10)
 
-    def test_recv_empty(self):
+    def test_recv_nowait_empty(self):
         cid = interpreters.channel_create()
-        with self.assertRaises(interpreters.ChannelEmptyError):
-            interpreters.channel_recv(cid)
+        obj = interpreters.channel_recv(cid, EMPTY)
+
+        self.assertIs(obj, EMPTY)
 
     def test_run_string_arg_unresolved(self):
         cid = interpreters.channel_create()

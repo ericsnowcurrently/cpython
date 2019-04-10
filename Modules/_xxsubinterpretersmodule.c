@@ -699,6 +699,102 @@ _channelends_close_all(_channelends *ends, int which, int force)
     }
 }
 
+/* waiting recv requests */
+
+struct _channelop;
+
+struct _channelop {
+    PyThread_type_lock waitlock;
+    struct _channelop *next;
+};
+
+static struct _channelop *
+_channelop_new()
+{
+    struct _channelop *op = PyMem_NEW(struct _channelop, 1);
+    if (op == NULL) {
+        PyErr_NoMemory();
+        return NULL;
+    }
+    op->waitlock = PyThread_allocate_lock();
+    if (op->waitlock == NULL) {
+        PyMem_Free(op);
+        PyErr_SetString(ChannelError,
+                        "can't initialize waitlock for channel recv");
+        return NULL;
+    }
+    op->next = NULL;
+    return op;
+}
+
+static void _channelop_free(struct _channelop *);
+
+static void
+_channelop_free(struct _channelop *op)
+{
+    if (op->next != NULL) {
+        _channelop_free(op->next);
+        op->next = NULL;
+    }
+    PyThread_type_lock waitlock = op->waitlock;
+    op->waitlock = NULL;
+
+    // Ensure that the lock has been released.
+    PyThread_acquire_lock(waitlock, NOWAIT_LOCK);
+    PyThread_release_lock(waitlock);
+    PyThread_free_lock(waitlock);
+
+    PyMem_Free(op);
+}
+
+static struct _channelop *
+_channelops_start_waiting(struct _channelop **headptr)
+{
+    // The caller must already hold chanmutex and will release it.
+    struct _channelop *op = _channelop_new();
+    if (op == NULL) {
+        return NULL;
+    }
+    // The lock will be released via _channelop_release().
+    PyThread_acquire_lock(op->waitlock, NOWAIT_LOCK);
+
+    struct _channelop *head = *headptr;
+    if (head == NULL) {
+        *headptr = op;
+    } else {
+        // Add to the tail.
+        struct _channelop *tail = head;
+        for(; tail->next != NULL; tail = tail->next);
+        tail->next = op;
+    }
+
+    // Wait for the channel to receive something.
+    if (PyThread_acquire_lock(op->waitlock, NOWAIT_LOCK) == PY_LOCK_ACQUIRED) {
+        _channelop_free(op);
+        return NULL;
+    }
+    return op;
+}
+
+static int
+_channelops_check_ready(struct _channelop *op, _PyTime_t timeout)
+{
+    if (PyThread_acquire_lock_timed(op->waitlock, timeout, 1) == PY_LOCK_ACQUIRED) {
+        PyThread_release_lock(op->waitlock);
+        return 1;
+    }
+    return 0;
+}
+
+static void
+_channelops_release(struct _channelop **headptr)
+{
+    struct _channelop *op = *headptr;
+    *headptr = op->next;
+    op->next = NULL;
+    PyThread_release_lock(op->waitlock);
+}
+
 /* channels */
 
 struct _channel;
@@ -709,6 +805,9 @@ static void _channel_finish_closing(struct _channel *);
 typedef struct _channel {
     PyThread_type_lock mutex;
     _channelqueue *queue;
+    struct {
+        struct _channelop *recv;
+    } waiting;
     _channelends *ends;
     int open;
     struct _channel_closing *closing;
@@ -730,11 +829,14 @@ _channel_new(void)
     }
     chan->queue = _channelqueue_new();
     if (chan->queue == NULL) {
+        PyThread_free_lock(chan->mutex);
         PyMem_Free(chan);
         return NULL;
     }
+    chan->waiting.recv = NULL;
     chan->ends = _channelends_new();
     if (chan->ends == NULL) {
+        PyThread_free_lock(chan->mutex);
         _channelqueue_free(chan->queue);
         PyMem_Free(chan);
         return NULL;
@@ -749,6 +851,9 @@ _channel_free(_PyChannelState *chan)
 {
     _channel_clear_closing(chan);
     PyThread_acquire_lock(chan->mutex, WAIT_LOCK);
+    if (chan->waiting.recv != NULL) {
+        _channelop_free(chan->waiting.recv);
+    }
     _channelqueue_free(chan->queue);
     _channelends_free(chan->ends);
     PyThread_release_lock(chan->mutex);
@@ -776,6 +881,10 @@ _channel_add(_PyChannelState *chan, int64_t interp,
         goto done;
     }
 
+    if (chan->waiting.recv != NULL) {
+        _channelops_release(&chan->waiting.recv);
+    }
+
     res = 0;
 done:
     PyThread_release_lock(chan->mutex);
@@ -783,7 +892,36 @@ done:
 }
 
 static _PyCrossInterpreterData *
-_channel_next(_PyChannelState *chan, int64_t interp)
+_channel_next_wait(_PyChannelState *chan)
+{
+    // The caller must hold the channel's mutex and will release it.
+
+    struct _channelop *op = _channelops_start_waiting(&chan->waiting.recv);
+    if (op == NULL) {
+        if (PyErr_Occurred()) {
+            return NULL;
+        }
+    } else {
+        PyThread_release_lock(chan->mutex);
+        while (chan->open) {
+#define DURATION 10  /* microseconds */
+            if (_channelops_check_ready(op, DURATION)) {
+                break;
+            }
+        }
+        _channelop_free(op);
+        PyThread_acquire_lock(chan->mutex, WAIT_LOCK);
+    }
+
+    if (!chan->open) {
+        PyErr_SetString(ChannelClosedError, "channel closed");
+        return NULL;
+    }
+    return _channelqueue_get(chan->queue);
+}
+
+static _PyCrossInterpreterData *
+_channel_next(_PyChannelState *chan, int64_t interp, int wait)
 {
     _PyCrossInterpreterData *data = NULL;
     PyThread_acquire_lock(chan->mutex, WAIT_LOCK);
@@ -796,9 +934,19 @@ _channel_next(_PyChannelState *chan, int64_t interp)
         goto done;
     }
 
-    data = _channelqueue_get(chan->queue);
-    if (data == NULL && !PyErr_Occurred() && chan->closing != NULL) {
-        chan->open = 0;
+    if (wait) {
+        data = _channelqueue_get(chan->queue);
+        if (data == NULL && !PyErr_Occurred() && chan->closing == NULL) {
+            data = _channel_next_wait(chan);
+        }
+    } else if (chan->waiting.recv == NULL) {
+        data = _channelqueue_get(chan->queue);
+    }
+    // When closing, mark as closed once empty.
+    if (chan->closing != NULL) {
+        if (data == NULL && !PyErr_Occurred()) {
+            chan->open = 0;
+        }
     }
 
 done:
@@ -1329,7 +1477,7 @@ _channel_send(_channels *channels, int64_t id, PyObject *obj)
 }
 
 static PyObject *
-_channel_recv(_channels *channels, int64_t id, PyThread_type_lock waitlock)
+_channel_recv(_channels *channels, int64_t id, int wait)
 {
     PyInterpreterState *interp = _get_current();
     if (interp == NULL) {
@@ -1345,12 +1493,10 @@ _channel_recv(_channels *channels, int64_t id, PyThread_type_lock waitlock)
     // Past this point we are responsible for releasing the mutex.
 
     // Pop off the next item from the channel.
-    _PyCrossInterpreterData *data = _channel_next(chan, PyInterpreterState_GetID(interp));
+    _PyCrossInterpreterData *data = _channel_next(
+            chan, PyInterpreterState_GetID(interp), wait);
     PyThread_release_lock(mutex);
     if (data == NULL) {
-        if (!PyErr_Occurred() && waitlock != NULL) {
-            PyErr_Format(ChannelEmptyError, "channel %" PRId64 " is empty", id);
-        }
         return NULL;
     }
 
@@ -2369,25 +2515,21 @@ channel_recv(PyObject *self, PyObject *args, PyObject *kwds)
         return NULL;
     }
 
-    if (dflt != NULL) {
-        // Don't wait for an object to be sent.
-        PyObject *obj = _channel_recv(&_globals.channels, cid, NULL);
+    if (dflt == NULL) {
+        // Wait for an object to be sent.
+        PyObject *obj = _channel_recv(&_globals.channels, cid, 1);
         if (obj == NULL && !PyErr_Occurred()) {
-            Py_INCREF(dflt);  // XXX necessary? a leak?
-            return dflt;
+            PyErr_Format(ChannelEmptyError, "channel %" PRId64 " is empty", id);
         }
         return obj;
     }
 
-    // Wait for an object to be sent.
-    PyThread_type_lock waitlock = PyThread_allocate_lock();
-    if (waitlock == NULL) {
-        PyErr_SetString(PyExc_RuntimeError,
-                        "channel_recv: can't initialize waitlock");
-        return NULL;
+    // Don't wait for an object to be sent.
+    PyObject *obj = _channel_recv(&_globals.channels, cid, 0);
+    if (obj == NULL && !PyErr_Occurred()) {
+        Py_INCREF(dflt);  // XXX necessary? a leak?
+        return dflt;
     }
-    PyObject *obj = _channel_recv(&_globals.channels, cid, waitlock);
-    PyThread_free_lock(waitlock);
     return obj;
 }
 
