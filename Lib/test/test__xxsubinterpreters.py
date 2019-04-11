@@ -19,6 +19,11 @@ interpreters = support.import_module('_xxsubinterpreters')
 ##################################
 # helpers
 
+NOWAIT = interpreters.NOWAIT
+
+EMPTY = object()
+
+
 def powerset(*sets):
     return itertools.chain.from_iterable(
         combinations(sets, r)
@@ -96,17 +101,6 @@ def run_interp_threaded(id, source, **shared):
     t = threading.Thread(target=run)
     t.start()
     t.join()
-
-
-EMPTY = object()
-
-
-def recv_or_fail(cid):
-    obj = interpreters.channel_recv(cid, EMPTY)
-    if obj is EMPTY:
-        raise interpreters.ChannelEmptyError(
-            'channel {} is empty'.format(int(cid)))
-    return obj
 
 
 class Interpreter(namedtuple('Interpreter', 'name id')):
@@ -1308,7 +1302,12 @@ class ChannelTests(TestBase):
         with self.assertRaises(interpreters.ChannelNotFoundError):
             interpreters.channel_recv(10)
 
-    def test_recv_nowait_empty(self):
+    def test_recv_empty_nowait(self):
+        cid = interpreters.channel_create()
+        with self.assertRaises(interpreters.ChannelEmptyError):
+            interpreters.channel_recv(cid, NOWAIT)
+
+    def test_recv_empty_default(self):
         cid = interpreters.channel_create()
         obj = interpreters.channel_recv(cid, EMPTY)
 

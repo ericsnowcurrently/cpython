@@ -2517,18 +2517,25 @@ channel_recv(PyObject *self, PyObject *args, PyObject *kwds)
 
     if (dflt == NULL) {
         // Wait for an object to be sent.
-        PyObject *obj = _channel_recv(&_globals.channels, cid, 1);
-        if (obj == NULL && !PyErr_Occurred()) {
-            PyErr_Format(ChannelEmptyError, "channel %" PRId64 " is empty", id);
-        }
-        return obj;
+        return _channel_recv(&_globals.channels, cid, 1);
     }
+
+    PyObject *nowaitobj = PyObject_GetAttrString(self, "NOWAIT");
+    if (nowaitobj == NULL) {
+        return NULL;
+    }
+    int fail = (dflt == nowaitobj);
+    Py_DECREF(nowaitobj);
 
     // Don't wait for an object to be sent.
     PyObject *obj = _channel_recv(&_globals.channels, cid, 0);
     if (obj == NULL && !PyErr_Occurred()) {
-        Py_INCREF(dflt);  // XXX necessary? a leak?
-        return dflt;
+        if (fail) {
+            PyErr_Format(ChannelEmptyError, "channel %" PRId64 " is empty", id);
+        } else {
+            Py_INCREF(dflt);  // XXX necessary? a leak?
+            obj = dflt;
+        }
     }
     return obj;
 }
@@ -2538,7 +2545,9 @@ PyDoc_STRVAR(channel_recv_doc,
 \n\
 Return a new object from the data at the front of the channel's queue.\n\
 If no default is provided then wait until an object is sent.  Otherwise,\n\
-if no object has been sent then return the provided default.");
+if no object has been sent then return the provided default.  If the\n\
+special _interpreters.NOWAIT object is used as the default then raise\n\
+ChannelEmptyError.");
 
 static PyObject *
 channel_close(PyObject *self, PyObject *args, PyObject *kwds)
