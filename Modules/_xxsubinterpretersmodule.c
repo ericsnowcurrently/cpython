@@ -2733,6 +2733,14 @@ PyInit__xxsubinterpreters(void)
         return NULL;
     }
 
+    PyObject *nowaitobj = _PyObject_New(&PyBaseObject_Type);
+    if (nowaitobj == NULL) {
+        return NULL;
+    }
+    if (PyDict_SetItemString(ns, "NOWAIT", nowaitobj) != 0) {
+        return NULL;
+    }
+
     if (_PyCrossInterpreterData_RegisterClass(&ChannelIDtype, _channelid_shared)) {
         return NULL;
     }
