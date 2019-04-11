@@ -405,6 +405,7 @@ _channelitem_popped(_channelitem *item)
 }
 
 typedef struct _channelqueue {
+    int64_t maxsize;
     int64_t count;
     _channelitem *first;
     _channelitem *last;
@@ -418,6 +419,8 @@ _channelqueue_new(void)
         PyErr_NoMemory();
         return NULL;
     }
+    // XXX We can expose buffered channels later.
+    queue->maxsize = 0;
     queue->count = 0;
     queue->first = NULL;
     queue->last = NULL;
