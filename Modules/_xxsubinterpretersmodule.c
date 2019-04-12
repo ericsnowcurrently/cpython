@@ -285,6 +285,7 @@ static PyObject *ChannelError;
 static PyObject *ChannelNotFoundError;
 static PyObject *ChannelClosedError;
 static PyObject *ChannelEmptyError;
+static PyObject *NotSentError;
 static PyObject *ChannelNotEmptyError;
 
 static int
@@ -332,6 +333,16 @@ channel_exceptions_init(PyObject *ns)
         return -1;
     }
 
+    // An operation tried to send to a full channel.
+    NotSentError = PyErr_NewException(
+            "_xxsubinterpreters.NotSentError", ChannelError, NULL);
+    if (NotSentError == NULL) {
+        return -1;
+    }
+    if (PyDict_SetItemString(ns, "NotSentError", NotSentError) != 0) {
+        return -1;
+    }
+
     // An operation tried to close a non-empty channel.
     ChannelNotEmptyError = PyErr_NewException(
             "_xxsubinterpreters.ChannelNotEmptyError", ChannelError, NULL);
@@ -351,6 +362,7 @@ struct _channelitem;
 
 typedef struct _channelitem {
     _PyCrossInterpreterData *data;
+    PyThread_type_lock sendwait;
     struct _channelitem *next;
 } _channelitem;
 
@@ -363,6 +375,7 @@ _channelitem_new(void)
         return NULL;
     }
     item->data = NULL;
+    item->sendwait = NULL;
     item->next = NULL;
     return item;
 }
@@ -399,6 +412,10 @@ static _PyCrossInterpreterData *
 _channelitem_popped(_channelitem *item)
 {
     _PyCrossInterpreterData *data = item->data;
+    if (item->sendwait != NULL) {
+        PyThread_release_lock(item->sendwait);
+        item->sendwait = NULL;
+    }
     item->data = NULL;
     _channelitem_free(item);
     return data;
@@ -444,13 +461,15 @@ _channelqueue_free(_channelqueue *queue)
 }
 
 static int
-_channelqueue_put(_channelqueue *queue, _PyCrossInterpreterData *data)
+_channelqueue_put(_channelqueue *queue, _PyCrossInterpreterData *data,
+                  PyThread_type_lock sendwait)
 {
     _channelitem *item = _channelitem_new();
     if (item == NULL) {
         return -1;
     }
     item->data = data;
+    item->sendwait = sendwait;
 
     queue->count += 1;
     if (queue->first == NULL) {
@@ -867,7 +886,7 @@ _channel_free(_PyChannelState *chan)
 
 static int
 _channel_add(_PyChannelState *chan, int64_t interp,
-             _PyCrossInterpreterData *data)
+             _PyCrossInterpreterData *data, int bufwait, int fullwait)
 {
     int res = -1;
     PyThread_acquire_lock(chan->mutex, WAIT_LOCK);
@@ -880,7 +899,34 @@ _channel_add(_PyChannelState *chan, int64_t interp,
         goto done;
     }
 
-    if (_channelqueue_put(chan->queue, data) != 0) {
+    int wait = 0;
+    if (chan->queue->count >= chan->queue->maxsize) {
+        // If we have buffered objects then there cannot be any
+        // pending recv ops, so we may proceed accordingly.
+        if (!fullwait) {
+            goto done;
+        }
+        wait = 1;
+    } else if (chan->waiting.recv == NULL && bufwait) {
+        wait = 1;
+    }
+    PyThread_type_lock sendwait = NULL;
+    if (wait) {
+        sendwait = PyThread_allocate_lock();
+        if (sendwait == NULL) {
+            PyErr_SetString(ChannelError, "failed waiting to send");
+            goto done;
+        }
+        // The lock will be released in _channelitem_popped().
+        PyThread_acquire_lock(sendwait, WAIT_LOCK);
+    }
+
+    // For the moment we only need to know that it's greater than 1,
+    // so we're okay to truncate.
+    int pos = chan->queue->count > INT_MAX ? INT_MAX : chan->queue->count;
+    if (_channelqueue_put(chan->queue, data, sendwait) != 0) {
+        PyThread_release_lock(sendwait);
+        PyThread_free_lock(sendwait);
         goto done;
     }
 
@@ -888,7 +934,16 @@ _channel_add(_PyChannelState *chan, int64_t interp,
         _channelops_release(&chan->waiting.recv);
     }
 
-    res = 0;
+    if (sendwait != NULL) {
+        // Wait for the object to be received.
+        PyThread_release_lock(chan->mutex);
+        PyThread_acquire_lock(sendwait, WAIT_LOCK);
+        PyThread_release_lock(sendwait);
+        PyThread_free_lock(sendwait);
+        PyThread_acquire_lock(chan->mutex, WAIT_LOCK);
+    }
+
+    res = pos;
 done:
     PyThread_release_lock(chan->mutex);
     return res;
@@ -1434,7 +1489,8 @@ _channel_destroy(_channels *channels, int64_t id)
 }
 
 static int
-_channel_send(_channels *channels, int64_t id, PyObject *obj)
+_channel_send(_channels *channels, int64_t id, PyObject *obj,
+              int bufwait, int fullwait)
 {
     PyInterpreterState *interp = _get_current();
     if (interp == NULL) {
@@ -1468,15 +1524,14 @@ _channel_send(_channels *channels, int64_t id, PyObject *obj)
     }
 
     // Add the data to the channel.
-    int res = _channel_add(chan, PyInterpreterState_GetID(interp), data);
+    int pos = _channel_add(chan, PyInterpreterState_GetID(interp), data,
+                           bufwait, fullwait);
     PyThread_release_lock(mutex);
-    if (res != 0) {
+    if (pos < 0) {  // Error or buffer was full.
         _PyCrossInterpreterData_Release(data);
         PyMem_Free(data);
-        return -1;
     }
-
-    return 0;
+    return pos;
 }
 
 static PyObject *
@@ -2479,22 +2534,69 @@ Return the list of all IDs for active channels.");
 static PyObject *
 channel_send(PyObject *self, PyObject *args, PyObject *kwds)
 {
-    static char *kwlist[] = {"cid", "obj", NULL};
+    static char *kwlist[] = {"cid", "obj",
+                             "onreceived", "onbuffered", "onfull",
+                             NULL};
     PyObject *id;
     PyObject *obj;
+    PyObject *onreceived = NULL;
+    PyObject *onbuffered = NULL;
+    PyObject *onfull = NULL;
     if (!PyArg_ParseTupleAndKeywords(args, kwds,
-                                     "OO:channel_send", kwlist, &id, &obj)) {
+                                     "OO|OOO:channel_send", kwlist,
+                                     &id, &obj,
+                                     &onreceived, &onbuffered, &onfull)) {
         return NULL;
     }
     int64_t cid = _Py_CoerceID(id);
     if (cid < 0) {
         return NULL;
     }
-
-    if (_channel_send(&_globals.channels, cid, obj) != 0) {
-        return NULL;
+    if (onreceived == NULL) {
+        onreceived = Py_True;
     }
-    Py_RETURN_NONE;
+    int bufwait = 0;
+    if (onbuffered == NULL) {
+        bufwait = 1;
+        onbuffered = Py_True;
+    }
+    int fullwait = 0;
+    if (onfull == NULL) {
+        fullwait = 1;
+        onfull = Py_True;
+    }
+
+    if (!bufwait && !fullwait) {
+        PyObject *nowaitobj = PyObject_GetAttrString(self, "NOWAIT");
+        if (nowaitobj == NULL) {
+            return NULL;
+        }
+        if (onbuffered == nowaitobj) {
+            onbuffered = Py_False;
+        }
+        if (onfull == nowaitobj) {
+            onfull = NULL;  // Raise NotSentError.
+        }
+        Py_DECREF(nowaitobj);
+    }
+
+    int pos = _channel_send(&_globals.channels, cid, obj, bufwait, fullwait);
+    PyObject *res = NULL;
+    if (pos < 0) {
+        if (PyErr_Occurred()) {
+            return NULL;
+        }
+        res = onfull;
+    } else if (pos == 0) {
+        res = onreceived;
+    } else {
+        res = onbuffered;
+    }
+    if (res == NULL) {
+        PyErr_Format(NotSentError, "no pending recv on channel %" PRId64, cid);
+    }
+    Py_XINCREF(res);
+    return res;
 }
 
 PyDoc_STRVAR(channel_send_doc,
@@ -2534,9 +2636,9 @@ channel_recv(PyObject *self, PyObject *args, PyObject *kwds)
     PyObject *obj = _channel_recv(&_globals.channels, cid, 0);
     if (obj == NULL && !PyErr_Occurred()) {
         if (fail) {
-            PyErr_Format(ChannelEmptyError, "channel %" PRId64 " is empty", id);
+            PyErr_Format(ChannelEmptyError, "channel %" PRId64 " is empty", cid);
         } else {
-            Py_INCREF(dflt);  // XXX necessary? a leak?
+            Py_INCREF(dflt);
             obj = dflt;
         }
     }
