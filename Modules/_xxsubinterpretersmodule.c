@@ -422,7 +422,8 @@ _channelitem_popped(_channelitem *item)
 }
 
 typedef struct _channelqueue {
-    int64_t maxsize;
+    // For now we limit maxsize to long.
+    long maxsize;
     int64_t count;
     _channelitem *first;
     _channelitem *last;
@@ -496,6 +497,15 @@ _channelqueue_get(_channelqueue *queue)
     queue->count -= 1;
 
     return _channelitem_popped(item);
+}
+
+static int
+_channelqueue_is_full(_channelqueue *queue)
+{
+    if (queue->maxsize < 0) {
+        return 0;
+    }
+    return queue->count >= queue->maxsize;
 }
 
 /* channel-interpreter associations */
@@ -900,7 +910,7 @@ _channel_add(_PyChannelState *chan, int64_t interp,
     }
 
     int wait = 0;
-    if (chan->queue->count >= chan->queue->maxsize) {
+    if (_channelqueue_is_full(chan->queue)) {
         // If we have buffered objects then there cannot be any
         // pending recv ops, so we may proceed accordingly.
         if (!fullwait) {
@@ -1461,12 +1471,13 @@ _channel_finish_closing(struct _channel *chan) {
 /* "high"-level channel-related functions */
 
 static int64_t
-_channel_create(_channels *channels)
+_channel_create(_channels *channels, long maxbuffer)
 {
     _PyChannelState *chan = _channel_new();
     if (chan == NULL) {
         return -1;
     }
+    chan->queue->maxsize = maxbuffer;
     int64_t id = _channels_add(channels, chan);
     if (id < 0) {
         _channel_free(chan);
@@ -1485,6 +1496,38 @@ _channel_destroy(_channels *channels, int64_t id)
     if (chan != NULL) {
         _channel_free(chan);
     }
+    return 0;
+}
+
+static long
+_channel_get_maxbuffer(_channels *channels, int64_t id)
+{
+    // Look up the channel.
+    PyThread_type_lock mutex = NULL;
+    _PyChannelState *chan = _channels_lookup(channels, id, &mutex);
+    if (chan == NULL) {
+        return -1;
+    }
+    // Past this point we are responsible for releasing the mutex.
+
+    long maxbuffer = chan->queue->maxsize;
+    PyThread_release_lock(mutex);
+    return maxbuffer;
+}
+
+static int
+_channel_set_maxbuffer(_channels *channels, int64_t id, long maxbuffer)
+{
+    // Look up the channel.
+    PyThread_type_lock mutex = NULL;
+    _PyChannelState *chan = _channels_lookup(channels, id, &mutex);
+    if (chan == NULL) {
+        return -1;
+    }
+    // Past this point we are responsible for releasing the mutex.
+
+    chan->queue->maxsize = maxbuffer;
+    PyThread_release_lock(mutex);
     return 0;
 }
 
@@ -2445,9 +2488,17 @@ PyDoc_STRVAR(is_running_doc,
 Return whether or not the identified interpreter is running.");
 
 static PyObject *
-channel_create(PyObject *self, PyObject *Py_UNUSED(ignored))
+channel_create(PyObject *self, PyObject *args, PyObject *kwds)
 {
-    int64_t cid = _channel_create(&_globals.channels);
+    static char *kwlist[] = {"maxbuffer", NULL};
+    long maxbuffer = 0;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds,
+                                     "|l:channel_create", kwlist,
+                                     &maxbuffer)) {
+        return NULL;
+    }
+
+    int64_t cid = _channel_create(&_globals.channels, maxbuffer);
     if (cid < 0) {
         return NULL;
     }
@@ -2464,9 +2515,12 @@ channel_create(PyObject *self, PyObject *Py_UNUSED(ignored))
 }
 
 PyDoc_STRVAR(channel_create_doc,
-"channel_create() -> cid\n\
+"channel_create(maxbuffer=0) -> cid\n\
 \n\
-Create a new cross-interpreter channel and return a unique generated ID.");
+Create a new cross-interpreter channel and return a unique generated ID.\n\
+If a maxbuffer greater than 0 is provided then that many sent objects may\n\
+be buffered on the channel before NotSentError is raised.  A negative\n\
+maxbuffer means \"unbuffered\".");
 
 static PyObject *
 channel_destroy(PyObject *self, PyObject *args, PyObject *kwds)
@@ -2530,6 +2584,61 @@ PyDoc_STRVAR(channel_list_all_doc,
 "channel_list_all() -> [cid]\n\
 \n\
 Return the list of all IDs for active channels.");
+
+static PyObject *
+channel_get_maxbuffer(PyObject *self, PyObject *args, PyObject *kwds)
+{
+    static char *kwlist[] = {"cid", NULL};
+    PyObject *cid;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds,
+                                     "O:channel_get_maxbuffer", kwlist,
+                                     &cid)) {
+        return NULL;
+    }
+    int64_t id = _Py_CoerceID(cid);
+    if (id < 0) {
+        return NULL;
+    }
+
+    long maxbuffer = _channel_get_maxbuffer(&_globals.channels, id);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+
+    return PyLong_FromLong(maxbuffer);
+}
+
+PyDoc_STRVAR(channel_get_maxbuffer_doc,
+"channel_get_maxbuffer(cid)\n\
+\n\
+Return the channel's max buffer size.");
+
+static PyObject *
+channel_set_maxbuffer(PyObject *self, PyObject *args, PyObject *kwds)
+{
+    static char *kwlist[] = {"cid", "maxbuffer", NULL};
+    PyObject *cid;
+    long maxbuffer;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds,
+                                     "Ol:channel_set_maxbuffer", kwlist,
+                                     &cid, &maxbuffer)) {
+        return NULL;
+    }
+    int64_t id = _Py_CoerceID(cid);
+    if (id < 0) {
+        return NULL;
+    }
+
+    if (_channel_set_maxbuffer(&_globals.channels, id, maxbuffer) < 0) {
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(channel_set_maxbuffer_doc,
+"channel_set_maxbuffer(cid, maxbuffer)\n\
+\n\
+Update the channel's max buffer size.  A negative size means \"unbuffered\".");
 
 static PyObject *
 channel_send(PyObject *self, PyObject *args, PyObject *kwds)
@@ -2760,12 +2869,16 @@ static PyMethodDef module_functions[] = {
     {"is_shareable",              (PyCFunction)(void(*)(void))object_is_shareable,
      METH_VARARGS | METH_KEYWORDS, is_shareable_doc},
 
-    {"channel_create",            channel_create,
-     METH_NOARGS, channel_create_doc},
+    {"channel_create",            (PyCFunction)(void(*)(void))channel_create,
+     METH_VARARGS | METH_KEYWORDS, channel_create_doc},
     {"channel_destroy",           (PyCFunction)(void(*)(void))channel_destroy,
      METH_VARARGS | METH_KEYWORDS, channel_destroy_doc},
     {"channel_list_all",          channel_list_all,
      METH_NOARGS, channel_list_all_doc},
+    {"channel_get_maxbuffer",     (PyCFunction)(void(*)(void))channel_get_maxbuffer,
+     METH_VARARGS | METH_KEYWORDS, channel_get_maxbuffer_doc},
+    {"channel_set_maxbuffer",     (PyCFunction)(void(*)(void))channel_set_maxbuffer,
+     METH_VARARGS | METH_KEYWORDS, channel_set_maxbuffer_doc},
     {"channel_send",              (PyCFunction)(void(*)(void))channel_send,
      METH_VARARGS | METH_KEYWORDS, channel_send_doc},
     {"channel_recv",              (PyCFunction)(void(*)(void))channel_recv,
