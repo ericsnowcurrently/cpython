@@ -2534,75 +2534,66 @@ Return the list of all IDs for active channels.");
 static PyObject *
 channel_send(PyObject *self, PyObject *args, PyObject *kwds)
 {
-    static char *kwlist[] = {"cid", "obj",
-                             "onreceived", "onbuffered", "onfull",
-                             NULL};
+    static char *kwlist[] = {"cid", "obj", "wait", NULL};
     PyObject *id;
     PyObject *obj;
-    PyObject *onreceived = NULL;
-    PyObject *onbuffered = NULL;
-    PyObject *onfull = NULL;
+    PyObject *wait = NULL;
     if (!PyArg_ParseTupleAndKeywords(args, kwds,
-                                     "OO|OOO:channel_send", kwlist,
-                                     &id, &obj,
-                                     &onreceived, &onbuffered, &onfull)) {
+                                     "OO|O:channel_send", kwlist,
+                                     &id, &obj, &wait)) {
         return NULL;
     }
     int64_t cid = _Py_CoerceID(id);
     if (cid < 0) {
         return NULL;
     }
-    if (onreceived == NULL) {
-        onreceived = Py_True;
-    }
-    int bufwait = 0;
-    if (onbuffered == NULL) {
-        bufwait = 1;
-        onbuffered = Py_True;
-    }
-    int fullwait = 0;
-    if (onfull == NULL) {
-        fullwait = 1;
-        onfull = Py_True;
+    if (wait == NULL) {
+        wait = Py_True;
+    } else if (wait == Py_None) {
+        wait = NULL;
     }
 
-    if (!bufwait && !fullwait) {
-        PyObject *nowaitobj = PyObject_GetAttrString(self, "NOWAIT");
-        if (nowaitobj == NULL) {
-            return NULL;
-        }
-        if (onbuffered == nowaitobj) {
-            onbuffered = Py_False;
-        }
-        if (onfull == nowaitobj) {
-            onfull = NULL;  // Raise NotSentError.
-        }
-        Py_DECREF(nowaitobj);
+    int bufwait = 1;
+    int fullwait = 1;
+    if (wait == NULL) {
+        wait = Py_True;
+    } else if (wait == Py_None) {
+        wait = NULL;  // Raise NotSentError if buffer full.
+        bufwait = 0;
+        fullwait = 0;
+    } else if (PyObject_Not(wait)) {
+        bufwait = 0;
+        fullwait = 0;
     }
 
     int pos = _channel_send(&_globals.channels, cid, obj, bufwait, fullwait);
-    PyObject *res = NULL;
-    if (pos < 0) {
+    if (pos == 0) {
+        Py_RETURN_TRUE;
+    } else if (pos > 0) {
+        Py_RETURN_FALSE;
+    } else {
         if (PyErr_Occurred()) {
             return NULL;
         }
-        res = onfull;
-    } else if (pos == 0) {
-        res = onreceived;
-    } else {
-        res = onbuffered;
+        if (wait == NULL) {
+            PyErr_Format(NotSentError, "no pending recv on channel %" PRId64, cid);
+            return NULL;
+        }
+        Py_RETURN_FALSE;
     }
-    if (res == NULL) {
-        PyErr_Format(NotSentError, "no pending recv on channel %" PRId64, cid);
-    }
-    Py_XINCREF(res);
-    return res;
 }
 
 PyDoc_STRVAR(channel_send_doc,
-"channel_send(cid, obj)\n\
+"channel_send(cid, obj, nowait=False)\n\
 \n\
-Add the object's data to the channel's queue.");
+Add the object's data to the channel's queue and (by default) wait for\n\
+it to be received, blocking indefinitely.  Return True once the object\n\
+has been received.\n\
+\n\
+If \"wait\" is False then immediately return False if there isn't a\n\
+pending recv.  If \"wait\" is None then immediately raise NotSentError\n\
+if there isn't a pending recv.");
+// ...If the object was buffered then return False in either case.
 
 static PyObject *
 channel_recv(PyObject *self, PyObject *args, PyObject *kwds)
