@@ -45,6 +45,7 @@ struct _ceval_pending_calls {
 };
 
 struct _ceval_runtime_state {
+    struct _gil_runtime_state gil;
     int recursion_limit;
     /* Records whether tracing is on for any thread.  Counts the number
        of threads for which tstate->c_tracefunc is non-NULL, so if the
@@ -52,16 +53,16 @@ struct _ceval_runtime_state {
        c_tracefunc.  This speeds up the if statement in
        PyEval_EvalFrameEx() after fast_next_opcode. */
     int tracing_possible;
+
+    /* Request for dropping the GIL */
+    _Py_atomic_int gil_drop_request;
+    /* Request for checking signals. */
+    _Py_atomic_int signals_pending;
     /* This single variable consolidates all requests to break out of
        the fast path in the eval loop. */
     // XXX This can move to _ceval_interpreter_state once all parts
     // from COMPUTE_EVAL_BREAKER have moved under PyInterpreterState.
     _Py_atomic_int eval_breaker;
-    /* Request for dropping the GIL */
-    _Py_atomic_int gil_drop_request;
-    /* Request for checking signals. */
-    _Py_atomic_int signals_pending;
-    struct _gil_runtime_state gil;
 };
 
 struct _ceval_interpreter_state {
