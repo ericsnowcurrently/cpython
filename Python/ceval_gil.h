@@ -170,7 +170,7 @@ drop_gil(struct _ceval_runtime_state *ceval_r,
         /* Not switched yet => wait */
         if (((PyThreadState*)_Py_atomic_load_relaxed(&gil->last_holder)) == tstate)
         {
-            RESET_GIL_DROP_REQUEST(ceval_r, ceval_i);
+            RESET_GIL_DROP_REQUEST(ceval_r);
             /* NOTE: if COND_WAIT does not atomically start waiting when
                releasing the mutex, another thread can run through, take
                the GIL and drop it again, and reset the condition
@@ -241,7 +241,7 @@ _ready:
     MUTEX_UNLOCK(gil->switch_mutex);
 #endif
     if (_Py_atomic_load_relaxed(&ceval_r->gil_drop_request)) {
-        RESET_GIL_DROP_REQUEST(ceval_r, ceval_i);
+        RESET_GIL_DROP_REQUEST(ceval_r);
     }
     if (tstate->async_exc != NULL) {
         _PyEval_SignalAsyncExc(ceval_r, ceval_i);

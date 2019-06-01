@@ -104,13 +104,24 @@ static long dxp[256];
 /* This can set eval_breaker to 0 even though gil_drop_request became
    1.  We believe this is all right because the eval loop will release
    the GIL eventually anyway. */
-#define COMPUTE_EVAL_BREAKER(ceval_r, ceval_i) \
+#define COMPUTE_EVAL_BREAKER(ceval_r) \
+    _Py_atomic_store_relaxed( \
+        &(ceval_r)->eval_breaker, \
+        _Py_atomic_load_relaxed(&(ceval_r)->gil_drop_request) | \
+        _Py_atomic_load_relaxed(&(ceval_r)->signals_pending) | \
+        ((ceval_r)->num_pending != 0))
+
+/* XXX Once all the state is per-interpreter, COMPUTE_EVAL_BREAKER
+ will look like this:
+
+#define COMPUTE_EVAL_BREAKER(ceval_i) \
     _Py_atomic_store_relaxed( \
         &(ceval_r)->eval_breaker, \
         _Py_atomic_load_relaxed(&(ceval_r)->gil_drop_request) | \
         _Py_atomic_load_relaxed(&(ceval_r)->signals_pending) | \
         _Py_atomic_load_relaxed(&(ceval_i)->pending.calls_to_do) | \
         (ceval_i)->pending.async_exc)
+ */
 
 #define SET_GIL_DROP_REQUEST(ceval_r) \
     do { \
@@ -118,15 +129,31 @@ static long dxp[256];
         _Py_atomic_store_relaxed(&(ceval_r)->eval_breaker, 1); \
     } while (0)
 
-#define RESET_GIL_DROP_REQUEST(ceval_r, ceval_i) \
+#define RESET_GIL_DROP_REQUEST(ceval_r) \
     do { \
         _Py_atomic_store_relaxed(&(ceval_r)->gil_drop_request, 0); \
-        COMPUTE_EVAL_BREAKER(ceval_r, ceval_i); \
+        COMPUTE_EVAL_BREAKER(ceval_r); \
+    } while (0)
+
+// Only the main interpreter is impacted by signals.
+#define SIGNAL_PENDING_SIGNALS(ceval_r) \
+    do { \
+        _Py_atomic_store_relaxed(&(ceval_r)->signals_pending, 1); \
+        _Py_atomic_store_relaxed(&(ceval_r)->eval_breaker, 1); \
+    } while (0)
+
+#define UNSIGNAL_PENDING_SIGNALS(ceval_r) \
+    do { \
+        _Py_atomic_store_relaxed(&(ceval_r)->signals_pending, 0); \
+        COMPUTE_EVAL_BREAKER(ceval_r); \
     } while (0)
 
 /* Pending calls are only modified under pending_lock */
 #define SIGNAL_PENDING_CALLS(ceval_r, ceval_i) \
     do { \
+        if (!_Py_atomic_load_relaxed(&(ceval_i)->pending.calls_to_do)) { \
+            (ceval_r)->num_pending++; \
+        } \
         _Py_atomic_store_relaxed(&(ceval_i)->pending.calls_to_do, 1); \
         _Py_atomic_store_relaxed(&(ceval_r)->eval_breaker, 1); \
     } while (0)
@@ -134,23 +161,15 @@ static long dxp[256];
 #define UNSIGNAL_PENDING_CALLS(ceval_r, ceval_i) \
     do { \
         _Py_atomic_store_relaxed(&(ceval_i)->pending.calls_to_do, 0); \
-        COMPUTE_EVAL_BREAKER(ceval_r, ceval_i); \
-    } while (0)
-
-#define SIGNAL_PENDING_SIGNALS(ceval_r) \
-    do { \
-        _Py_atomic_store_relaxed(&(ceval_r)->signals_pending, 1); \
-        _Py_atomic_store_relaxed(&(ceval_r)->eval_breaker, 1); \
-    } while (0)
-
-#define UNSIGNAL_PENDING_SIGNALS(ceval_r, ceval_i) \
-    do { \
-        _Py_atomic_store_relaxed(&(ceval_r)->signals_pending, 0); \
-        COMPUTE_EVAL_BREAKER(ceval_r, ceval_i); \
+        (ceval_r)->num_pending--; \
+        COMPUTE_EVAL_BREAKER(ceval_r); \
     } while (0)
 
 #define SIGNAL_ASYNC_EXC(ceval_r, ceval_i) \
     do { \
+        if (!(ceval_i)->pending.async_exc) { \
+            (ceval_r)->num_pending++; \
+        } \
         (ceval_i)->pending.async_exc = 1; \
         _Py_atomic_store_relaxed(&(ceval_r)->eval_breaker, 1); \
     } while (0)
@@ -158,7 +177,8 @@ static long dxp[256];
 #define UNSIGNAL_ASYNC_EXC(ceval_r, ceval_i) \
     do { \
         (ceval_i)->pending.async_exc = 0; \
-        COMPUTE_EVAL_BREAKER(ceval_r, ceval_i); \
+        (ceval_r)->num_pending--; \
+        COMPUTE_EVAL_BREAKER(ceval_r); \
     } while (0)
 
 
@@ -523,8 +543,7 @@ handle_signals(_PyRuntimeState *runtime)
     }
 
     struct _ceval_runtime_state *ceval_r = &runtime->ceval;
-    struct _ceval_interpreter_state *ceval_i = &interp->ceval;
-    UNSIGNAL_PENDING_SIGNALS(ceval_r, ceval_i);
+    UNSIGNAL_PENDING_SIGNALS(ceval_r);
     if (_PyErr_CheckSignals() < 0) {
         SIGNAL_PENDING_SIGNALS(ceval_r); /* We're not done yet */
         return -1;

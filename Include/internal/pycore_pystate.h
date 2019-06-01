@@ -54,15 +54,17 @@ struct _ceval_runtime_state {
        PyEval_EvalFrameEx() after fast_next_opcode. */
     int tracing_possible;
 
+    /* This single variable consolidates all requests to break out of
+       the fast path in the eval loop. */
+    // XXX This can move to _ceval_interpreter_state once the remaining
+    // fields (for COMPUTE_EVAL_BREAKER) have moved to
+    // _ceval_interpreter_state.
+    _Py_atomic_int eval_breaker;
     /* Request for dropping the GIL */
     _Py_atomic_int gil_drop_request;
     /* Request for checking signals. */
     _Py_atomic_int signals_pending;
-    /* This single variable consolidates all requests to break out of
-       the fast path in the eval loop. */
-    // XXX This can move to _ceval_interpreter_state once all parts
-    // from COMPUTE_EVAL_BREAKER have moved under PyInterpreterState.
-    _Py_atomic_int eval_breaker;
+    uint64_t num_pending;
 };
 
 struct _ceval_interpreter_state {
