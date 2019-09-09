@@ -178,6 +178,8 @@ def _is_object(vartype):
         return True
     if 'method_cache_entry' in vartype:
         return True
+    if vartype.startswith('static identifier '):
+        return True
 
     # XXX Add more?
 
