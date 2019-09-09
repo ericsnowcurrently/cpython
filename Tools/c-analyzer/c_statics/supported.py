@@ -93,6 +93,51 @@ def _is_ignored(static, ignoredvars=None):
         if static.name == 'ioctl_works':
             # A race here is unlikely and mostly benign.
             return True
+    if static.filename == 'Python/codecs.c':
+        if static.name == 'ucnhash_CAPI':
+            # A race here is unlikely and benign.
+            return True
+    if static.filename == 'Python/bootstrap_hash.c':
+        if static.name == 'getrandom_works':
+            # A race here is unlikely and benign.
+            return True
+    if static.filename == 'Objects/unicodeobject.c':
+        if static.name == 'ucnhash_CAPI':
+            # A race here is unlikely and benign.
+            return True
+        if static.name == 'bloom_linebreak':
+            # A race here is mostly benign and unlikely.
+            return True
+    if static.filename == 'Modules/getbuildinfo.c':
+        if static.name == 'buildinfo':
+            # a race here is benign and unlikely.
+            # The static is used for pre-allocation.
+            return True
+    if static.filename == 'Modules/posixmodule.c':
+        if static.name == 'ticks_per_second':
+            # a race here is benign and unlikely.
+            return True
+        if static.name == 'dup3_works':
+            # a race here is benign and unlikely.
+            return True
+    if static.filename == 'Modules/timemodule.c':
+        if static.name == 'ticks_per_second':
+            # a race here is benign and unlikely.
+            return True
+    if static.filename == 'Objects/longobject.c':
+        if static.name == 'log_base_BASE':
+            # a race here is benign and unlikely.
+            return True
+        if static.name == 'convwidth_base':
+            # a race here is benign and unlikely.
+            return True
+        if static.name == 'convmultmax_base':
+            # a race here is benign and unlikely.
+            return True
+    if static.filename == '':
+        if static.name == '':
+            # a race here is benign and unlikely.
+            return True
 
     return False
 
@@ -166,7 +211,8 @@ def _is_object(vartype):
         return True
     if '_PyArg_Parser ' in vartype:
         return True
-    if vartype.startswith(('_Py_IDENTIFIER(', '_Py_static_string(')):
+    if vartype.startswith(('_Py_IDENTIFIER(', 'static _Py_Identifier',
+                           '_Py_static_string(')):
         return True
     if 'traceback_t' in vartype:
         return True
@@ -179,6 +225,8 @@ def _is_object(vartype):
     if 'method_cache_entry' in vartype:
         return True
     if vartype.startswith('static identifier '):
+        return True
+    if vartype.endswith((' _Py_FalseStruct', ' _Py_TrueStruct')):
         return True
 
     # XXX Add more?
