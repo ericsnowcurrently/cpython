@@ -77,6 +77,11 @@ def _is_ignored(static, ignoredvars=None):
             return True
         if static.name in ('private_mem', 'pmem_next'):
             return True
+    if static.filename == 'Python/thread.c':
+        # Threads do not become an issue until after these have been set
+        # and these never get changed after that.
+        if static.name in ('initialized', 'thread_debug'):
+            return True
 
     return False
 

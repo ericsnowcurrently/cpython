@@ -46,6 +46,7 @@
 
 #ifdef Py_DEBUG
 static int thread_debug = 0;
+// dprintf() is used in thread_nt.h and thread_pthread.h.
 #define dprintf(args)   (void)((thread_debug & 1) && printf args)
 #define d2printf(args)  ((thread_debug & 8) && printf args)
 #else
@@ -53,13 +54,18 @@ static int thread_debug = 0;
 #define d2printf(args)
 #endif
 
-static int initialized;
+static int initialized = 0;
 
 static void PyThread__init_thread(void); /* Forward */
 
 void
 PyThread_init_thread(void)
 {
+    if (initialized) {
+        return;
+    }
+    initialized = 1;
+
 #ifdef Py_DEBUG
     const char *p = Py_GETENV("PYTHONTHREADDEBUG");
 
@@ -70,9 +76,6 @@ PyThread_init_thread(void)
             thread_debug = 1;
     }
 #endif /* Py_DEBUG */
-    if (initialized)
-        return;
-    initialized = 1;
     dprintf(("PyThread_init_thread called\n"));
     PyThread__init_thread();
 }
