@@ -82,6 +82,10 @@ def _is_ignored(static, ignoredvars=None):
         # and these never get changed after that.
         if static.name in ('initialized', 'thread_debug'):
             return True
+    if static.filename == 'Python/getversion.c':
+        # Races are benign here, as well as unlikely.
+        if static.name == 'version':
+            return True
 
     return False
 
