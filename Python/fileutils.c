@@ -558,11 +558,7 @@ _Py_DecodeLocaleEx(const char* arg, wchar_t **wstr, size_t *wlen,
     }
 
 #ifdef USE_FORCE_ASCII
-    if (force_ascii == -1) {
-        force_ascii = check_force_ascii();
-    }
-
-    if (force_ascii) {
+    if(_Py_GetForceASCII()) {
         /* force ASCII encoding to workaround mbstowcs() issue */
         return decode_ascii(arg, wstr, wlen, reason, errors);
     }
@@ -750,11 +746,7 @@ encode_locale_ex(const wchar_t *text, char **str, size_t *error_pos,
     }
 
 #ifdef USE_FORCE_ASCII
-    if (force_ascii == -1) {
-        force_ascii = check_force_ascii();
-    }
-
-    if (force_ascii) {
+    if(_Py_GetForceASCII()) {
         return encode_ascii(text, str, error_pos, reason,
                             raw_malloc, errors);
     }

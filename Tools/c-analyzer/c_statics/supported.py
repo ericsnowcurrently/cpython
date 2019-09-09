@@ -83,8 +83,12 @@ def _is_ignored(static, ignoredvars=None):
         if static.name in ('initialized', 'thread_debug'):
             return True
     if static.filename == 'Python/getversion.c':
-        # Races are benign here, as well as unlikely.
         if static.name == 'version':
+            # Races are benign here, as well as unlikely.
+            return True
+    if static.filename == 'Python/fileutils.c':
+        if static.name == 'force_ascii':
+            # A race here is benign and unlikely.
             return True
 
     return False
