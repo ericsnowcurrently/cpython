@@ -1078,19 +1078,6 @@ _Py_get_inheritable(int fd)
 static int
 set_inheritable(int fd, int inheritable, int raise, int *atomic_flag_works)
 {
-#ifdef MS_WINDOWS
-    HANDLE handle;
-    DWORD flags;
-#else
-#if defined(HAVE_SYS_IOCTL_H) && defined(FIOCLEX) && defined(FIONCLEX)
-    static int ioctl_works = -1;
-    int request;
-    int err;
-#endif
-    int flags, new_flags;
-    int res;
-#endif
-
     /* atomic_flag_works can only be used to make the file descriptor
        non-inheritable */
     assert(!(atomic_flag_works != NULL && inheritable));
@@ -1109,7 +1096,7 @@ set_inheritable(int fd, int inheritable, int raise, int *atomic_flag_works)
 
 #ifdef MS_WINDOWS
     _Py_BEGIN_SUPPRESS_IPH
-    handle = (HANDLE)_get_osfhandle(fd);
+    HANDLE handle = (HANDLE)_get_osfhandle(fd);
     _Py_END_SUPPRESS_IPH
     if (handle == INVALID_HANDLE_VALUE) {
         if (raise)
@@ -1117,6 +1104,7 @@ set_inheritable(int fd, int inheritable, int raise, int *atomic_flag_works)
         return -1;
     }
 
+    DWORD flags;
     if (inheritable)
         flags = HANDLE_FLAG_INHERIT;
     else
@@ -1131,15 +1119,17 @@ set_inheritable(int fd, int inheritable, int raise, int *atomic_flag_works)
 #else
 
 #if defined(HAVE_SYS_IOCTL_H) && defined(FIOCLEX) && defined(FIONCLEX)
+    static int ioctl_works = -1;
     if (ioctl_works != 0 && raise != 0) {
         /* fast-path: ioctl() only requires one syscall */
         /* caveat: raise=0 is an indicator that we must be async-signal-safe
          * thus avoid using ioctl() so we skip the fast-path. */
+        int request;
         if (inheritable)
             request = FIONCLEX;
         else
             request = FIOCLEX;
-        err = ioctl(fd, request, NULL);
+        int err = ioctl(fd, request, NULL);
         if (!err) {
             ioctl_works = 1;
             return 0;
@@ -1165,15 +1155,15 @@ set_inheritable(int fd, int inheritable, int raise, int *atomic_flag_works)
         /* fallback to fcntl() if ioctl() does not work */
     }
 #endif
-
     /* slow-path: fcntl() requires two syscalls */
-    flags = fcntl(fd, F_GETFD);
+    int flags = fcntl(fd, F_GETFD);
     if (flags < 0) {
         if (raise)
             PyErr_SetFromErrno(PyExc_OSError);
         return -1;
     }
 
+    int new_flags;
     if (inheritable) {
         new_flags = flags & ~FD_CLOEXEC;
     }
@@ -1186,7 +1176,7 @@ set_inheritable(int fd, int inheritable, int raise, int *atomic_flag_works)
         return 0;
     }
 
-    res = fcntl(fd, F_SETFD, new_flags);
+    int res = fcntl(fd, F_SETFD, new_flags);
     if (res < 0) {
         if (raise)
             PyErr_SetFromErrno(PyExc_OSError);

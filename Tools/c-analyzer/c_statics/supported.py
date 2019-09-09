@@ -90,6 +90,9 @@ def _is_ignored(static, ignoredvars=None):
         if static.name == 'force_ascii':
             # A race here is benign and unlikely.
             return True
+        if static.name == 'ioctl_works':
+            # A race here is unlikely and mostly benign.
+            return True
 
     return False
 
