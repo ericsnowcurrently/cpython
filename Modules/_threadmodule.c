@@ -44,23 +44,24 @@ lock_dealloc(lockobject *self)
  * timeout.
  */
 static PyLockStatus
-acquire_timed(PyThread_type_lock lock, _PyTime_t timeout)
+acquire_timed(PyThread_type_lock lock, PY_TIMEOUT_T timeout)
 {
     PyLockStatus r;
     _PyTime_t endtime = 0;
-    _PyTime_t microseconds;
 
-    if (timeout > 0)
-        endtime = _PyTime_GetMonotonicClock() + timeout;
+#define NOW = _PyTime_AsMicroseconds(_PyTime_GetMonotonicClock(), \
+                                     _PyTime_ROUND_CEILING);
+
+    if (timeout > 0) {
+        endtime = NOW + timeout;
+    }
 
     do {
-        microseconds = _PyTime_AsMicroseconds(timeout, _PyTime_ROUND_CEILING);
-
         /* first a simple non-blocking try without releasing the GIL */
         r = PyThread_acquire_lock_timed(lock, 0, 0);
-        if (r == PY_LOCK_FAILURE && microseconds != 0) {
+        if (r == PY_LOCK_FAILURE && timeout != 0) {
             Py_BEGIN_ALLOW_THREADS
-            r = PyThread_acquire_lock_timed(lock, microseconds, 1);
+            r = PyThread_acquire_lock_timed(lock, timeout, 1);
             Py_END_ALLOW_THREADS
         }
 
@@ -75,7 +76,7 @@ acquire_timed(PyThread_type_lock lock, _PyTime_t timeout)
             /* If we're using a timeout, recompute the timeout after processing
              * signals, since those can take time.  */
             if (timeout > 0) {
-                timeout = endtime - _PyTime_GetMonotonicClock();
+                timeout = endtime - NOW;
 
                 /* Check for negative values, since those mean block forever.
                  */
@@ -91,45 +92,24 @@ acquire_timed(PyThread_type_lock lock, _PyTime_t timeout)
 
 static int
 lock_acquire_parse_args(PyObject *args, PyObject *kwds,
-                        _PyTime_t *timeout)
+                        PY_TIMEOUT_T *timeout)
 {
     char *kwlist[] = {"blocking", "timeout", NULL};
     int blocking = 1;
-    PyObject *timeout_obj = NULL;
-    const _PyTime_t unset_timeout = _PyTime_FromSeconds(-1);
+    &timeout = _PyThread_TIMEOUT_NOT_SET;
 
-    *timeout = unset_timeout ;
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|iO:acquire", kwlist,
-                                     &blocking, &timeout_obj))
-        return -1;
-
-    if (timeout_obj
-        && _PyTime_FromSecondsObject(timeout,
-                                     timeout_obj, _PyTime_ROUND_TIMEOUT) < 0)
-        return -1;
-
-    if (!blocking && *timeout != unset_timeout ) {
-        PyErr_SetString(PyExc_ValueError,
-                        "can't specify a timeout for a non-blocking call");
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|iO&:acquire", kwlist,
+            &blocking, _PyThread_timeout_arg_converter, timeout)) {
         return -1;
     }
-    if (*timeout < 0 && *timeout != unset_timeout) {
-        PyErr_SetString(PyExc_ValueError,
-                        "timeout value must be positive");
-        return -1;
-    }
-    if (!blocking)
-        *timeout = 0;
-    else if (*timeout != unset_timeout) {
-        _PyTime_t microseconds;
 
-        microseconds = _PyTime_AsMicroseconds(*timeout, _PyTime_ROUND_TIMEOUT);
-        if (microseconds >= PY_TIMEOUT_MAX) {
-            PyErr_SetString(PyExc_OverflowError,
-                            "timeout value is too large");
+    if (!blocking) {
+        if (*timeout != _PyThread_TIMEOUT_NOT_SET) {
+            PyErr_SetString(PyExc_ValueError,
+                            "can't specify a timeout for a non-blocking call");
             return -1;
         }
+        *timeout = 0;
     }
     return 0;
 }
@@ -137,7 +117,7 @@ lock_acquire_parse_args(PyObject *args, PyObject *kwds,
 static PyObject *
 lock_PyThread_acquire_lock(lockobject *self, PyObject *args, PyObject *kwds)
 {
-    _PyTime_t timeout;
+    PY_TIMEOUT_T timeout;
     PyLockStatus r;
 
     if (lock_acquire_parse_args(args, kwds, &timeout) < 0)
@@ -307,7 +287,7 @@ rlock_dealloc(rlockobject *self)
 static PyObject *
 rlock_acquire(rlockobject *self, PyObject *args, PyObject *kwds)
 {
-    _PyTime_t timeout;
+    PY_TIMEOUT_T timeout;
     unsigned long tid;
     PyLockStatus r = PY_LOCK_ACQUIRED;
 
