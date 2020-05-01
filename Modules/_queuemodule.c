@@ -187,6 +187,7 @@ _queue_SimpleQueue_get_impl(simplequeueobject *self, int block,
     }
     else if (timeout != Py_None) {
         /* With timeout */
+        // XXX Use _PyThread_timeout_arg_converter()?
         if (_PyTime_FromSecondsObject(&timeout_val,
                                       timeout, _PyTime_ROUND_CEILING) < 0)
             return NULL;

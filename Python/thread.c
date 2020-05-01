@@ -242,7 +242,8 @@ _PyThread_timeout_arg_converter(PyObject *arg, void *ptr)
         return -1;
     }
     if (time < 0 && time != TIMEOUT_NOT_SET) {
-        PyErr_SetString(PyExc_ValueError, "timeout value must be positive");
+        PyErr_SetString(PyExc_ValueError,
+                        "timeout value must be a non-negative number");
         return -1;
     }
     PY_TIMEOUT_T timeout = _PyTime_AsMicroseconds(time, _PyTime_ROUND_TIMEOUT);
