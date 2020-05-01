@@ -681,8 +681,7 @@ faulthandler_dump_traceback_later(PyObject *self,
                                    PyObject *args, PyObject *kwargs)
 {
     static char *kwlist[] = {"timeout", "repeat", "file", "exit", NULL};
-    PyObject *timeout_obj;
-    _PyTime_t timeout, timeout_us;
+    PY_TIMEOUT_T timeout_us;
     int repeat = 0;
     PyObject *file = NULL;
     int fd;
@@ -692,23 +691,8 @@ faulthandler_dump_traceback_later(PyObject *self,
     size_t header_len;
 
     if (!PyArg_ParseTupleAndKeywords(args, kwargs,
-        "O|iOi:dump_traceback_later", kwlist,
-        &timeout_obj, &repeat, &file, &exit))
-        return NULL;
-
-    if (_PyTime_FromSecondsObject(&timeout, timeout_obj,
-                                  _PyTime_ROUND_TIMEOUT) < 0) {
-        return NULL;
-    }
-    timeout_us = _PyTime_AsMicroseconds(timeout, _PyTime_ROUND_TIMEOUT);
-    if (timeout_us <= 0) {
-        PyErr_SetString(PyExc_ValueError, "timeout must be greater than 0");
-        return NULL;
-    }
-    /* Limit to LONG_MAX seconds for format_timeout() */
-    if (timeout_us >= PY_TIMEOUT_MAX || timeout_us / SEC_TO_US >= LONG_MAX) {
-        PyErr_SetString(PyExc_OverflowError,
-                        "timeout value is too large");
+        "O&|iOi:dump_traceback_later", kwlist,
+        _PyThread_timeout_arg_converter, &timeout_us, &repeat, &file, &exit)) {
         return NULL;
     }
 
