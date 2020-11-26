@@ -59,6 +59,7 @@ extern PyStatus _PyGC_Init(PyThreadState *tstate);
 
 /* Various internal finalizers */
 
+extern void _PyType_Fini(PyThreadState *tstate);
 extern void _PyFrame_Fini(PyThreadState *tstate);
 extern void _PyDict_Fini(PyThreadState *tstate);
 extern void _PyTuple_Fini(PyThreadState *tstate);
@@ -75,7 +76,6 @@ extern void _PyExc_Fini(PyThreadState *tstate);
 extern void _PyImport_Fini(void);
 extern void _PyImport_Fini2(void);
 extern void _PyGC_Fini(PyThreadState *tstate);
-extern void _PyType_Fini(void);
 extern void _Py_HashRandomization_Fini(void);
 extern void _PyUnicode_Fini(PyThreadState *tstate);
 extern void _PyUnicode_ClearInterned(PyThreadState *tstate);

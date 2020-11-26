@@ -263,7 +263,7 @@ PyType_ClearCache(void)
 }
 
 void
-_PyType_Fini(void)
+_PyType_Fini(PyThreadState *tstate)
 {
     PyType_ClearCache();
     clear_slotdefs();
