@@ -98,7 +98,7 @@ static PyObject *
 slot_tp_new(PyTypeObject *type, PyObject *args, PyObject *kwds);
 
 static PyStatus
-_PyTypes_InitSlotDefs(void);
+init_slotdefs(void);
 
 static void
 clear_slotdefs(void);
@@ -271,7 +271,7 @@ _PyType_Init(PyThreadState *tstate)
     PyStatus status = _PyStatus_OK();
 
     if (_Py_IsMainInterpreter(tstate)) {
-        status = _PyTypes_InitSlotDefs();
+        status = init_slotdefs();
         if (_PyStatus_EXCEPTION(status)) {
             return status;
         }
@@ -7661,8 +7661,7 @@ update_slots_callback(PyTypeObject *type, void *data)
 static int slotdefs_initialized = 0;
 /* Initialize the slotdefs table by adding interned string objects for the
    names. */
-static PyStatus
-_PyTypes_InitSlotDefs(void)
+static PyStatus init_slotdefs(void)
 {
     if (slotdefs_initialized) {
         return _PyStatus_OK();
@@ -7687,7 +7686,7 @@ _PyTypes_InitSlotDefs(void)
     return _PyStatus_OK();
 }
 
-/* Undo _PyTypes_InitSlotDefs(), releasing the interned strings. */
+/* Undo init_slotdefs(), releasing the interned strings. */
 static void clear_slotdefs(void)
 {
     for (slotdef *p = slotdefs; p->name; p++) {
