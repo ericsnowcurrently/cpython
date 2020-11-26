@@ -98,10 +98,10 @@ static PyObject *
 slot_tp_new(PyTypeObject *type, PyObject *args, PyObject *kwds);
 
 static PyStatus
-init_slotdefs(void);
+init_slotdefs(PyThreadState *);
 
 static void
-clear_slotdefs(void);
+clear_slotdefs(PyThreadState *);
 
 static PyObject *
 lookup_maybe_method(PyObject *self, _Py_Identifier *attrid, int *unbound);
@@ -288,7 +288,7 @@ _PyType_Init(PyThreadState *tstate)
 
     PyStatus status;
 
-    status = init_slotdefs();
+    status = init_slotdefs(tstate);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
@@ -308,7 +308,7 @@ _PyType_Fini(PyThreadState *tstate)
         return;
     }
     clear_method_cache(tstate);
-    clear_slotdefs();
+    clear_slotdefs(tstate);
 }
 
 void
@@ -7683,7 +7683,7 @@ update_slots_callback(PyTypeObject *type, void *data)
 static int slotdefs_initialized = 0;
 /* Initialize the slotdefs table by adding interned string objects for the
    names. */
-static PyStatus init_slotdefs(void)
+static PyStatus init_slotdefs(PyThreadState *tstate)
 {
     if (slotdefs_initialized) {
         return _PyStatus_OK();
@@ -7709,7 +7709,7 @@ static PyStatus init_slotdefs(void)
 }
 
 /* Undo init_slotdefs(), releasing the interned strings. */
-static void clear_slotdefs(void)
+static void clear_slotdefs(PyThreadState *tstate)
 {
     for (slotdef *p = slotdefs; p->name; p++) {
         Py_CLEAR(p->name_strobj);
