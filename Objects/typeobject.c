@@ -20,12 +20,6 @@ class object "PyObject *" "&PyBaseObject_Type"
 
 #include "clinic/typeobject.c.h"
 
-/* bpo-40521: Type method cache is shared by all subinterpreters */
-#ifndef EXPERIMENTAL_ISOLATED_SUBINTERPRETERS
-#  define MCACHE
-#endif
-
-#ifdef MCACHE
 /* Support type attribute cache */
 
 /* The cache can keep references to the names alive for longer than
@@ -52,10 +46,6 @@ struct method_cache_entry {
     PyObject *value;            /* borrowed */
 };
 
-static struct method_cache_entry method_cache[1 << MCACHE_SIZE_EXP];
-static unsigned int next_version_tag = 0;
-#endif
-
 typedef struct PySlot_Offset {
     short subslot_offset;
     short slot_offset;
@@ -64,6 +54,7 @@ typedef struct PySlot_Offset {
 #define MCACHE_STATS 0
 
 #if MCACHE_STATS
+// XXX Move this to PyInterpreterState.type_state.
 static size_t method_cache_hits = 0;
 static size_t method_cache_misses = 0;
 static size_t method_cache_collisions = 0;
@@ -232,17 +223,26 @@ _PyType_GetTextSignatureFromInternalDoc(const char *name, const char *internal_d
     return PyUnicode_FromStringAndSize(start, end - start);
 }
 
+#define TYPE_STATE(tstate) \
+    tstate->interp->type_state
+#define CUR_TYPE_STATE() \
+    TYPE_STATE(_PyThreadState_GET())
+
 static PyStatus init_method_cache(PyThreadState *tstate)
 {
-    // XXX Init tstate->interp->type_state.method_cache.
-
+    TYPE_STATE(tstate).method_cache = PyMem_New(struct method_cache_entry,
+                                                1 << MCACHE_SIZE_EXP);
+    TYPE_STATE(tstate).next_version_tag = 0;
     return _PyStatus_OK();
 }
 
-static void clear_method_cache(PyThreadState *tstate)
+static void reset_method_cache(PyThreadState *tstate)
 {
-#ifdef MCACHE
+    struct method_cache_entry *method_cache = TYPE_STATE(tstate).method_cache;
+    assert(method_cache != NULL);
+
 #if MCACHE_STATS
+    // XXX Only if main interpreter?
     size_t total = method_cache_hits + method_cache_collisions + method_cache_misses;
     fprintf(stderr, "-- Method cache hits        = %zd (%d%%)\n",
             method_cache_hits, (int) (100.0 * method_cache_hits / total));
@@ -251,7 +251,7 @@ static void clear_method_cache(PyThreadState *tstate)
     fprintf(stderr, "-- Method cache collisions  = %zd (%d%%)\n",
             method_cache_collisions, (int) (100.0 * method_cache_collisions / total));
     fprintf(stderr, "-- Method cache size        = %zd KiB\n",
-            sizeof(method_cache) / 1024);
+            sizeof(*method_cache) / 1024);
 #endif
 
     for (Py_ssize_t i = 0; i < (1 << MCACHE_SIZE_EXP); i++) {
@@ -260,32 +260,33 @@ static void clear_method_cache(PyThreadState *tstate)
         method_cache[i].value = NULL;
     }
 
-    next_version_tag = 0;
+    TYPE_STATE(tstate).next_version_tag = 0;
     /* mark all version tags as invalid */
+    // XXX per-interpreter
     PyType_Modified(&PyBaseObject_Type);
-#endif
+}
+
+static void clear_method_cache(PyThreadState *tstate)
+{
+    reset_method_cache(tstate);
+
+    PyMem_Free(TYPE_STATE(tstate).method_cache);
+    TYPE_STATE(tstate).method_cache = NULL;
 }
 
 unsigned int
 PyType_ClearCache(void)
 {
-#ifdef MCACHE
-    // XXX Do all this for each interpreter.
-    unsigned int cur_version_tag = next_version_tag - 1;
-    clear_method_cache(_PyThreadState_GET());
+    // XXX Do this for all interpreters (not just current)?
+    PyThreadState *tstate = _PyThreadState_GET();
+    unsigned int cur_version_tag = TYPE_STATE(tstate).next_version_tag - 1;
+    reset_method_cache(tstate);
     return cur_version_tag;
-#else
-    return 0;
-#endif
 }
 
 PyStatus
 _PyType_Init(PyThreadState *tstate)
 {
-    if (!_Py_IsMainInterpreter(tstate)) {
-        return _PyStatus_OK();
-    }
-
     PyStatus status;
 
     status = init_slotdefs(tstate);
@@ -304,9 +305,6 @@ _PyType_Init(PyThreadState *tstate)
 void
 _PyType_Fini(PyThreadState *tstate)
 {
-    if (!_Py_IsMainInterpreter(tstate)) {
-        return;
-    }
     clear_method_cache(tstate);
     clear_slotdefs(tstate);
 }
@@ -412,7 +410,7 @@ type_mro_modified(PyTypeObject *type, PyObject *bases) {
                         Py_TPFLAGS_VALID_VERSION_TAG);
 }
 
-#ifdef MCACHE
+//#ifdef MCACHE
 static int
 assign_version_tag(PyTypeObject *type)
 {
@@ -431,10 +429,11 @@ assign_version_tag(PyTypeObject *type)
     if (!_PyType_HasFeature(type, Py_TPFLAGS_READY))
         return 0;
 
-    type->tp_version_tag = next_version_tag++;
+    type->tp_version_tag = CUR_TYPE_STATE().next_version_tag++;
     /* for stress-testing: next_version_tag &= 0xFF; */
 
     if (type->tp_version_tag == 0) {
+        struct method_cache_entry *method_cache = CUR_TYPE_STATE().method_cache;
         /* wrap-around or just starting Python - clear the whole
            cache by filling names with references to Py_None.
            Values are also set to NULL for added protection, as they
@@ -459,7 +458,7 @@ assign_version_tag(PyTypeObject *type)
     type->tp_flags |= Py_TPFLAGS_VALID_VERSION_TAG;
     return 1;
 }
-#endif
+//#endif
 
 
 static PyMemberDef type_members[] = {
@@ -3344,10 +3343,11 @@ _PyType_Lookup(PyTypeObject *type, PyObject *name)
     PyObject *res;
     int error;
 
-#ifdef MCACHE
+//#ifdef MCACHE
     if (MCACHE_CACHEABLE_NAME(name) &&
         _PyType_HasFeature(type, Py_TPFLAGS_VALID_VERSION_TAG)) {
         /* fast path */
+        struct method_cache_entry *method_cache = CUR_TYPE_STATE().method_cache;
         unsigned int h = MCACHE_HASH_METHOD(type, name);
         if (method_cache[h].version == type->tp_version_tag &&
             method_cache[h].name == name) {
@@ -3357,7 +3357,7 @@ _PyType_Lookup(PyTypeObject *type, PyObject *name)
             return method_cache[h].value;
         }
     }
-#endif
+//#endif
 
     /* We may end up clearing live exceptions below, so make sure it's ours. */
     assert(!PyErr_Occurred());
@@ -3379,8 +3379,9 @@ _PyType_Lookup(PyTypeObject *type, PyObject *name)
         return NULL;
     }
 
-#ifdef MCACHE
+//#ifdef MCACHE
     if (MCACHE_CACHEABLE_NAME(name) && assign_version_tag(type)) {
+        struct method_cache_entry *method_cache = CUR_TYPE_STATE().method_cache;
         unsigned int h = MCACHE_HASH_METHOD(type, name);
         method_cache[h].version = type->tp_version_tag;
         method_cache[h].value = res;  /* borrowed */
@@ -3394,7 +3395,7 @@ _PyType_Lookup(PyTypeObject *type, PyObject *name)
 #endif
         Py_SETREF(method_cache[h].name, name);
     }
-#endif
+//#endif
     return res;
 }
 
@@ -7685,6 +7686,10 @@ static int slotdefs_initialized = 0;
    names. */
 static PyStatus init_slotdefs(PyThreadState *tstate)
 {
+    if (!_Py_IsMainInterpreter(tstate)) {
+        return _PyStatus_OK();
+    }
+
     if (slotdefs_initialized) {
         return _PyStatus_OK();
     }
@@ -7711,6 +7716,10 @@ static PyStatus init_slotdefs(PyThreadState *tstate)
 /* Undo init_slotdefs(), releasing the interned strings. */
 static void clear_slotdefs(PyThreadState *tstate)
 {
+    if (!_Py_IsMainInterpreter(tstate)) {
+        return;
+    }
+
     for (slotdef *p = slotdefs; p->name; p++) {
         Py_CLEAR(p->name_strobj);
     }
