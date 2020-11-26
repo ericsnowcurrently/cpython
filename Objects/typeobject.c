@@ -232,13 +232,16 @@ _PyType_GetTextSignatureFromInternalDoc(const char *name, const char *internal_d
     return PyUnicode_FromStringAndSize(start, end - start);
 }
 
-unsigned int
-PyType_ClearCache(void)
+static PyStatus init_method_cache(PyThreadState *tstate)
+{
+    // XXX Init tstate->interp->type_state.method_cache.
+
+    return _PyStatus_OK();
+}
+
+static void clear_method_cache(PyThreadState *tstate)
 {
 #ifdef MCACHE
-    Py_ssize_t i;
-    unsigned int cur_version_tag = next_version_tag - 1;
-
 #if MCACHE_STATS
     size_t total = method_cache_hits + method_cache_collisions + method_cache_misses;
     fprintf(stderr, "-- Method cache hits        = %zd (%d%%)\n",
@@ -251,14 +254,25 @@ PyType_ClearCache(void)
             sizeof(method_cache) / 1024);
 #endif
 
-    for (i = 0; i < (1 << MCACHE_SIZE_EXP); i++) {
+    for (Py_ssize_t i = 0; i < (1 << MCACHE_SIZE_EXP); i++) {
         method_cache[i].version = 0;
         Py_CLEAR(method_cache[i].name);
         method_cache[i].value = NULL;
     }
+
     next_version_tag = 0;
     /* mark all version tags as invalid */
     PyType_Modified(&PyBaseObject_Type);
+#endif
+}
+
+unsigned int
+PyType_ClearCache(void)
+{
+#ifdef MCACHE
+    // XXX Do all this for each interpreter.
+    unsigned int cur_version_tag = next_version_tag - 1;
+    clear_method_cache(_PyThreadState_GET());
     return cur_version_tag;
 #else
     return 0;
@@ -268,25 +282,33 @@ PyType_ClearCache(void)
 PyStatus
 _PyType_Init(PyThreadState *tstate)
 {
-    PyStatus status = _PyStatus_OK();
-
-    if (_Py_IsMainInterpreter(tstate)) {
-        status = init_slotdefs();
-        if (_PyStatus_EXCEPTION(status)) {
-            return status;
-        }
+    if (!_Py_IsMainInterpreter(tstate)) {
+        return _PyStatus_OK();
     }
 
-    return status;
+    PyStatus status;
+
+    status = init_slotdefs();
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+
+    status = init_method_cache(tstate);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+
+    return _PyStatus_OK();
 }
 
 void
 _PyType_Fini(PyThreadState *tstate)
 {
-    if (_Py_IsMainInterpreter(tstate)) {
-        PyType_ClearCache();
-        clear_slotdefs();
+    if (!_Py_IsMainInterpreter(tstate)) {
+        return;
     }
+    clear_method_cache(tstate);
+    clear_slotdefs();
 }
 
 void
