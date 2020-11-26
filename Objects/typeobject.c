@@ -283,8 +283,10 @@ _PyType_Init(PyThreadState *tstate)
 void
 _PyType_Fini(PyThreadState *tstate)
 {
-    PyType_ClearCache();
-    clear_slotdefs();
+    if (_Py_IsMainInterpreter(tstate)) {
+        PyType_ClearCache();
+        clear_slotdefs();
+    }
 }
 
 void
@@ -7659,7 +7661,7 @@ update_slots_callback(PyTypeObject *type, void *data)
 static int slotdefs_initialized = 0;
 /* Initialize the slotdefs table by adding interned string objects for the
    names. */
-PyStatus
+static PyStatus
 _PyTypes_InitSlotDefs(void)
 {
     if (slotdefs_initialized) {

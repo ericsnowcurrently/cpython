@@ -1592,6 +1592,8 @@ finalize_interp_types(PyThreadState *tstate)
     _PyUnicode_Fini(tstate);
     _PyFloat_Fini(tstate);
     _PyLong_Fini(tstate);
+
+    _PyType_Fini(tstate);
 }
 
 
@@ -1755,9 +1757,6 @@ Py_FinalizeEx(void)
 
     /* Destroy the database used by _PyImport_{Fixup,Find}Extension */
     _PyImport_Fini();
-
-    /* Cleanup typeobject.c's internal caches. */
-    _PyType_Fini(tstate);
 
     /* unload faulthandler module */
     _PyFaulthandler_Fini();
