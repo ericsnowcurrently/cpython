@@ -97,6 +97,9 @@ _Py_IDENTIFIER(mro);
 static PyObject *
 slot_tp_new(PyTypeObject *type, PyObject *args, PyObject *kwds);
 
+static PyStatus
+_PyTypes_InitSlotDefs(void);
+
 static void
 clear_slotdefs(void);
 
@@ -260,6 +263,21 @@ PyType_ClearCache(void)
 #else
     return 0;
 #endif
+}
+
+PyStatus
+_PyType_Init(PyThreadState *tstate)
+{
+    PyStatus status = _PyStatus_OK();
+
+    if (_Py_IsMainInterpreter(tstate)) {
+        status = _PyTypes_InitSlotDefs();
+        if (_PyStatus_EXCEPTION(status)) {
+            return status;
+        }
+    }
+
+    return status;
 }
 
 void

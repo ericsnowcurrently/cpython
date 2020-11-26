@@ -31,6 +31,7 @@ PyAPI_FUNC(int) _Py_IsLocaleCoercionTarget(const char *ctype_loc);
 
 /* Various one-time initializers */
 
+extern PyStatus _PyType_Init(PyThreadState *tstate);
 extern PyStatus _PyUnicode_Init(PyThreadState *tstate);
 extern PyStatus _PyBytes_Init(PyThreadState *tstate);
 extern int _PyStructSequence_Init(void);
@@ -52,7 +53,6 @@ extern int _PyFloat_Init(void);
 extern PyStatus _Py_HashRandomization_Init(const PyConfig *);
 
 extern PyStatus _PyTypes_Init(void);
-extern PyStatus _PyTypes_InitSlotDefs(void);
 extern PyStatus _PyImportZip_Init(PyThreadState *tstate);
 extern PyStatus _PyGC_Init(PyThreadState *tstate);
 

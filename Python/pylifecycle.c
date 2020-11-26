@@ -648,6 +648,10 @@ pycore_init_types(PyThreadState *tstate)
         return status;
     }
 
+    status = _PyType_Init(tstate);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
     if (is_main_interp) {
         status = _PyTypes_Init();
         if (_PyStatus_EXCEPTION(status)) {

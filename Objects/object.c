@@ -1723,10 +1723,8 @@ PyObject _Py_NotImplementedStruct = {
 PyStatus
 _PyTypes_Init(void)
 {
-    PyStatus status = _PyTypes_InitSlotDefs();
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
+    // At this point _PyType_Init() will have already been called
+    // for the main interpreter.
 
 #define INIT_TYPE(TYPE, NAME) \
     do { \
