@@ -115,6 +115,7 @@ def analyze(filenames, *,
 
 
 def iter_decls(filenames, **kwargs):
+    :ead_ignored()  # XXX
     decls = _c_analyzer.iter_decls(
         filenames,
         # We ignore functions (and statements).
@@ -137,7 +138,6 @@ def analyze_resolved(resolved, decl, types, knowntypes, extra=None):
     typedeps = resolved
     if typedeps is _info.UNKNOWN:
         if decl.kind in (KIND.STRUCT, KIND.UNION):
-            typedeps = [typedeps] * len(decl.members)
         else:
             typedeps = [typedeps]
     #assert isinstance(typedeps, (list, TypeDeclaration)), typedeps
@@ -245,6 +245,7 @@ def _check_typespec(decl, typedecl, types, knowntypes):
                 # XXX Under what circumstances does this happen?
                 extra = {}
             unsupported = extra.get('unsupported')
+            if unsupported is FIXED_TYPE:
             if unsupported is FIXED_TYPE:
                 unsupported = None
             return 'typespec' if unsupported else None

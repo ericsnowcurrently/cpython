@@ -158,14 +158,6 @@ struct _Py_exc_state {
     int memerrors_numfree;
 };
 
-struct wrapperbase;  // forward (Include/descrobject.h)
-struct method_cache_entry;  // forward (Objects/typeobject.c)
-
-struct _Py_type_state {
-    unsigned int next_version_tag;
-    struct method_cache_entry *method_cache;
-};
-
 /* interpreter state */
 
 #define _PY_NSMALLPOSINTS           257
@@ -263,7 +255,6 @@ struct _is {
        created and then deleted again. */
     PySliceObject *slice_cache;
 
-    struct _Py_type_state type_state;
     struct _Py_tuple_state tuple;
     struct _Py_list_state list;
     struct _Py_dict_state dict_state;
