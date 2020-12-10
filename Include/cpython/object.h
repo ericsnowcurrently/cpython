@@ -385,7 +385,10 @@ PyAPI_FUNC(PyObject *) _PyObject_FunctionStr(PyObject *);
 #endif
 
 #ifdef _Py_IMMORTAL_OBJECTS
-#define _PyObject_IMMORTAL_BIT (PY_SSIZE_T_MAX / -4)
+/* The GC bit-shifts refcounts left by two, and after that shift we still
+ * need this to be >> 0, so leave three high zero bits (the sign bit and
+ * room for a shift of two.) */
+#define _PyObject_IMMORTAL_BIT (1LL << (8 * sizeof(Py_ssize_t) - 4))
 
 // We leave plenty of room to preserve _PyObject_IMMORTAL_BIT.
 #define _PyObject_IMMORTAL_INIT_REFCNT \
