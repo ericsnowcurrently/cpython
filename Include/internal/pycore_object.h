@@ -15,6 +15,18 @@ extern "C" {
 PyAPI_FUNC(int) _PyType_CheckConsistency(PyTypeObject *type);
 PyAPI_FUNC(int) _PyDict_CheckConsistency(PyObject *mp, int check_content);
 
+/* An "immortal" object is one for which Py_DECREF() will never try
+ * to deallocate it.  To achieve this we set the refcount to some
+ * negative value.  To play it safe, we use a value right in the
+ * middle of the negative range.
+ */
+
+PyAPI_FUNC(int) _PyObject_IsImmortal(PyObject *);
+PyAPI_FUNC(int) _PyObject_SetImmortal(PyObject *);
+PyAPI_FUNC(void) _PyObject_ClearImmortal(PyObject *);
+PyAPI_FUNC(PyObject *) _PyObject_GetActualTypeHolder(PyObject *);
+PyAPI_FUNC(PyTypeObject *) _PyObject_GetActualType(PyObject *);
+
 /* Update the Python traceback of an object. This function must be called
    when a memory block is reused from a free list.
 

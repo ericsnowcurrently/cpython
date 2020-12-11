@@ -128,8 +128,11 @@ static inline Py_ssize_t _Py_REFCNT(const PyObject *ob) {
 #define Py_REFCNT(ob) _Py_REFCNT(_PyObject_CAST_CONST(ob))
 
 
+extern PyObject * _PyObject_GetActualTypeHolder(PyObject *);
+
 // bpo-39573: The Py_SET_TYPE() function must be used to set an object type.
-#define Py_TYPE(ob)             (_PyObject_CAST(ob)->ob_type)
+#define Py_TYPE(ob) \
+    (_PyObject_GetActualTypeHolder(_PyObject_CAST(ob))->ob_type)
 
 // bpo-39573: The Py_SET_SIZE() function must be used to set an object size.
 #define Py_SIZE(ob)             (_PyVarObject_CAST(ob)->ob_size)
@@ -148,6 +151,11 @@ static inline void _Py_SET_REFCNT(PyObject *ob, Py_ssize_t refcnt) {
 
 
 static inline void _Py_SET_TYPE(PyObject *ob, PyTypeObject *type) {
+    extern int _PyObject_IsImmortal(PyObject *);
+    extern void _PyObject_ClearImmortal(PyObject *);
+    if (_PyObject_IsImmortal(ob)) {
+        _PyObject_ClearImmortal(ob);
+    }
     ob->ob_type = type;
 }
 #define Py_SET_TYPE(ob, type) _Py_SET_TYPE(_PyObject_CAST(ob), type)

@@ -136,6 +136,74 @@ Py_DecRef(PyObject *o)
     Py_XDECREF(o);
 }
 
+// We take a sneaky approach to support "immortal" objects.
+
+static const int _immortal_dummy_type = 0;
+
+struct _immortaldata {
+    // We only need a type field (for the object's actual type, but for
+    // the sake of the Py_TYPE() macro we make this a PyTypeObject and
+    // use ob_type.  ob_refcnt should never be used.
+    PyObject_HEAD
+};
+
+struct _immortalobject {
+    PyObject_HEAD
+    struct _immortaldata data;
+};
+
+int
+_PyObject_IsImmortal(PyObject *ob)
+{
+    return (_PyObject_CAST(ob->ob_type))->ob_type == (PyTypeObject *)&_immortal_dummy_type;
+}
+
+int
+_PyObject_SetImmortal(PyObject *ob)
+{
+    if (_PyObject_IsImmortal(ob)) {
+        return 0;
+    }
+    struct _immortalobject *dummy = PyMem_New(struct _immortalobject, 1);
+    if (dummy == NULL) {
+        PyErr_NoMemory();
+        return -1;
+    }
+    /* The GC bit-shifts refcounts left by two, and after that shift we still
+     * need this to be >> 0, so leave three high zero bits (the sign bit and
+     * room for a shift of two.) */
+    dummy->ob_base.ob_refcnt = 1LL << (8 * sizeof(Py_ssize_t) - 4);
+    dummy->ob_base.ob_type = (PyTypeObject*)&_immortal_dummy_type;
+    dummy->data.ob_base.ob_refcnt = 1;
+    dummy->data.ob_base.ob_type = ob->ob_type;
+    ob->ob_type = (PyTypeObject*)dummy;
+    return 0;
+}
+
+void
+_PyObject_ClearImmortal(PyObject *ob)
+{
+    assert(_PyObject_IsImmortal(ob));
+    struct _immortalobject *dummy = (struct _immortalobject *)(ob->ob_type);
+    ob->ob_type = dummy->data.ob_base.ob_type;
+    PyMem_Del(dummy);
+}
+
+PyObject *
+_PyObject_GetActualTypeHolder(PyObject *ob)
+{
+    if (_PyObject_IsImmortal(ob)) {
+        return _PyObject_CAST(&((struct _immortalobject *)ob)->data);
+    }
+    return ob;
+}
+
+PyTypeObject *
+_PyObject_GetActualType(PyObject *ob)
+{
+    return _PyObject_GetActualTypeHolder(ob)->ob_type;
+}
+
 PyObject *
 PyObject_Init(PyObject *op, PyTypeObject *tp)
 {
