@@ -53,6 +53,16 @@ struct _Py_unicode_fs_codec {
     _Py_error_handler error_handler;
 };
 
+struct _Py_capi_objects {
+    // XXX Add all PyAPI_DATA(PyObject *) here.
+    // ~67 exception types in the public C-API.
+    // ~80 types in the public C-API.
+    // ~17 types in the "private" C-API.
+    // ~8 types in the internal C-API.  (XXX Ignore them?)
+    // 5 singletons in the public C-API.
+    // 1 singleton in the "private" C-API.
+};
+
 struct _Py_bytes_state {
     PyObject *empty_string;
     PyBytesObject *characters[256];
@@ -290,6 +300,8 @@ struct _is {
     struct atexit_state atexit;
 
     PyObject *audit_hooks;
+
+    struct _Py_capi_objects capi_objects;
 
     /* Small integers are preallocated in this array so that they
        can be shared.
