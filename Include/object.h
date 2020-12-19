@@ -390,6 +390,11 @@ given type object has a specified feature.
 // subject itself (rather than a mapped attribute on it):
 #define _Py_TPFLAGS_MATCH_SELF (1UL << 22)
 
+#ifdef Py_BUILD_CORE
+// This undocumented flag determines the behavior of _Py_ResolveObject().
+#define _Py_TPFLAGS_MUST_RESOLVE    (1UL << 23)
+#endif
+
 /* These flags are used to determine if a type is a subclass. */
 #define Py_TPFLAGS_LONG_SUBCLASS        (1UL << 24)
 #define Py_TPFLAGS_LIST_SUBCLASS        (1UL << 25)

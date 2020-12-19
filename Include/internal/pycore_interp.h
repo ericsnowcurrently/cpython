@@ -331,6 +331,7 @@ struct _is {
 extern void _PyInterpreterState_ClearModules(PyInterpreterState *interp);
 extern void _PyInterpreterState_Clear(PyThreadState *tstate);
 
+PyAPI_FUNC(PyObject *) _PyInterpreterState_LookUpObject(PyInterpreterState *, PyObject *);
 
 /* cross-interpreter data registry */
 

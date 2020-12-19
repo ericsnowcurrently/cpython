@@ -608,6 +608,60 @@ PyInterpreterState_GetDict(PyInterpreterState *interp)
     return interp->dict;
 }
 
+
+static inline PyObject *
+_look_up_builtin_exc_type(struct _Py_capi_objects *cache, PyObject *ob)
+{
+    // There are ~67 in the public C-API.
+    // XXX Pull from cache.
+    return NULL;
+}
+
+static inline PyObject *
+_look_up_builtin_type(struct _Py_capi_objects *cache, PyObject *ob)
+{
+    // There are ~80 in the public C-API.
+    // There are ~17 in the "private" C-API.
+    // There are ~8 in the internal C-API.  (XXX Ignore them?)
+    // XXX Pull from cache.
+    return NULL;
+}
+
+static inline PyObject *
+_look_up_singleton(struct _Py_capi_objects *cache, PyObject *ob)
+{
+    if (ob == Py_None) {
+        // XXX Pull from cache.
+        // return &cache->none;
+    } else if (ob == Py_True) {
+        // XXX Pull from cache.
+        // return &cache->true;
+    } else if (ob == Py_False) {
+        // XXX Pull from cache.
+        // return &cache->false;
+    } else if (ob == Py_NotImplemented) {
+        // XXX Pull from cache.
+        // return &cache->notimplemented;
+    } else if (ob == Py_Ellipsis) {
+        // XXX Pull from cache.
+        // return &cache->ellipsis;
+    }
+    return NULL;
+}
+
+PyObject *
+_PyInterpreterState_LookUpObject(PyInterpreterState *interp, PyObject *ob)
+{
+    if (PyExceptionClass_Check(ob)) {
+        return _look_up_builtin_exc_type(&interp->capi_objects, ob);
+    }
+    if (PyType_CheckExact(ob)) {
+        return _look_up_builtin_type(&interp->capi_objects, ob);
+    }
+    return _look_up_singleton(&interp->capi_objects, ob);
+}
+
+
 /* Minimum size of data stack chunk */
 #define DATA_STACK_CHUNK_SIZE (16*1024)
 
