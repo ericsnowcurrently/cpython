@@ -1487,9 +1487,9 @@ _PyEval_EvalFrameDefault(PyThreadState *tstate, PyFrameObject *f, int throwflag)
     if (co->co_opcache_flag < OPCACHE_MIN_RUNS) {
         co->co_opcache_flag++;
         if (co->co_opcache_flag == OPCACHE_MIN_RUNS) {
-            if (_PyCode_InitOpcache(co) < 0) {
-                goto exit_eval_frame;
-            }
+            //if (_PyCode_InitOpcache(co) < 0) {
+            //    goto exit_eval_frame;
+            //}
 #if OPCACHE_STATS
             opcache_code_objects_extra_mem +=
                 PyBytes_Size(co->co_code) / sizeof(_Py_CODEUNIT) +
