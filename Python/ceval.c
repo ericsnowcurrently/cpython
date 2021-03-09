@@ -1488,9 +1488,9 @@ _PyEval_EvalFrameDefault(PyThreadState *tstate, PyFrameObject *f, int throwflag)
     if (co->co_opcache_flag < OPCACHE_MIN_RUNS) {
         co->co_opcache_flag++;
         if (co->co_opcache_flag == OPCACHE_MIN_RUNS) {
-            if (_PyCode_InitOpcache(co) < 0) {
-                goto exit_eval_frame;
-            }
+            //if (_PyCode_InitOpcache(co) < 0) {
+            //    goto exit_eval_frame;
+            //}
             if (co->co_argcount > 0) {
                 // Note: The optimized bytecode will be used on the *next* run.
                 if (_PyCode_Optimize(co, fastlocals[0]) < 0) {
