@@ -130,8 +130,10 @@ C-API examples of such objects includes the singletons and many builtin
 types.  For such objects the reference count is essentially irrelevant.
 Immortal objects are especially useful if otherwise immutable.
 
-Note that, for now, the API for immortal objects is not available
-for general use and it should not be considered stable yet.
+Note that for now the API for immortal objects is not available
+for general use, by default.  Users of the public C-API (but not
+the limited API) may opt in by defining ``_Py_IMMORTAL_OBJECTS``.
+This API should not be considered stable yet.
 
 .. c:function:: int _PyObject_IsImmortal(PyObject *o)
 
@@ -147,4 +149,17 @@ for general use and it should not be considered stable yet.
 
 Also see :c:macro:`_PyObject_HEAD_IMMORTAL_INIT` and
 :c:macro:`_PyVarObject_HEAD_IMMORTAL_INIT`.
+
+.. _immutable-refcounts:
+
+Immutable Refcounts
+-------------------
+
+If ``Py_IMMORTAL_CONST_REFCOUNTS`` is defined then the following
+happens:
+
+* the immortal objects API is enabled
+* the runtime never changes reference counts for immortal objects
+
+This mode can help with copy-on-write semantics when forking.
 

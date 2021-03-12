@@ -437,6 +437,11 @@ static inline void _Py_INCREF(PyObject *op)
 #ifdef Py_REF_DEBUG
     _Py_RefTotal++;
 #endif
+#ifdef Py_IMMORTAL_CONST_REFCOUNTS
+    if (_py_is_immortal(op)) {
+        return;
+    }
+#endif
     op->ob_refcnt++;
 }
 #define Py_INCREF(op) _Py_INCREF(_PyObject_CAST(op))
@@ -449,6 +454,11 @@ static inline void _Py_DECREF(
 {
 #ifdef Py_REF_DEBUG
     _Py_RefTotal--;
+#endif
+#ifdef Py_IMMORTAL_CONST_REFCOUNTS
+    if (_py_is_immortal(op)) {
+        return;
+    }
 #endif
     if (--op->ob_refcnt != 0) {
 #ifdef Py_REF_DEBUG
@@ -681,14 +691,23 @@ times.
 #endif
 
 
-// This is a static equivalent for other static functions here that
-// would otherwise use _PyObject_IsImmortal().
+#if defined(Py_LIMITED_API) && \
+    (defined(_Py_IMMORTAL_OBJECTS) || defined(Py_IMMORTAL_CONST_REFCOUNTS))
+#error "the immortal objects API is not available in the limited API"
+#endif
+
+// This is a static version of _PyObject_IsImmortal(), for the sake
+// of other static functions, like _Py_SET_REFCNT() and _Py_INCREF().
 static inline int _py_is_immortal(PyObject *op)
 {
+#ifdef Py_IMMORTAL_CONST_REFCOUNTS
+    return (op->ob_refcnt & _PyObject_IMMORTAL_BIT) != 0;
+#else
 #ifndef _Py_IMMORTAL_OBJECTS
     extern int _PyObject_IsImmortal(PyObject *);
 #endif
     return _PyObject_IsImmortal(op);
+#endif
 }
 
 
