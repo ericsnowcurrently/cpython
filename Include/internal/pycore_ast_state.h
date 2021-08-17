@@ -10,6 +10,7 @@ extern "C" {
 #  error "this header requires Py_BUILD_CORE define"
 #endif
 
+// XXX
 struct ast_state {
     int initialized;
     PyObject *AST_type;

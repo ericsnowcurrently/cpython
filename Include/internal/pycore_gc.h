@@ -128,6 +128,7 @@ struct gc_generation_stats {
 };
 
 struct _gc_runtime_state {
+// XXX
     /* List of objects that still need to be cleaned up, singly linked
      * via their gc headers' gc_prev pointers.  */
     PyObject *trash_delete_later;
@@ -144,8 +145,10 @@ struct _gc_runtime_state {
     struct gc_generation_stats generation_stats[NUM_GENERATIONS];
     /* true if we are currently running the collector */
     int collecting;
+// XXX
     /* list of uncollectable objects */
     PyObject *garbage;
+// XXX
     /* a list of callbacks to be invoked when collection is performed */
     PyObject *callbacks;
     /* This is the number of objects that survived the last full

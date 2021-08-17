@@ -57,23 +57,29 @@ struct _Py_unicode_fs_codec {
 };
 
 struct _Py_bytes_state {
+// XXX
     PyObject *empty_string;
+// XXX
     PyBytesObject *characters[256];
 };
 
 struct _Py_unicode_ids {
     Py_ssize_t size;
+// XXX
     PyObject **array;
 };
 
 struct _Py_unicode_state {
+// XXX
     // The empty Unicode object is a singleton to improve performance.
     PyObject *empty_string;
+// XXX
     /* Single character Unicode strings in the Latin-1 range are being
        shared as well. */
     PyObject *latin1[256];
     struct _Py_unicode_fs_codec fs_codec;
 
+// XXX
     /* This dictionary holds all interned unicode strings.  Note that references
        to strings in this dictionary are *not* counted in the string's ob_refcnt.
        When the interned string reaches a refcnt of 0 the string deallocation
@@ -93,6 +99,7 @@ struct _Py_float_state {
        free_list is a singly-linked list of available PyFloatObjects,
        linked via abuse of their ob_type members. */
     int numfree;
+// XXX
     PyFloatObject *free_list;
 };
 
@@ -111,6 +118,7 @@ struct _Py_tuple_state {
     /* Entries 1 up to PyTuple_MAXSAVESIZE are free lists,
        entry 0 is the empty tuple () of which at most one instance
        will be allocated. */
+// XXX
     PyTupleObject *free_list[PyTuple_MAXSAVESIZE];
     int numfree[PyTuple_MAXSAVESIZE];
 #endif
@@ -122,6 +130,7 @@ struct _Py_tuple_state {
 #endif
 
 struct _Py_list_state {
+// XXX
     PyListObject *free_list[PyList_MAXFREELIST];
     int numfree;
 };
@@ -131,14 +140,17 @@ struct _Py_list_state {
 #endif
 
 struct _Py_dict_state {
+// XXX
     /* Dictionary reuse scheme to save calls to malloc and free */
     PyDictObject *free_list[PyDict_MAXFREELIST];
     int numfree;
+// XXX
     PyDictKeysObject *keys_free_list[PyDict_MAXFREELIST];
     int keys_numfree;
 };
 
 struct _Py_frame_state {
+// XXX
     PyFrameObject *free_list;
     /* number of frames currently in free_list */
     int numfree;
@@ -149,6 +161,7 @@ struct _Py_frame_state {
 #endif
 
 struct _Py_async_gen_state {
+// XXX
     /* Freelists boost performance 6-10%; they also reduce memory
        fragmentation, as _PyAsyncGenWrappedValue and PyAsyncGenASend
        are short-living objects that are instantiated for every
@@ -156,19 +169,23 @@ struct _Py_async_gen_state {
     struct _PyAsyncGenWrappedValue* value_freelist[_PyAsyncGen_MAXFREELIST];
     int value_numfree;
 
+// XXX
     struct PyAsyncGenASend* asend_freelist[_PyAsyncGen_MAXFREELIST];
     int asend_numfree;
 };
 
 struct _Py_context_state {
+// XXX
     // List of free PyContext objects
     PyContext *freelist;
     int numfree;
 };
 
 struct _Py_exc_state {
+// XXX
     // The dict mapping from errno codes to OSError subclasses
     PyObject *errnomap;
+// XXX
     PyBaseExceptionObject *memerrors_freelist;
     int memerrors_numfree;
 };
@@ -219,6 +236,8 @@ struct type_cache {
 #  error "_PY_NSMALLPOSINTS must be greater than 1"
 #endif
 
+// Note that the struct doesn't "own" any pointers.
+
 // The PyInterpreterState typedef is in Include/pystate.h.
 struct _is {
 
@@ -247,6 +266,7 @@ struct _is {
 #endif
 
     /* audit hooks */
+// XXX
     PyObject *audit_hooks;
 
     /* thread states */
@@ -267,14 +287,21 @@ struct _is {
     } pythreads;
 
     /* import system */
+// XXX
     PyObject *modules;  // sys.modules dictionary
+// XXX
     PyObject *modules_by_index;
+// XXX
     PyObject *importlib;  // importlib module
+// XXX
     PyObject *import_func;
 
     /* other fundamental state */
+// XXX
     PyObject *sysdict;  // Dictionary of the sys module
+// XXX
     PyObject *builtins;  // Dictionary of the builtins module
+// XXX
     PyObject *builtins_copy;
     struct _warnings_runtime_state warnings;
     struct atexit_state atexit;
@@ -282,6 +309,7 @@ struct _is {
     /* builtin types */
     struct _Py_bytes_state bytes;
     struct _Py_unicode_state unicode;
+// XXX
     /* Small integers are preallocated in this array so that they
        can be shared.
        The integers that are preallocated are those in the range
@@ -289,6 +317,7 @@ struct _is {
     */
     PyLongObject* small_ints[_PY_NSMALLNEGINTS + _PY_NSMALLPOSINTS];
     struct _Py_float_state float_state;
+// XXX
     /* Using a cache is very effective since typically only a single slice is
        created and then deleted again. */
     PySliceObject *slice_cache;
@@ -303,8 +332,11 @@ struct _is {
     struct type_cache type_cache;
 
     /* codecs */
+// XXX
     PyObject *codec_search_path;
+// XXX
     PyObject *codec_search_cache;
+// XXX
     PyObject *codec_error_registry;
     int codecs_initialized;
 
@@ -318,12 +350,16 @@ struct _is {
 
 #ifdef HAVE_FORK
     /* forking */
+// XXX
     PyObject *before_forkers;
+// XXX
     PyObject *after_forkers_parent;
+// XXX
     PyObject *after_forkers_child;
 #endif
 
     /* Stores arbitrary per-interpreter state */
+// XXX
     PyObject *dict;
 };
 

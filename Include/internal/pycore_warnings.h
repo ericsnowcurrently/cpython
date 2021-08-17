@@ -9,10 +9,13 @@ extern "C" {
 #endif
 
 struct _warnings_runtime_state {
+// XXX
     /* Both 'filters' and 'onceregistry' can be set in warnings.py;
        get_warnings_attr() will reset these variables accordingly. */
     PyObject *filters;  /* List */
+// XXX
     PyObject *once_registry;  /* Dict */
+// XXX
     PyObject *default_action; /* String */
     long filters_version;
 };

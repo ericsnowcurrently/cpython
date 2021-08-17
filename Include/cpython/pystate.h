@@ -73,6 +73,8 @@ typedef struct _stack_chunk {
     PyObject * data[1]; /* Variable sized */
 } _PyStackChunk;
 
+// Note that the struct doesn't "own" any pointers.
+
 // The PyThreadState typedef is in Include/pystate.h.
 struct _ts {
     /* See Python/ceval.c for comments explaining most fields */
