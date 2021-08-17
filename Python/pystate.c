@@ -36,134 +36,6 @@ extern "C" {
 #endif
 
 static void
-init_interpreters(struct pyinterpreters *interpreters)
-{
-    // This is set to 0 in _PyInterpreterState_Enable().
-    interpreters->next_id = -1;
-}
-
-static PyStatus
-init_interpreters_threads(struct pyinterpreters *interpreters)
-{
-    if (interpreters->mutex == NULL) {
-        // _PyInterpreterState_Enable() hasn't been called yet.
-        assert(interpreters->next_id < 0);
-        interpreters->mutex = PyThread_allocate_lock();
-        if (interpreters->mutex == NULL) {
-            return _PyStatus_NO_MEMORY();
-        }
-    }
-
-    return _PyStatus_OK();
-}
-
-static PyStatus reinit_interpreter_threads(PyInterpreterState *);
-
-#ifdef HAVE_FORK
-static PyStatus
-reinit_interpreters_threads(struct pyinterpreters *interpreters)
-{
-    PyStatus status;
-
-    PyInterpreterState *main_interp = interpreters->main;
-    assert(main_interp != NULL);
-    status = reinit_interpreter_threads(main_interp);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
-
-    if (interpreters->mutex != NULL) {
-        if (_PyThread_at_fork_reinit(&interpreters->mutex) != 0) {
-            return _PyStatus_NO_MEMORY();
-        }
-    }
-
-    return _PyStatus_OK();
-}
-#endif
-
-static void
-init_xidregistry(struct _xidregistry *registry)
-{
-    assert(registry->head == NULL);
-    assert(registry->mutex == NULL);
-}
-
-static PyStatus
-init_xidregistry_threads(struct _xidregistry *registry)
-{
-    registry->mutex = PyThread_allocate_lock();
-    if (registry->mutex == NULL) {
-        return _PyStatus_NO_MEMORY();
-    }
-    return _PyStatus_OK();
-}
-
-#ifdef HAVE_FORK
-static PyStatus
-reinit_xidregistry_threads(struct _xidregistry *registry)
-{
-    if (_PyThread_at_fork_reinit(&registry->mutex) != 0) {
-        return _PyStatus_NO_MEMORY();
-    }
-    return _PyStatus_OK();
-}
-#endif
-
-static void
-init_global_ceval(_PyRuntimeState *runtime)
-{
-    _PyEval_InitRuntimeState(&runtime->ceval);
-
-    assert(runtime->nexitfuncs == 0);
-
-    runtime->gilstate.check_enabled = 1;
-
-    /* A TSS key must be initialized with Py_tss_NEEDS_INIT
-       in accordance with the specification. */
-    Py_tss_t initial = Py_tss_NEEDS_INIT;
-    runtime->gilstate.autoTSSkey = initial;
-}
-
-static void
-init_audit_hooks(_PyRuntimeState *runtime, _PyRuntimeState *preserved)
-{
-    runtime->open_code_hook = preserved->open_code_hook;
-    runtime->open_code_userdata = preserved->open_code_userdata;
-    runtime->audit_hook_head = preserved->audit_hook_head;
-}
-
-static void
-init_unicode_ids(struct _Py_unicode_runtime_ids *unicode_ids,
-                 struct _Py_unicode_runtime_ids *preserved)
-{
-    unicode_ids->next_index = preserved->next_index;
-    assert(unicode_ids->lock == NULL);
-}
-
-static PyStatus
-init_unicode_ids_threads(struct _Py_unicode_runtime_ids *unicode_ids)
-{
-    unicode_ids->lock = PyThread_allocate_lock();
-    if (unicode_ids->lock == NULL) {
-        return _PyStatus_NO_MEMORY();
-    }
-    return _PyStatus_OK();
-}
-
-#ifdef HAVE_FORK
-static PyStatus
-reinit_unicode_ids_threads(struct _Py_unicode_runtime_ids *unicode_ids)
-{
-    if (_PyThread_at_fork_reinit(&unicode_ids->lock) != 0) {
-        return _PyStatus_NO_MEMORY();
-    }
-    return _PyStatus_OK();
-}
-#endif
-
-
-static void
 init_runtime(_PyRuntimeState *runtime, _PyRuntimeState *preserved)
 {
     assert(runtime->preinitializing == 0);
@@ -174,14 +46,33 @@ init_runtime(_PyRuntimeState *runtime, _PyRuntimeState *preserved)
 
     PyPreConfig_InitPythonConfig(&runtime->preconfig);
 
-    init_audit_hooks(runtime, preserved);
+    /* audit hooks */
+    runtime->open_code_hook = preserved->open_code_hook;
+    runtime->open_code_userdata = preserved->open_code_userdata;
+    runtime->audit_hook_head = preserved->audit_hook_head;
 
-    init_interpreters(&runtime->interpreters);
-    init_xidregistry(&runtime->xidregistry);
+    /* interpreters */
+    // This is set to 0 in _PyInterpreterState_Enable().
+    runtime->interpreters.next_id = -1;
+    // For now we do not initialize the main interpreter here.
+    assert(runtime->interpreters.main == NULL);
 
-    init_global_ceval(runtime);
+    /* XID registry */
+    assert(runtime->xidregistry.head == NULL);
+    assert(runtime->xidregistry.mutex == NULL);
 
-    init_unicode_ids(&runtime->unicode_ids, &preserved->unicode_ids);
+    /* global ceval */
+    _PyEval_InitRuntimeState(&runtime->ceval);
+    assert(runtime->nexitfuncs == 0);
+    runtime->gilstate.check_enabled = 1;
+    // A TSS key must be initialized with Py_tss_NEEDS_INIT
+    // in accordance with the specification.
+    Py_tss_t initial = Py_tss_NEEDS_INIT;
+    runtime->gilstate.autoTSSkey = initial;
+
+    /* unicode IDs */
+    runtime->unicode_ids.next_index = preserved->unicode_ids.next_index;
+    assert(runtime->unicode_ids.lock == NULL);
 }
 
 static PyStatus
@@ -190,27 +81,34 @@ init_runtime_threads(_PyRuntimeState *runtime)
     // Set it to the ID of the main thread of the main interpreter.
     runtime->main_thread = PyThread_get_thread_ident();
 
-    PyStatus status;
+    /* interpreters */
+    // We init the lock even if _PyInterpreterState_Enable()
+    // hasn't been called yet.
+    assert(runtime->interpreters.next_id < 0);
+    runtime->interpreters.mutex = PyThread_allocate_lock();
+    if (runtime->interpreters.mutex == NULL) {
+        return _PyStatus_NO_MEMORY();
+    }
+    // For now we do not initialize the main interpreter locks here.
 
-    status = init_interpreters_threads(&runtime->interpreters);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
+    /* XID registry */
+    runtime->xidregistry.mutex = PyThread_allocate_lock();
+    if (runtime->xidregistry.mutex == NULL) {
+        return _PyStatus_NO_MEMORY();
     }
 
-    status = init_xidregistry_threads(&runtime->xidregistry);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
-
-    status = init_unicode_ids_threads(&runtime->unicode_ids);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
+    /* unicode IDs */
+    runtime->unicode_ids.lock = PyThread_allocate_lock();
+    if (runtime->unicode_ids.lock == NULL) {
+        return _PyStatus_NO_MEMORY();
     }
 
     return _PyStatus_OK();
 }
 
 #ifdef HAVE_FORK
+static PyStatus reinit_interpreter_threads(PyInterpreterState *);
+
 static PyStatus
 reinit_runtime_threads(_PyRuntimeState *runtime)
 {
@@ -219,19 +117,27 @@ reinit_runtime_threads(_PyRuntimeState *runtime)
 
     PyStatus status;
 
-    status = reinit_interpreters_threads(&runtime->interpreters);
+    /* interpreters */
+    if (runtime->interpreters.mutex != NULL) {
+        if (_PyThread_at_fork_reinit(&runtime->interpreters.mutex) != 0) {
+            return _PyStatus_NO_MEMORY();
+        }
+    }
+    PyInterpreterState *main_interp = runtime->interpreters.main;
+    assert(main_interp != NULL);
+    status = reinit_interpreter_threads(main_interp);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
 
-    status = reinit_xidregistry_threads(&runtime->xidregistry);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
+    /* XID registry */
+    if (_PyThread_at_fork_reinit(&runtime->xidregistry.mutex) != 0) {
+        return _PyStatus_NO_MEMORY();
     }
 
-    status = reinit_unicode_ids_threads(&runtime->unicode_ids);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
+    /* unicode IDs */
+    if (_PyThread_at_fork_reinit(&runtime->unicode_ids.lock) != 0) {
+        return _PyStatus_NO_MEMORY();
     }
 
     return _PyStatus_OK();
@@ -334,8 +240,8 @@ _PyInterpreterState_Enable(_PyRuntimeState *runtime)
         PyMemAllocatorEx old_alloc;
         _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
 
-        interpreters->mutex = PyThread_allocate_lock();
-        if (interpreters->mutex == NULL) {
+        runtime->interpreters.mutex = PyThread_allocate_lock();
+        if (runtime->interpreters.mutex == NULL) {
             status = _PyStatus_NO_MEMORY();
         }
 
