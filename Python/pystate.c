@@ -574,7 +574,9 @@ _PyInterpreterState_DeleteExceptMain(_PyRuntimeState *runtime)
         }
         PyInterpreterState *prev_interp = interp;
         interp = interp->next;
-        PyMem_RawFree(prev_interp);
+        if (prev_interp->needs_free) {
+            PyMem_RawFree(prev_interp);
+        }
     }
     HEAD_UNLOCK(runtime);
 
@@ -820,9 +822,8 @@ set_next_threadstate(PyThreadState *tstate)
 {
     assert(tstate->interp && tstate->interp->runtime);
     PyInterpreterState *interp = tstate->interp;
-    _PyRuntimeState *runtime = interp->runtime;
 
-    HEAD_LOCK(runtime);
+    HEAD_LOCK(interp->runtime);
     assert(interp->pythreads.next_id >= 0);
     tstate->id = ++interp->pythreads.next_id;
 
@@ -831,15 +832,43 @@ set_next_threadstate(PyThreadState *tstate)
     if (tstate->next)
         tstate->next->prev = tstate;
     interp->pythreads.head = tstate;
-    HEAD_UNLOCK(runtime);
+    HEAD_UNLOCK(interp->runtime);
+
+    if (tstate == &interp->pythreads.main) {
+        assert(tstate->id == 1);
+    }
 }
 
 static PyThreadState *
 new_threadstate(PyInterpreterState *interp, int init)
 {
-    PyThreadState *tstate = (PyThreadState *)PyMem_RawMalloc(sizeof(PyThreadState));
-    if (tstate == NULL) {
+    if (interp->pythreads.next_id < 0) {
+        /* overflow or init_interpreter() not called! */
+        PyThreadState *current_tstate = _PyThreadState_GET();
+        if (current_tstate != NULL) {
+            _PyErr_SetString(current_tstate, PyExc_RuntimeError,
+                             "failed to get a threadstate ID");
+        }
         return NULL;
+    }
+
+    PyThreadState *tstate;
+    HEAD_LOCK(interp->runtime);
+    if (interp->pythreads.next_id == 0) {
+        tstate = &interp->pythreads.main;
+        assert(!tstate.initializing);
+        tstate->initializing = true;
+        HEAD_UNLOCK(interp->runtime);
+        tstate->needs_free = false;
+    }
+    else {
+        HEAD_UNLOCK(interp->runtime);
+        tstate = (PyThreadState *)PyMem_RawMalloc(sizeof(PyThreadState));
+        if (tstate == NULL) {
+            return NULL;
+        }
+        tstate->initializing = true;
+        tstate->needs_free = true;
     }
 
     init_threadstate(tstate, interp);
@@ -847,6 +876,7 @@ new_threadstate(PyInterpreterState *interp, int init)
         _PyThreadState_Init(tstate);
     }
     set_next_threadstate(tstate);
+    tstate->initializing = false;
 
     return tstate;
 }
@@ -1105,7 +1135,9 @@ _PyThreadState_Delete(PyThreadState *tstate, int check_current)
         }
     }
     tstate_delete_common(tstate, gilstate);
-    PyMem_RawFree(tstate);
+    if (tstate->needs_free) {
+        PyMem_RawFree(tstate);
+    }
 }
 
 
@@ -1124,7 +1156,9 @@ _PyThreadState_DeleteCurrent(PyThreadState *tstate)
     tstate_delete_common(tstate, gilstate);
     _PyRuntimeGILState_SetThreadState(gilstate, NULL);
     _PyEval_ReleaseLock(tstate);
-    PyMem_RawFree(tstate);
+    if (tstate->needs_free) {
+        PyMem_RawFree(tstate);
+    }
 }
 
 void
@@ -1173,7 +1207,9 @@ _PyThreadState_DeleteExcept(_PyRuntimeState *runtime, PyThreadState *tstate)
     for (p = list; p; p = next) {
         next = p->next;
         PyThreadState_Clear(p);
-        PyMem_RawFree(p);
+        if (p->needs_free) {
+            PyMem_RawFree(p);
+        }
     }
 }
 

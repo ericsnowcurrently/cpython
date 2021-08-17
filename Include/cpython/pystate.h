@@ -3,6 +3,7 @@
 #endif
 
 #include "cpython/initconfig.h"
+#include <stdbool.h>
 
 PyAPI_FUNC(int) _PyInterpreterState_RequiresIDRef(PyInterpreterState *);
 PyAPI_FUNC(void) _PyInterpreterState_RequireIDRef(PyInterpreterState *, int);
@@ -78,6 +79,12 @@ struct _ts {
 
     struct _ts *prev;
     struct _ts *next;
+
+    /* lifecycle */
+    bool initializing;
+    bool needs_free;
+
+    /* the parent interpreter */
     PyInterpreterState *interp;
 
     /* Unique thread state id. */

@@ -252,8 +252,9 @@ struct _is {
     /* thread states */
     struct pythreads {
         struct _ts *head;
+        struct _ts main;
 
-        uint64_t next_id;
+        int64_t next_id;
 
         /* Used in Modules/_threadmodule.c. */
         long num_threads;
