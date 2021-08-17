@@ -8,7 +8,7 @@ extern "C" {
 #  error "this header requires Py_BUILD_CORE define"
 #endif
 
-#include "pycore_atomic.h"    /* _Py_atomic_address */
+#include "pycore_atomic.h"    // _Py_atomic_address
 #include "pycore_gil.h"       // struct _gil_runtime_state
 
 /* ceval state */
@@ -78,6 +78,16 @@ typedef struct pyruntimestate {
        to access it, don't access it directly. */
     _Py_atomic_address _finalizing;
 
+    unsigned long main_thread;
+
+    PyPreConfig preconfig;
+
+    // Audit values must be preserved when Py_Initialize()/Py_Finalize()
+    // is called multiple times.
+    Py_OpenCodeHookFunction open_code_hook;
+    void *open_code_userdata;
+    _Py_AuditHookEntry *audit_hook_head;
+
     struct pyinterpreters {
         PyThread_type_lock mutex;
         PyInterpreterState *head;
@@ -92,29 +102,20 @@ typedef struct pyruntimestate {
            using a Python int. */
         int64_t next_id;
     } interpreters;
+
     // XXX Remove this field once we have a tp_* slot.
     struct _xidregistry {
         PyThread_type_lock mutex;
         struct _xidregitem *head;
     } xidregistry;
 
-    unsigned long main_thread;
-
+    struct _ceval_runtime_state ceval;
+    struct _gilstate_runtime_state gilstate;
 #define NEXITFUNCS 32
     void (*exitfuncs[NEXITFUNCS])(void);
     int nexitfuncs;
 
-    struct _ceval_runtime_state ceval;
-    struct _gilstate_runtime_state gilstate;
-
-    PyPreConfig preconfig;
-
-    // Audit values must be preserved when Py_Initialize()/Py_Finalize()
-    // is called multiple times.
-    Py_OpenCodeHookFunction open_code_hook;
-    void *open_code_userdata;
-    _Py_AuditHookEntry *audit_hook_head;
-
+    // Used in _PyUnicode_FromId() for _PyIdentifier IDs.
     struct _Py_unicode_runtime_ids unicode_ids;
 
     // XXX Consolidate globals found via the check-c-globals script.

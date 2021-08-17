@@ -239,6 +239,7 @@ struct _is {
 
     // sys.modules dictionary
     PyObject *modules;
+
     PyObject *modules_by_index;
     // Dictionary of the sys module
     PyObject *sysdict;
@@ -313,6 +314,8 @@ struct _is {
     struct type_cache type_cache;
 };
 
+PyAPI_FUNC(PyInterpreterState *) _PyInterpreterState_New(
+        struct pyruntimestate *, struct _ts *);
 extern void _PyInterpreterState_ClearModules(PyInterpreterState *interp);
 extern void _PyInterpreterState_Clear(PyThreadState *tstate);
 

@@ -603,7 +603,7 @@ PyOS_AfterFork_Child(void)
     PyThreadState *tstate = _PyThreadState_GET();
     _Py_EnsureTstateNotNULL(tstate);
 
-    status = _PyEval_ReInitThreads(tstate);
+    status = _PyEval_ReInitState(tstate);
     if (_PyStatus_EXCEPTION(status)) {
         goto fatal_error;
     }

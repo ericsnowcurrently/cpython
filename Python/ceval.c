@@ -36,6 +36,7 @@
 #include "structmember.h"         // struct PyMemberDef, T_OFFSET_EX
 
 #include <ctype.h>
+#include <stdbool.h>
 
 #ifdef Py_DEBUG
 /* For debugging the interpreter: */
@@ -398,38 +399,6 @@ PyEval_ReleaseThread(PyThreadState *tstate)
     drop_gil(ceval, ceval2, tstate);
 }
 
-#ifdef HAVE_FORK
-/* This function is called from PyOS_AfterFork_Child to destroy all threads
-   which are not running in the child process, and clear internal locks
-   which might be held by those threads. */
-PyStatus
-_PyEval_ReInitThreads(PyThreadState *tstate)
-{
-    _PyRuntimeState *runtime = tstate->interp->runtime;
-
-#ifdef EXPERIMENTAL_ISOLATED_SUBINTERPRETERS
-    struct _gil_runtime_state *gil = &tstate->interp->ceval.gil;
-#else
-    struct _gil_runtime_state *gil = &runtime->ceval.gil;
-#endif
-    if (!gil_created(gil)) {
-        return _PyStatus_OK();
-    }
-    recreate_gil(gil);
-
-    take_gil(tstate);
-
-    struct _pending_calls *pending = &tstate->interp->ceval.pending;
-    if (_PyThread_at_fork_reinit(&pending->lock) < 0) {
-        return _PyStatus_ERR("Can't reinitialize pending calls lock");
-    }
-
-    /* Destroy all threads except the current one */
-    _PyThreadState_DeleteExcept(runtime, tstate);
-    return _PyStatus_OK();
-}
-#endif
-
 /* This function is used to signal that async exceptions are waiting to be
    raised. */
 
@@ -730,25 +699,78 @@ _PyEval_InitRuntimeState(struct _ceval_runtime_state *ceval)
 #endif
 }
 
-int
+void
 _PyEval_InitState(struct _ceval_state *ceval)
 {
     ceval->recursion_limit = Py_DEFAULT_RECURSION_LIMIT;
 
-    struct _pending_calls *pending = &ceval->pending;
-    assert(pending->lock == NULL);
-
-    pending->lock = PyThread_allocate_lock();
-    if (pending->lock == NULL) {
-        return -1;
-    }
+    assert(ceval->pending.lock == NULL);
 
 #ifdef EXPERIMENTAL_ISOLATED_SUBINTERPRETERS
     _gil_initialize(&ceval->gil);
 #endif
-
-    return 0;
 }
+
+static bool
+reinit_state(PyThreadState *tstate)
+{
+    PyInterpreterState *interp = tstate->interp;
+#ifdef EXPERIMENTAL_ISOLATED_SUBINTERPRETERS
+    struct _gil_runtime_state *gil = &interp->ceval.gil;
+#else
+    struct _gil_runtime_state *gil = &interp->runtime->ceval.gil;
+#endif
+    if (!gil_created(gil)) {
+        return false;
+    }
+    recreate_gil(gil);
+    return true;
+}
+
+PyStatus
+_PyEval_InitThreads(struct _ceval_state *ceval)
+{
+    ceval->pending.lock = PyThread_allocate_lock();
+    if (ceval->pending.lock == NULL) {
+        return _PyStatus_NO_MEMORY();
+    }
+    return _PyStatus_OK();
+}
+
+PyStatus
+_PyEval_ReInitThreads(struct _ceval_state *ceval)
+{
+    if (_PyThread_at_fork_reinit(&ceval->pending.lock) != 0) {
+        return _PyStatus_NO_MEMORY();
+    }
+    return _PyStatus_OK();
+}
+
+#ifdef HAVE_FORK
+/* This function is called from PyOS_AfterFork_Child to destroy all threads
+   which are not running in the child process, and clear internal locks
+   which might be held by those threads. */
+PyStatus
+_PyEval_ReInitState(PyThreadState *tstate)
+{
+    _PyRuntimeState *runtime = tstate->interp->runtime;
+
+    if (reinit_state(tstate)) {
+        take_gil(tstate);
+    }
+
+    // Note that we call this here instead of
+    // in _PyRuntimeState_ReInitThreads().
+    PyStatus status = _PyEval_ReInitThreads(&tstate->interp->ceval);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+
+    /* Destroy all threads except the current one */
+    _PyThreadState_DeleteExcept(runtime, tstate);
+    return _PyStatus_OK();
+}
+#endif
 
 void
 _PyEval_FiniState(struct _ceval_state *ceval)
