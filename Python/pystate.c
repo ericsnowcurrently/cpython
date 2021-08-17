@@ -12,6 +12,7 @@
 #include "pycore_pystate.h"       // _PyThreadState_GET()
 #include "pycore_sysmodule.h"
 #include "pycore_thread.h"        // _PyThread_init_lock()
+#include <stdbool.h>
 
 /* --------------------------------------------------------------------------
 CAUTION
@@ -61,8 +62,8 @@ init_runtime(_PyRuntimeState *runtime, _PyRuntimeState *preserved)
     /* interpreters */
     // This is set to 0 in _PyInterpreterState_Enable().
     runtime->interpreters.next_id = -1;
-    // For now we do not initialize the main interpreter here.
-    assert(runtime->interpreters.main == NULL);
+    // For now we (mostly) do not initialize the main interpreter here.
+    runtime->interpreters.main.initializing = false;
 
     /* XID registry */
     assert(runtime->xidregistry.head == NULL);
@@ -122,7 +123,7 @@ reinit_runtime_threads(_PyRuntimeState *runtime)
             return _PyStatus_NO_MEMORY();
         }
     }
-    PyInterpreterState *main_interp = runtime->interpreters.main;
+    PyInterpreterState *main_interp = &runtime->interpreters.main;
     assert(main_interp != NULL);
     status = reinit_interpreter_threads(main_interp);
     if (_PyStatus_EXCEPTION(status)) {
@@ -325,9 +326,8 @@ set_next_interpreter(_PyRuntimeState *runtime, PyInterpreterState *interp)
     interp->next = runtime->interpreters.head;
     runtime->interpreters.head = interp;
 
-    if (runtime->interpreters.main == NULL) {
+    if (interp == &runtime->interpreters.main) {
         assert(interp->id == 0);
-        runtime->interpreters.main = interp;
     }
     HEAD_UNLOCK(runtime);
 }
@@ -352,9 +352,23 @@ _PyInterpreterState_New(_PyRuntimeState *runtime,
         return NULL;
     }
 
-    PyInterpreterState *interp = PyMem_RawCalloc(1, sizeof(PyInterpreterState));
-    if (interp == NULL) {
-        return NULL;
+    PyInterpreterState *interp;
+    HEAD_LOCK(runtime);
+    if (runtime->interpreters.head == NULL) {
+        interp = &runtime->interpreters.main;
+        assert(!interp->initializing);
+        interp->initializing = true;
+        HEAD_UNLOCK(runtime);
+        interp->needs_free = false;
+    }
+    else {
+        HEAD_UNLOCK(runtime);
+        interp = PyMem_RawCalloc(1, sizeof(PyInterpreterState));
+        if (interp == NULL) {
+            return NULL;
+        }
+        interp->initializing = true;
+        interp->needs_free = true;
     }
 
     init_interpreter(interp, runtime, -1);
@@ -362,9 +376,10 @@ _PyInterpreterState_New(_PyRuntimeState *runtime,
     set_next_interpreter(runtime, interp);
 
     PyStatus status = init_interpreter_threads(interp);
+    interp->initializing = false;
     if (_PyStatus_EXCEPTION(status)) {
         _PyErr_SetFromPyStatus(status);
-        PyMem_RawFree(interp);
+        PyInterpreterState_Delete(interp);
         return NULL;
     }
 
@@ -502,8 +517,7 @@ PyInterpreterState_Delete(PyInterpreterState *interp)
     }
     *p = interp->next;
 
-    if (interpreters->main == interp) {
-        interpreters->main = NULL;
+    if (&interpreters->main == interp) {
         if (interpreters->head != NULL) {
             Py_FatalError("remaining subinterpreters");
         }
@@ -513,7 +527,10 @@ PyInterpreterState_Delete(PyInterpreterState *interp)
     if (interp->id_mutex != NULL) {
         PyThread_free_lock(interp->id_mutex);
     }
-    PyMem_RawFree(interp);
+
+    if (interp->needs_free) {
+        PyMem_RawFree(interp);
+    }
 }
 
 
@@ -529,7 +546,7 @@ _PyInterpreterState_DeleteExceptMain(_PyRuntimeState *runtime)
     struct pyinterpreters *interpreters = &runtime->interpreters;
 
     PyThreadState *tstate = _PyThreadState_Swap(gilstate, NULL);
-    PyInterpreterState *main_interp = interpreters->main;
+    PyInterpreterState *main_interp = &interpreters->main;
     if (tstate != NULL && tstate->interp != main_interp) {
         return _PyStatus_ERR("not main interpreter");
     }

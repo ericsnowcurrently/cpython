@@ -23,9 +23,12 @@ _Py_IsMainThread(void)
 
 static inline PyInterpreterState*
 _Py_GetMainInterpreter() {
+    if (_PyRuntime.interpreters.head == NULL) {
+        return NULL;
+    }
     /* Use directly _PyRuntime rather than tstate->interp->runtime, since
        this function is used in performance critical code path (ceval) */
-    return _PyRuntime.interpreters.main;
+    return &_PyRuntime.interpreters.main;
 }
 
 static inline int

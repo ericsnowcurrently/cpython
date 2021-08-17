@@ -13,6 +13,7 @@ extern "C" {
 #include "pycore_gil.h"           // struct _gil_runtime_state
 #include "pycore_gc.h"            // struct _gc_runtime_state
 #include "pycore_warnings.h"      // struct _warnings_runtime_state
+#include <stdbool.h>
 
 struct _pending_calls {
     PyThread_type_lock lock;
@@ -222,6 +223,10 @@ struct _is {
     struct _is *next;
     struct _ts *tstate_head;
 
+    bool initializing;
+    int finalizing;
+    bool needs_free;
+
     /* Reference to the _PyRuntime global variable. This field exists
        to not have to pass runtime in addition to tstate to a function.
        Get runtime from tstate: tstate->interp->runtime. */
@@ -231,8 +236,6 @@ struct _is {
     int64_t id_refcount;
     int requires_idref;
     PyThread_type_lock id_mutex;
-
-    int finalizing;
 
     struct _ceval_state ceval;
     struct _gc_runtime_state gc;

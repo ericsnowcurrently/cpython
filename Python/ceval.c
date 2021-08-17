@@ -568,7 +568,7 @@ Py_AddPendingCall(int (*func)(void *), void *arg)
     }
     else {
         /* Last resort: use the main interpreter */
-        interp = _PyRuntime.interpreters.main;
+        interp = _Py_GetMainInterpreter();
     }
     return _PyEval_AddPendingCall(interp, func, arg);
 }

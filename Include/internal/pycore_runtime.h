@@ -11,6 +11,7 @@ extern "C" {
 #include "pycore_atomic.h"    // _Py_atomic_address
 #include "pycore_gil.h"       // struct _gil_runtime_state
 #include "pycore_thread.h"    // _PyThread_type_lock
+#include "pycore_interp.h"    // struct _is
 
 /* ceval state */
 
@@ -59,6 +60,8 @@ struct _Py_unicode_runtime_ids {
 
 /* Full Python runtime state */
 
+// Note that the struct doesn't "own" any pointers.
+
 typedef struct pyruntimestate {
     /* Is running Py_PreInitialize()? */
     int preinitializing;
@@ -92,7 +95,8 @@ typedef struct pyruntimestate {
     struct pyinterpreters {
         _PyThread_type_lock mutex;
         PyInterpreterState *head;
-        PyInterpreterState *main;
+        /* Note that this is not a pointer. */
+        struct _is main;
         /* _next_interp_id is an auto-numbered sequence of small
            integers.  It gets initialized in _PyInterpreterState_Init(),
            which is called in Py_Initialize(), and used in
