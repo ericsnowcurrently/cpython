@@ -250,7 +250,7 @@ init_interpreter(PyInterpreterState *interp,
                  _PyRuntimeState *runtime, int64_t id)
 {
     interp->next = NULL;
-    interp->tstate_head = NULL;
+    interp->pythreads.head = NULL;
 
     interp->runtime = runtime;
 
@@ -258,6 +258,8 @@ init_interpreter(PyInterpreterState *interp,
     interp->id_refcount = -1;
     /* The mutex is set in init_interpreter_threads(). */
     interp->id_mutex = NULL;
+
+    interp->pythreads.num_threads = 0;
 
     _PyEval_InitState(&interp->ceval);
     interp->eval_frame = _PyEval_EvalFrameDefault;
@@ -276,7 +278,7 @@ init_interpreter(PyInterpreterState *interp,
 #endif
 #endif
 
-    interp->tstate_next_unique_id = 0;
+    interp->pythreads.next_id = 0;
 
     interp->audit_hooks = NULL;
 }
@@ -408,7 +410,7 @@ interpreter_clear(PyInterpreterState *interp, PyThreadState *tstate)
     }
 
     HEAD_LOCK(runtime);
-    for (PyThreadState *p = interp->tstate_head; p != NULL; p = p->next) {
+    for (PyThreadState *p = interp->pythreads.head; p != NULL; p = p->next) {
         PyThreadState_Clear(p);
     }
     HEAD_UNLOCK(runtime);
@@ -484,7 +486,7 @@ zapthreads(PyInterpreterState *interp, int check_current)
     PyThreadState *tstate;
     /* No need to lock the mutex here because this should only happen
        when the threads are all really dead (XXX famous last words). */
-    while ((tstate = interp->tstate_head) != NULL) {
+    while ((tstate = interp->pythreads.head) != NULL) {
         _PyThreadState_Delete(tstate, check_current);
     }
 }
@@ -512,7 +514,7 @@ PyInterpreterState_Delete(PyInterpreterState *interp)
             break;
         }
     }
-    if (interp->tstate_head != NULL) {
+    if (interp->pythreads.head != NULL) {
         Py_FatalError("remaining threads");
     }
     *p = interp->next;
@@ -817,12 +819,12 @@ new_threadstate(PyInterpreterState *interp, int init)
     }
 
     HEAD_LOCK(runtime);
-    tstate->id = ++interp->tstate_next_unique_id;
+    tstate->id = ++interp->pythreads.next_id;
     tstate->prev = NULL;
-    tstate->next = interp->tstate_head;
+    tstate->next = interp->pythreads.head;
     if (tstate->next)
         tstate->next->prev = tstate;
-    interp->tstate_head = tstate;
+    interp->pythreads.head = tstate;
     HEAD_UNLOCK(runtime);
 
     return tstate;
@@ -1045,7 +1047,7 @@ tstate_delete_common(PyThreadState *tstate,
         tstate->prev->next = tstate->next;
     }
     else {
-        interp->tstate_head = tstate->next;
+        interp->pythreads.head = tstate->next;
     }
     if (tstate->next) {
         tstate->next->prev = tstate->prev;
@@ -1129,7 +1131,7 @@ _PyThreadState_DeleteExcept(_PyRuntimeState *runtime, PyThreadState *tstate)
     /* Remove all thread states, except tstate, from the linked list of
        thread states.  This will allow calling PyThreadState_Clear()
        without holding the lock. */
-    PyThreadState *list = interp->tstate_head;
+    PyThreadState *list = interp->pythreads.head;
     if (list == tstate) {
         list = tstate->next;
     }
@@ -1140,7 +1142,7 @@ _PyThreadState_DeleteExcept(_PyRuntimeState *runtime, PyThreadState *tstate)
         tstate->next->prev = tstate->prev;
     }
     tstate->prev = tstate->next = NULL;
-    interp->tstate_head = tstate;
+    interp->pythreads.head = tstate;
     HEAD_UNLOCK(runtime);
 
     /* Clear and deallocate all stale thread states.  Even if this
@@ -1303,7 +1305,7 @@ PyThreadState_SetAsyncExc(unsigned long id, PyObject *exc)
      * head_mutex for the duration.
      */
     HEAD_LOCK(runtime);
-    for (PyThreadState *tstate = interp->tstate_head; tstate != NULL; tstate = tstate->next) {
+    for (PyThreadState *tstate = interp->pythreads.head; tstate != NULL; tstate = tstate->next) {
         if (tstate->thread_id != id) {
             continue;
         }
@@ -1351,7 +1353,7 @@ PyInterpreterState_Next(PyInterpreterState *interp) {
 
 PyThreadState *
 PyInterpreterState_ThreadHead(PyInterpreterState *interp) {
-    return interp->tstate_head;
+    return interp->pythreads.head;
 }
 
 PyThreadState *
@@ -1388,7 +1390,7 @@ _PyThread_CurrentFrames(void)
     PyInterpreterState *i;
     for (i = runtime->interpreters.head; i != NULL; i = i->next) {
         PyThreadState *t;
-        for (t = i->tstate_head; t != NULL; t = t->next) {
+        for (t = i->pythreads.head; t != NULL; t = t->next) {
             InterpreterFrame *frame = t->frame;
             if (frame == NULL) {
                 continue;
@@ -1441,7 +1443,7 @@ _PyThread_CurrentExceptions(void)
     PyInterpreterState *i;
     for (i = runtime->interpreters.head; i != NULL; i = i->next) {
         PyThreadState *t;
-        for (t = i->tstate_head; t != NULL; t = t->next) {
+        for (t = i->pythreads.head; t != NULL; t = t->next) {
             _PyErr_StackItem *err_info = _PyErr_GetTopmostException(t);
             if (err_info == NULL) {
                 continue;

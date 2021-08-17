@@ -92,7 +92,7 @@ _PyThread_clear_lock(PyThread_type_lock lock)
 size_t
 PyThread_get_stacksize(void)
 {
-    return _PyInterpreterState_GET()->pythread_stacksize;
+    return _PyInterpreterState_GET()->pythreads.stacksize;
 }
 
 /* Only platforms defining a THREAD_SET_STACKSIZE() macro

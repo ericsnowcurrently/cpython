@@ -2012,7 +2012,7 @@ Py_EndInterpreter(PyThreadState *tstate)
 
     _PyAtExit_Call(tstate->interp);
 
-    if (tstate != interp->tstate_head || tstate->next != NULL) {
+    if (tstate != interp->pythreads.head || tstate->next != NULL) {
         Py_FatalError("not the last thread");
     }
 

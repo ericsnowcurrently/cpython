@@ -221,8 +221,8 @@ struct type_cache {
 struct _is {
 
     struct _is *next;
-    struct _ts *tstate_head;
 
+    /* lifecycle */
     bool initializing;
     int finalizing;
     bool needs_free;
@@ -232,79 +232,62 @@ struct _is {
        Get runtime from tstate: tstate->interp->runtime. */
     struct pyruntimestate *runtime;
 
+    /* process-unique identifier */
     int64_t id;
     int64_t id_refcount;
     int requires_idref;
     PyThread_type_lock id_mutex;
 
-    struct _ceval_state ceval;
-    struct _gc_runtime_state gc;
-
-    // sys.modules dictionary
-    PyObject *modules;
-
-    PyObject *modules_by_index;
-    // Dictionary of the sys module
-    PyObject *sysdict;
-    // Dictionary of the builtins module
-    PyObject *builtins;
-    // importlib module
-    PyObject *importlib;
-
-    /* Used in Modules/_threadmodule.c. */
-    long num_threads;
-    /* Support for runtime thread stack size tuning.
-       A value of 0 means using the platform's default stack size
-       or the size specified by the THREAD_STACK_SIZE macro. */
-    /* Used in Python/thread.c. */
-    size_t pythread_stacksize;
-
-    PyObject *codec_search_path;
-    PyObject *codec_search_cache;
-    PyObject *codec_error_registry;
-    int codecs_initialized;
-
+    /* config */
     PyConfig config;
 #ifdef HAVE_DLOPEN
     int dlopenflags;
 #endif
 
-    PyObject *dict;  /* Stores per-interpreter state */
+    /* audit hooks */
+    PyObject *audit_hooks;
 
-    PyObject *builtins_copy;
+    /* thread states */
+    struct pythreads {
+        struct _ts *head;
+
+        uint64_t next_id;
+
+        /* Used in Modules/_threadmodule.c. */
+        long num_threads;
+        /* Support for runtime thread stack size tuning.
+           A value of 0 means using the platform's default stack size
+           or the size specified by the THREAD_STACK_SIZE macro. */
+        /* Used in Python/thread.c. */
+        size_t stacksize;
+    } pythreads;
+
+    /* import system */
+    PyObject *modules;  // sys.modules dictionary
+    PyObject *modules_by_index;
+    PyObject *importlib;  // importlib module
     PyObject *import_func;
-    // Initialized to _PyEval_EvalFrameDefault().
-    _PyFrameEvalFunction eval_frame;
 
-    Py_ssize_t co_extra_user_count;
-    freefunc co_extra_freefuncs[MAX_CO_EXTRA_USERS];
-
-#ifdef HAVE_FORK
-    PyObject *before_forkers;
-    PyObject *after_forkers_parent;
-    PyObject *after_forkers_child;
-#endif
-
-    uint64_t tstate_next_unique_id;
-
+    /* other fundamental state */
+    PyObject *sysdict;  // Dictionary of the sys module
+    PyObject *builtins;  // Dictionary of the builtins module
+    PyObject *builtins_copy;
     struct _warnings_runtime_state warnings;
     struct atexit_state atexit;
 
-    PyObject *audit_hooks;
-
+    /* builtin types */
+    struct _Py_bytes_state bytes;
+    struct _Py_unicode_state unicode;
     /* Small integers are preallocated in this array so that they
        can be shared.
        The integers that are preallocated are those in the range
        -_PY_NSMALLNEGINTS (inclusive) to _PY_NSMALLPOSINTS (not inclusive).
     */
     PyLongObject* small_ints[_PY_NSMALLNEGINTS + _PY_NSMALLPOSINTS];
-    struct _Py_bytes_state bytes;
-    struct _Py_unicode_state unicode;
     struct _Py_float_state float_state;
     /* Using a cache is very effective since typically only a single slice is
        created and then deleted again. */
     PySliceObject *slice_cache;
-
     struct _Py_tuple_state tuple;
     struct _Py_list_state list;
     struct _Py_dict_state dict_state;
@@ -312,9 +295,32 @@ struct _is {
     struct _Py_async_gen_state async_gen;
     struct _Py_context_state context;
     struct _Py_exc_state exc_state;
-
     struct ast_state ast;
     struct type_cache type_cache;
+
+    /* codecs */
+    PyObject *codec_search_path;
+    PyObject *codec_search_cache;
+    PyObject *codec_error_registry;
+    int codecs_initialized;
+
+    /* ceval state */
+    struct _ceval_state ceval;
+    // Initialized to _PyEval_EvalFrameDefault().
+    _PyFrameEvalFunction eval_frame;
+    struct _gc_runtime_state gc;
+    Py_ssize_t co_extra_user_count;
+    freefunc co_extra_freefuncs[MAX_CO_EXTRA_USERS];
+
+#ifdef HAVE_FORK
+    /* forking */
+    PyObject *before_forkers;
+    PyObject *after_forkers_parent;
+    PyObject *after_forkers_child;
+#endif
+
+    /* Stores arbitrary per-interpreter state */
+    PyObject *dict;
 };
 
 PyAPI_FUNC(PyInterpreterState *) _PyInterpreterState_New(

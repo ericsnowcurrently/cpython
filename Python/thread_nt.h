@@ -1,4 +1,4 @@
-#include "pycore_interp.h"    // _PyInterpreterState.pythread_stacksize
+#include "pycore_interp.h"    // _PyInterpreterState.pythreads.stacksize
 
 /* This code implemented by Dag.Gruneau@elsa.preseco.comm.se */
 /* Fast NonRecursiveMutex support by Yakov Markovitch, markovitch@iso.ru */
@@ -215,7 +215,7 @@ PyThread_start_new_thread(void (*func)(void *), void *arg)
     obj->func = func;
     obj->arg = arg;
     PyThreadState *tstate = _PyThreadState_GET();
-    size_t stacksize = tstate ? tstate->interp->pythread_stacksize : 0;
+    size_t stacksize = tstate ? tstate->interp->pythreads.stacksize : 0;
     hThread = (HANDLE)_beginthreadex(0,
                       Py_SAFE_DOWNCAST(stacksize, Py_ssize_t, unsigned int),
                       bootstrap, obj,
@@ -399,13 +399,13 @@ _pythread_nt_set_stacksize(size_t size)
 {
     /* set to default */
     if (size == 0) {
-        _PyInterpreterState_GET()->pythread_stacksize = 0;
+        _PyInterpreterState_GET()->pythreads.stacksize = 0;
         return 0;
     }
 
     /* valid range? */
     if (size >= THREAD_MIN_STACKSIZE && size < THREAD_MAX_STACKSIZE) {
-        _PyInterpreterState_GET()->pythread_stacksize = size;
+        _PyInterpreterState_GET()->pythreads.stacksize = size;
         return 0;
     }
 
