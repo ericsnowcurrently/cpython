@@ -11,6 +11,7 @@
 #include "pycore_pymem.h"         // _PyMem_SetDefaultAllocator()
 #include "pycore_pystate.h"       // _PyThreadState_GET()
 #include "pycore_sysmodule.h"
+#include "pycore_thread.h"        // _PyThread_init_lock()
 
 /* --------------------------------------------------------------------------
 CAUTION
@@ -85,21 +86,18 @@ init_runtime_threads(_PyRuntimeState *runtime)
     // We init the lock even if _PyInterpreterState_Enable()
     // hasn't been called yet.
     assert(runtime->interpreters.next_id < 0);
-    runtime->interpreters.mutex = PyThread_allocate_lock();
-    if (runtime->interpreters.mutex == NULL) {
+    if (_PyThread_init_lock(&runtime->interpreters.mutex) != 0) {
         return _PyStatus_NO_MEMORY();
     }
     // For now we do not initialize the main interpreter locks here.
 
     /* XID registry */
-    runtime->xidregistry.mutex = PyThread_allocate_lock();
-    if (runtime->xidregistry.mutex == NULL) {
+    if (_PyThread_init_lock(&runtime->xidregistry.mutex) != 0) {
         return _PyStatus_NO_MEMORY();
     }
 
     /* unicode IDs */
-    runtime->unicode_ids.lock = PyThread_allocate_lock();
-    if (runtime->unicode_ids.lock == NULL) {
+    if (_PyThread_init_lock(&runtime->unicode_ids.lock) != 0) {
         return _PyStatus_NO_MEMORY();
     }
 
@@ -118,7 +116,8 @@ reinit_runtime_threads(_PyRuntimeState *runtime)
     PyStatus status;
 
     /* interpreters */
-    if (runtime->interpreters.mutex != NULL) {
+    if(runtime->interpreters.next_id >= 0) {
+        // _PyInterpreterState_Enable() has been called.
         if (_PyThread_at_fork_reinit(&runtime->interpreters.mutex) != 0) {
             return _PyStatus_NO_MEMORY();
         }
@@ -240,8 +239,7 @@ _PyInterpreterState_Enable(_PyRuntimeState *runtime)
         PyMemAllocatorEx old_alloc;
         _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
 
-        runtime->interpreters.mutex = PyThread_allocate_lock();
-        if (runtime->interpreters.mutex == NULL) {
+        if (_PyThread_init_lock(&runtime->interpreters.mutex) != 0) {
             status = _PyStatus_NO_MEMORY();
         }
 
@@ -639,8 +637,7 @@ _PyInterpreterState_IDInitref(PyInterpreterState *interp)
     if (interp->id_refcount >= 0) {
         return 0;
     }
-    interp->id_mutex = PyThread_allocate_lock();
-    if (interp->id_mutex == NULL) {
+    if (_PyThread_init_lock(&interp->id_mutex) != 0) {
         PyErr_SetString(PyExc_RuntimeError,
                         "failed to create interpreter ID mutex");
         return -1;

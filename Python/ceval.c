@@ -24,6 +24,7 @@
 #include "pycore_pystate.h"       // _PyInterpreterState_GET()
 #include "pycore_sysmodule.h"     // _PySys_Audit()
 #include "pycore_tuple.h"         // _PyTuple_ITEMS()
+#include "pycore_thread.h"        // _PyThread_init_lock()
 
 #include "code.h"
 #include "pycore_dict.h"
@@ -730,8 +731,7 @@ reinit_state(PyThreadState *tstate)
 PyStatus
 _PyEval_InitThreads(struct _ceval_state *ceval)
 {
-    ceval->pending.lock = PyThread_allocate_lock();
-    if (ceval->pending.lock == NULL) {
+    if (_PyThread_init_lock(&ceval->pending.lock) != 0) {
         return _PyStatus_NO_MEMORY();
     }
     return _PyStatus_OK();
