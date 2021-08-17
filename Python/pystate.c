@@ -315,8 +315,11 @@ reinit_interpreter_threads(PyInterpreterState *interp)
 }
 
 static void
-set_next_interpreter(_PyRuntimeState *runtime, PyInterpreterState *interp)
+set_next_interpreter(PyInterpreterState *interp)
 {
+    _PyRuntimeState *runtime = interp->runtime;
+    assert(runtime != NULL);
+
     assert(runtime->interpreters.next_id >= 0);
     assert(interp->id < 0);
     assert(interp->next == NULL);
@@ -375,7 +378,7 @@ _PyInterpreterState_New(_PyRuntimeState *runtime,
 
     init_interpreter(interp, runtime, -1);
 
-    set_next_interpreter(runtime, interp);
+    set_next_interpreter(interp);
 
     PyStatus status = init_interpreter_threads(interp);
     interp->initializing = false;
@@ -730,32 +733,30 @@ PyInterpreterState_GetDict(PyInterpreterState *interp)
     return interp->dict;
 }
 
-/* Minimum size of data stack chunk */
-#define DATA_STACK_CHUNK_SIZE (16*1024)
+static void
+init_chunk(_PyStackChunk *chunk, int size_in_bytes)
+{
+    chunk->previous = NULL;
+    chunk->size = size_in_bytes;
+    chunk->top = 0;
+    // We leave chunk->data alone.
+}
 
 static _PyStackChunk*
-allocate_chunk(int size_in_bytes, _PyStackChunk* previous)
+allocate_chunk(int size_in_bytes)
 {
     assert(size_in_bytes % sizeof(PyObject **) == 0);
     _PyStackChunk *res = _PyObject_VirtualAlloc(size_in_bytes);
     if (res == NULL) {
         return NULL;
     }
-    res->previous = previous;
-    res->size = size_in_bytes;
-    res->top = 0;
+    init_chunk(res, size_in_bytes);
     return res;
 }
 
-static PyThreadState *
-new_threadstate(PyInterpreterState *interp, int init)
+static void
+init_threadstate(PyThreadState *tstate, PyInterpreterState *interp)
 {
-    _PyRuntimeState *runtime = interp->runtime;
-    PyThreadState *tstate = (PyThreadState *)PyMem_RawMalloc(sizeof(PyThreadState));
-    if (tstate == NULL) {
-        return NULL;
-    }
-
     tstate->interp = interp;
 
     tstate->frame = NULL;
@@ -803,29 +804,49 @@ new_threadstate(PyInterpreterState *interp, int init)
 
     tstate->context = NULL;
     tstate->context_ver = 1;
-    tstate->datastack_chunk = allocate_chunk(DATA_STACK_CHUNK_SIZE, NULL);
-    if (tstate->datastack_chunk == NULL) {
-        PyMem_RawFree(tstate);
-        return NULL;
-    }
+
+    tstate->datastack_chunk = (_PyStackChunk *)&tstate->datastack_initial;
+    Py_ssize_t initial_size = sizeof(tstate->datastack_initial);
+    init_chunk(tstate->datastack_chunk, initial_size);
     /* If top points to entry 0, then _PyThreadState_PopFrame will try to pop this chunk */
     tstate->datastack_top = &tstate->datastack_chunk->data[1];
-    tstate->datastack_limit = (PyObject **)(((char *)tstate->datastack_chunk) + DATA_STACK_CHUNK_SIZE);
+    tstate->datastack_limit = (PyObject **)(((char *)tstate->datastack_chunk) + initial_size);
     /* Mark trace_info as uninitialized */
     tstate->trace_info.code = NULL;
+}
 
-    if (init) {
-        _PyThreadState_Init(tstate);
-    }
+static void
+set_next_threadstate(PyThreadState *tstate)
+{
+    assert(tstate->interp && tstate->interp->runtime);
+    PyInterpreterState *interp = tstate->interp;
+    _PyRuntimeState *runtime = interp->runtime;
 
     HEAD_LOCK(runtime);
+    assert(interp->pythreads.next_id >= 0);
     tstate->id = ++interp->pythreads.next_id;
+
     tstate->prev = NULL;
     tstate->next = interp->pythreads.head;
     if (tstate->next)
         tstate->next->prev = tstate;
     interp->pythreads.head = tstate;
     HEAD_UNLOCK(runtime);
+}
+
+static PyThreadState *
+new_threadstate(PyInterpreterState *interp, int init)
+{
+    PyThreadState *tstate = (PyThreadState *)PyMem_RawMalloc(sizeof(PyThreadState));
+    if (tstate == NULL) {
+        return NULL;
+    }
+
+    init_threadstate(tstate, interp);
+    if (init) {
+        _PyThreadState_Init(tstate);
+    }
+    set_next_threadstate(tstate);
 
     return tstate;
 }
@@ -2155,10 +2176,11 @@ push_chunk(PyThreadState *tstate, int size)
     while (allocate_size < (int)sizeof(PyObject*)*(size + MINIMUM_OVERHEAD)) {
         allocate_size *= 2;
     }
-    _PyStackChunk *new = allocate_chunk(allocate_size, tstate->datastack_chunk);
+    _PyStackChunk *new = allocate_chunk(allocate_size);
     if (new == NULL) {
         return NULL;
     }
+    new->previous = tstate->datastack_chunk;
     tstate->datastack_chunk->top = tstate->datastack_top - &tstate->datastack_chunk->data[0];
     tstate->datastack_chunk = new;
     tstate->datastack_limit = (PyObject **)(((char *)new) + allocate_size);

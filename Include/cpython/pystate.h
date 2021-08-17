@@ -62,6 +62,9 @@ typedef struct _err_stackitem {
 
 } _PyErr_StackItem;
 
+/* Minimum size of data stack chunk */
+#define DATA_STACK_CHUNK_SIZE (16*1024)
+
 typedef struct _stack_chunk {
     struct _stack_chunk *previous;
     size_t size;
@@ -77,55 +80,73 @@ struct _ts {
     struct _ts *next;
     PyInterpreterState *interp;
 
-    /* Borrowed reference to the current frame (it can be NULL) */
+    /* Unique thread state id. */
+    uint64_t id;
+
+    /* os thread */
+    // Thread id where this tstate was created
+    unsigned long thread_id;
+    // Native thread id where this tstate was created. This will be 0 except on
+    // those platforms that have the notion of native thread id, for which the
+    // macro PY_HAVE_THREAD_NATIVE_ID is then defined.
+    unsigned long native_thread_id;
+
+    /* execution stack */
+    // Borrowed reference to the current frame (it can be NULL)
     struct _interpreter_frame *frame;
     int recursion_depth;
     int recursion_headroom; /* Allow 50 more calls to handle any errors. */
     int stackcheck_counter;
-
-    /* 'tracing' keeps track of the execution depth when tracing/profiling.
-       This is to prevent the actual trace/profile code from being recorded in
-       the trace/profile. */
-    int tracing;
-
-    /* Pointer to current CFrame in the C stack frame of the currently,
-     * or most recently, executing _PyEval_EvalFrameDefault. */
+    // Pointer to current CFrame in the C stack frame of the currently,
+    // or most recently, executing _PyEval_EvalFrameDefault.
     CFrame *cframe;
+    CFrame root_cframe;
 
-    Py_tracefunc c_profilefunc;
-    Py_tracefunc c_tracefunc;
-    PyObject *c_profileobj;
-    PyObject *c_traceobj;
+    /* "data" stack */
+    char datastack_initial[DATA_STACK_CHUNK_SIZE];
+    _PyStackChunk *datastack_chunk;
+    PyObject **datastack_top;
+    PyObject **datastack_limit;
 
     /* The exception currently being raised */
     PyObject *curexc_type;
     PyObject *curexc_value;
     PyObject *curexc_traceback;
-
-    /* The exception currently being handled, if no coroutines/generators
-     * are present. Always last element on the stack referred to be exc_info.
-     */
+    // The exception currently being handled, if no coroutines/generators
+    // are present. Always last element on the stack referred to be exc_info.
     _PyErr_StackItem exc_state;
-
-    /* Pointer to the top of the stack of the exceptions currently
-     * being handled */
+    // Pointer to the top of the stack of the exceptions currently
+    // being handled.
     _PyErr_StackItem *exc_info;
 
-    PyObject *dict;  /* Stores per-thread state */
+    /* tracing */
+    // 'tracing' keeps track of the execution depth when tracing/profiling.
+    // This is to prevent the actual trace/profile code from being recorded in
+    // the trace/profile.
+    int tracing;
+    Py_tracefunc c_profilefunc;
+    Py_tracefunc c_tracefunc;
+    PyObject *c_profileobj;
+    PyObject *c_traceobj;
+    PyTraceInfo trace_info;
 
+    /* other eval breakers */
     int gilstate_counter;
+    // Asynchronous exception to raise
+    PyObject *async_exc;
 
-    PyObject *async_exc; /* Asynchronous exception to raise */
-    unsigned long thread_id; /* Thread id where this tstate was created */
+    /* async */
+    int coroutine_origin_tracking_depth;
+    PyObject *async_gen_firstiter;
+    PyObject *async_gen_finalizer;
+    PyObject *context;
+    uint64_t context_ver;
 
-    /* Native thread id where this tstate was created. This will be 0 except on
-     * those platforms that have the notion of native thread id, for which the
-     * macro PY_HAVE_THREAD_NATIVE_ID is then defined.
-     */
-    unsigned long native_thread_id;
-
+    /* gc */
     int trash_delete_nesting;
     PyObject *trash_delete_later;
+
+    /* XXX signal handlers should also be here */
 
     /* Called when a thread state is deleted normally, but not when it
      * is destroyed after fork().
@@ -153,25 +174,8 @@ struct _ts {
     void (*on_delete)(void *);
     void *on_delete_data;
 
-    int coroutine_origin_tracking_depth;
-
-    PyObject *async_gen_firstiter;
-    PyObject *async_gen_finalizer;
-
-    PyObject *context;
-    uint64_t context_ver;
-
-    /* Unique thread state id. */
-    uint64_t id;
-
-    CFrame root_cframe;
-    PyTraceInfo trace_info;
-
-    _PyStackChunk *datastack_chunk;
-    PyObject **datastack_top;
-    PyObject **datastack_limit;
-    /* XXX signal handlers should also be here */
-
+    /* Stores arbitrary per-thread state */
+    PyObject *dict;  /* Stores per-thread state */
 };
 
 // Alias for backward compatibility with Python 3.8
