@@ -13,10 +13,12 @@ extern "C" {
 #include "pycore_gil.h"           // struct _gil_runtime_state
 #include "pycore_gc.h"            // struct _gc_runtime_state
 #include "pycore_warnings.h"      // struct _warnings_runtime_state
+#include "pycore_thread.h"        // _PyThread_type_lock
 #include <stdbool.h>
 
 struct _pending_calls {
-    PyThread_type_lock lock;
+    bool initialized;
+    _PyThread_type_lock lock;
     /* Request for running pending calls. */
     _Py_atomic_int calls_to_do;
     /* Request for looking at the `async_exc` field of the current
@@ -236,7 +238,7 @@ struct _is {
     int64_t id;
     int64_t id_refcount;
     int requires_idref;
-    PyThread_type_lock id_mutex;
+    _PyThread_type_lock id_mutex;
 
     /* config */
     PyConfig config;

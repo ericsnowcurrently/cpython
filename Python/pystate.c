@@ -256,8 +256,7 @@ init_interpreter(PyInterpreterState *interp,
 
     interp->id = id;
     interp->id_refcount = -1;
-    /* The mutex is set in init_interpreter_threads(). */
-    interp->id_mutex = NULL;
+    /* id_mutex is initialized in init_interpreter_threads(). */
 
     interp->pythreads.num_threads = 0;
 
@@ -293,7 +292,8 @@ init_interpreter_threads(PyInterpreterState *interp)
         return status;
     }
 
-    assert(interp->id_mutex == NULL);
+    assert(interp->id_refcount < 0);
+    /* id_mutex is initialized in _PyInterpreterState_IDInitref(). */
 
     return _PyStatus_OK();
 }
@@ -304,9 +304,9 @@ reinit_interpreter_threads(PyInterpreterState *interp)
     // Note that _PyEval_ReInitThreads() is called directly
     // in _PyEval_ReInitState() rather than here.
 
-    if (interp->id_mutex != NULL) {
+    if (interp->id_refcount >= 0) {
         // It was initialized in _PyInterpreterState_IDInitref().
-        if (_PyThread_at_fork_reinit(&interp->id_mutex) != 0) {
+        if (init_lock_data(&interp->id_mutex) != 0) {
             return _PyStatus_NO_MEMORY();
         }
     }
@@ -526,8 +526,8 @@ PyInterpreterState_Delete(PyInterpreterState *interp)
     }
     HEAD_UNLOCK(runtime);
 
-    if (interp->id_mutex != NULL) {
-        PyThread_free_lock(interp->id_mutex);
+    if (interp->id_refcount >= 0) {
+        _PyThread_clear_lock(&interp->id_mutex);
     }
 
     if (interp->needs_free) {
@@ -566,8 +566,8 @@ _PyInterpreterState_DeleteExceptMain(_PyRuntimeState *runtime)
 
         PyInterpreterState_Clear(interp);  // XXX must activate?
         zapthreads(interp, 1);
-        if (interp->id_mutex != NULL) {
-            PyThread_free_lock(interp->id_mutex);
+        if (interp->id_refcount >= 0) {
+            _PyThread_clear_lock(&interp->id_mutex);
         }
         PyInterpreterState *prev_interp = interp;
         interp = interp->next;
@@ -649,7 +649,7 @@ _PyInterpreterState_IDInitref(PyInterpreterState *interp)
     if (interp->id_refcount >= 0) {
         return 0;
     }
-    if (_PyThread_init_lock(&interp->id_mutex) != 0) {
+    if (init_lock_data(&interp->id_mutex) != 0) {
         PyErr_SetString(PyExc_RuntimeError,
                         "failed to create interpreter ID mutex");
         return -1;
@@ -666,9 +666,9 @@ _PyInterpreterState_IDIncref(PyInterpreterState *interp)
         return -1;
     }
 
-    PyThread_acquire_lock(interp->id_mutex, WAIT_LOCK);
+    PyThread_acquire_lock(&interp->id_mutex, WAIT_LOCK);
     interp->id_refcount += 1;
-    PyThread_release_lock(interp->id_mutex);
+    PyThread_release_lock(&interp->id_mutex);
     return 0;
 }
 
@@ -676,14 +676,14 @@ _PyInterpreterState_IDIncref(PyInterpreterState *interp)
 void
 _PyInterpreterState_IDDecref(PyInterpreterState *interp)
 {
-    assert(interp->id_mutex != NULL);
+    assert(interp->id_refcount >= 0);
 
     struct _gilstate_runtime_state *gilstate = &_PyRuntime.gilstate;
-    PyThread_acquire_lock(interp->id_mutex, WAIT_LOCK);
+    PyThread_acquire_lock(&interp->id_mutex, WAIT_LOCK);
     assert(interp->id_refcount != 0);
     interp->id_refcount -= 1;
     int64_t refcount = interp->id_refcount;
-    PyThread_release_lock(interp->id_mutex);
+    PyThread_release_lock(&interp->id_mutex);
 
     if (refcount == 0 && interp->requires_idref) {
         // XXX Using the "head" thread isn't strictly correct.

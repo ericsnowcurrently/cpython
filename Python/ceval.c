@@ -531,11 +531,11 @@ _PyEval_AddPendingCall(PyInterpreterState *interp,
 
     /* Ensure that _PyEval_InitPendingCalls() was called
        and that _PyEval_FiniPendingCalls() is not called yet. */
-    assert(pending->lock != NULL);
+    assert(pending->initialized);
 
-    PyThread_acquire_lock(pending->lock, WAIT_LOCK);
+    PyThread_acquire_lock(&pending->lock, WAIT_LOCK);
     int result = _push_pending_call(pending, func, arg);
-    PyThread_release_lock(pending->lock);
+    PyThread_release_lock(&pending->lock);
 
     /* signal main loop */
     SIGNAL_PENDING_CALLS(interp);
@@ -617,9 +617,9 @@ make_pending_calls(PyInterpreterState *interp)
         void *arg = NULL;
 
         /* pop one item off the queue while holding the lock */
-        PyThread_acquire_lock(pending->lock, WAIT_LOCK);
+        PyThread_acquire_lock(&pending->lock, WAIT_LOCK);
         _pop_pending_call(pending, &func, &arg);
-        PyThread_release_lock(pending->lock);
+        PyThread_release_lock(&pending->lock);
 
         /* having released the lock, perform the callback */
         if (func == NULL) {
@@ -705,7 +705,7 @@ _PyEval_InitState(struct _ceval_state *ceval)
 {
     ceval->recursion_limit = Py_DEFAULT_RECURSION_LIMIT;
 
-    assert(ceval->pending.lock == NULL);
+    assert(!ceval->pending.initialized);
 
 #ifdef EXPERIMENTAL_ISOLATED_SUBINTERPRETERS
     _gil_initialize(&ceval->gil);
@@ -728,10 +728,17 @@ reinit_state(PyThreadState *tstate)
     return true;
 }
 
+static inline int
+init_lock_data(_PyThread_type_lock *lock)
+{
+    return _PyThread_init_lock((PyThread_type_lock *)&lock);
+}
+
 PyStatus
 _PyEval_InitThreads(struct _ceval_state *ceval)
 {
-    if (_PyThread_init_lock(&ceval->pending.lock) != 0) {
+    _PyThread_type_lock *lock = &ceval->pending.lock;
+    if (_PyThread_init_lock((PyThread_type_lock *)&lock) != 0) {
         return _PyStatus_NO_MEMORY();
     }
     return _PyStatus_OK();
@@ -740,10 +747,7 @@ _PyEval_InitThreads(struct _ceval_state *ceval)
 PyStatus
 _PyEval_ReInitThreads(struct _ceval_state *ceval)
 {
-    if (_PyThread_at_fork_reinit(&ceval->pending.lock) != 0) {
-        return _PyStatus_NO_MEMORY();
-    }
-    return _PyStatus_OK();
+    return _PyEval_InitThreads(ceval);
 }
 
 #ifdef HAVE_FORK
@@ -776,9 +780,9 @@ void
 _PyEval_FiniState(struct _ceval_state *ceval)
 {
     struct _pending_calls *pending = &ceval->pending;
-    if (pending->lock != NULL) {
-        PyThread_free_lock(pending->lock);
-        pending->lock = NULL;
+    if (pending->initialized) {
+        _PyThread_clear_lock(&pending->lock);
+        pending->initialized = false;
     }
 }
 
