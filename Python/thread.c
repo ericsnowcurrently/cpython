@@ -8,38 +8,11 @@
 #include "Python.h"
 #include "pycore_pystate.h"   // _PyInterpreterState_GET()
 
-#ifndef _POSIX_THREADS
-/* This means pthreads are not implemented in libc headers, hence the macro
-   not present in unistd.h. But they still can be implemented as an external
-   library (e.g. gnu pth in pthread emulation) */
-# ifdef HAVE_PTHREAD_H
-#  include <pthread.h> /* _POSIX_THREADS */
-# endif
-#endif
-
 #ifndef DONT_HAVE_STDIO_H
 #include <stdio.h>
 #endif
 
 #include <stdlib.h>
-
-#ifndef _POSIX_THREADS
-
-/* Check if we're running on HP-UX and _SC_THREADS is defined. If so, then
-   enough of the Posix threads package is implemented to support python
-   threads.
-
-   This is valid for HP-UX 11.23 running on an ia64 system. If needed, add
-   a check of __ia64 to verify that we're running on an ia64 system instead
-   of a pa-risc system.
-*/
-#ifdef __hpux
-#ifdef _SC_THREADS
-#define _POSIX_THREADS
-#endif
-#endif
-
-#endif /* _POSIX_THREADS */
 
 
 #ifdef Py_DEBUG
@@ -75,6 +48,8 @@ PyThread_init_thread(void)
     PyThread__init_thread();
 }
 
+#include "pycore_thread.h"
+
 #if defined(_POSIX_THREADS)
 #   define PYTHREAD_NAME "pthread"
 #   include "thread_pthread.h"
@@ -84,6 +59,33 @@ PyThread_init_thread(void)
 #else
 #   error "Require native threads. See https://bugs.python.org/issue31370"
 #endif
+
+int
+_PyThread_init_lock(PyThread_type_lock *plock)
+{
+    assert(plock != NULL);
+
+    PyThread_type_lock lock = *plock;
+    if (lock == NULL) {
+        lock = PyThread_allocate_lock();
+        if (lock == NULL) {
+           return -1;
+        }
+        *plock = lock;
+        return 0;
+    }
+    return pythread_init_lock(lock);
+}
+
+void
+_PyThread_clear_lock(PyThread_type_lock lock)
+{
+    dprintf(("PyThread_clear_lock(%p) called\n", lock));
+    if (lock == NULL) {
+        return;
+    }
+    pythread_clear_lock(lock);
+}
 
 
 /* return the current thread stack size */

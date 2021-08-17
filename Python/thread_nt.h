@@ -10,53 +10,50 @@
 #include <process.h>
 #endif
 
-/* options */
-#ifndef _PY_USE_CV_LOCKS
-#define _PY_USE_CV_LOCKS 1     /* use locks based on cond vars */
-#endif
-
 /* Now, define a non-recursive mutex using either condition variables
  * and critical sections (fast) or using operating system mutexes
  * (slow)
  */
 
-#if _PY_USE_CV_LOCKS
-
-#include "condvar.h"
-
-typedef struct _NRMUTEX
-{
-    PyMUTEX_T cs;
-    PyCOND_T cv;
-    int locked;
-} NRMUTEX;
+typedef struct _NRMUTEX NRMUTEX;
 typedef NRMUTEX *PNRMUTEX;
 
-PNRMUTEX
+static PNRMUTEX
 AllocNonRecursiveMutex()
 {
-    PNRMUTEX m = (PNRMUTEX)PyMem_RawMalloc(sizeof(NRMUTEX));
-    if (!m)
-        return NULL;
-    if (PyCOND_INIT(&m->cv))
-        goto fail;
-    if (PyMUTEX_INIT(&m->cs)) {
-        PyCOND_FINI(&m->cv);
-        goto fail;
+    return (PNRMUTEX)PyMem_RawMalloc(sizeof(NRMUTEX));
+}
+
+#if _PY_USE_CV_LOCKS
+
+// This is similar to the pthreads lock type used in thread_pthread.h.
+
+static int
+InitNonRecursiveMutex(PNRMUTEX lock)
+{
+    if (PyCOND_INIT(&lock->cv)) {
+        return -1;
     }
-    m->locked = 0;
-    return m;
-fail:
-    PyMem_RawFree(m);
-    return NULL;
+    if (PyMUTEX_INIT(&lock->cs)) {
+        PyCOND_FINI(&lock->cv);
+        return -1;
+    }
+    lock->locked = 0;
+    return 0;
+}
+
+static void
+ClearNonRecursiveMutex(PNRMUTEX mutex)
+{
+    PyCOND_FINI(&mutex->cv);
+    PyMUTEX_FINI(&mutex->cs);
 }
 
 VOID
 FreeNonRecursiveMutex(PNRMUTEX mutex)
 {
     if (mutex) {
-        PyCOND_FINI(&mutex->cv);
-        PyMUTEX_FINI(&mutex->cs);
+        ClearNonRecursiveMutex(mutex);
         PyMem_RawFree(mutex);
     }
 }
@@ -120,33 +117,53 @@ LeaveNonRecursiveMutex(PNRMUTEX mutex)
 #else /* if ! _PY_USE_CV_LOCKS */
 
 /* NR-locks based on a kernel mutex */
-#define PNRMUTEX HANDLE
 
-PNRMUTEX
-AllocNonRecursiveMutex()
+static int
+InitNonRecursiveMutex(PNRMUTEX lock)
 {
-    return CreateSemaphore(NULL, 1, 1, NULL);
+    lock->handle = CreateSemaphore(
+        NULL,  // security attrs
+        1,     // initial count
+        1,     // max count
+        NULL   // name
+    );
+    if (lock->handle == NULL) {
+        return -1;
+    }
+    return 0;
+}
+
+static void
+ClearNonRecursiveMutex(PNRMUTEX mutex)
+{
+    if (mutex->handle != NULL) {
+        /* No in-use check */
+        CloseHandle(mutex->handle);
+    }
 }
 
 VOID
 FreeNonRecursiveMutex(PNRMUTEX mutex)
 {
-    /* No in-use check */
-    CloseHandle(mutex);
+    if (mutex != NULL) {
+        ClearNonRecursiveMutex(PNRMUTEX);
+        PyMem_RawFree(mutex);
+    }
 }
 
 DWORD
 EnterNonRecursiveMutex(PNRMUTEX mutex, DWORD milliseconds)
 {
-    return WaitForSingleObjectEx(mutex, milliseconds, FALSE);
+    return WaitForSingleObjectEx(mutex->handle, milliseconds, FALSE);
 }
 
 BOOL
 LeaveNonRecursiveMutex(PNRMUTEX mutex)
 {
-    return ReleaseSemaphore(mutex, 1, NULL);
+    return ReleaseSemaphore(mutex->handle, 1, NULL);
 }
 #endif /* _PY_USE_CV_LOCKS */
+
 
 unsigned long PyThread_get_thread_ident(void);
 
@@ -157,10 +174,6 @@ unsigned long PyThread_get_thread_native_id(void);
 /*
  * Initialization of the C package, should not be needed.
  */
-static void
-PyThread__init_thread(void)
-{
-}
 
 /*
  * Thread support.
@@ -271,20 +284,36 @@ PyThread_exit_thread(void)
  * I [Dag] tried to implement it with mutex but I could find a way to
  * tell whether a thread already own the lock or not.
  */
+
+static inline int
+pythread_init_lock(PyThread_type_lock *plock)
+{
+    PyThread_type_lock lock = *plock;
+    return InitNonRecursiveMutex((PNRMUTEX)lock);
+}
+
 PyThread_type_lock
 PyThread_allocate_lock(void)
 {
-    PNRMUTEX aLock;
-
     dprintf(("PyThread_allocate_lock called\n"));
     if (!initialized)
         PyThread_init_thread();
 
-    aLock = AllocNonRecursiveMutex() ;
+    PNRMUTEX aLock = AllocNonRecursiveMutex();
+    if (InitNonRecursiveMutex(aLock) != 0) {
+        FreeNonRecursiveMutex(aLock);
+        aLock = NULL;
+    }
 
     dprintf(("%lu: PyThread_allocate_lock() -> %p\n", PyThread_get_thread_ident(), aLock));
 
     return (PyThread_type_lock) aLock;
+}
+
+static inline void
+pythread_clear_lock(PyThread_type_lock lock)
+{
+    ClearNonRecursiveMutex((PNRMUTEX)lock);
 }
 
 void
@@ -352,6 +381,11 @@ PyThread_release_lock(PyThread_type_lock aLock)
     if (!(aLock && LeaveNonRecursiveMutex((PNRMUTEX) aLock)))
         dprintf(("%lu: Could not PyThread_release_lock(%p) error: %ld\n", PyThread_get_thread_ident(), aLock, GetLastError()));
 }
+
+
+/*
+ * stack size
+ */
 
 /* minimum/maximum thread stack sizes supported */
 #define THREAD_MIN_STACKSIZE    0x8000          /* 32 KiB */

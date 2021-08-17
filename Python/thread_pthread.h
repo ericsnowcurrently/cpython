@@ -4,14 +4,9 @@
 
 #include <stdlib.h>
 #include <string.h>
-#if defined(__APPLE__) || defined(HAVE_PTHREAD_DESTRUCTOR)
-#define destructor xxdestructor
-#endif
-#include <pthread.h>
-#if defined(__APPLE__) || defined(HAVE_PTHREAD_DESTRUCTOR)
-#undef destructor
-#endif
 #include <signal.h>
+
+#include <pthread.h>
 
 #if defined(__linux__)
 #   include <sys/syscall.h>     /* syscall(SYS_gettid) */
@@ -72,32 +67,7 @@
 #ifdef THREAD_STACK_SIZE
 #error "THREAD_STACK_SIZE defined but _POSIX_THREAD_ATTR_STACKSIZE undefined"
 #endif
-#endif
-
-/* The POSIX spec says that implementations supporting the sem_*
-   family of functions must indicate this by defining
-   _POSIX_SEMAPHORES. */
-#ifdef _POSIX_SEMAPHORES
-/* On FreeBSD 4.x, _POSIX_SEMAPHORES is defined empty, so
-   we need to add 0 to make it work there as well. */
-#if (_POSIX_SEMAPHORES+0) == -1
-#define HAVE_BROKEN_POSIX_SEMAPHORES
-#else
-#include <semaphore.h>
-#include <errno.h>
-#endif
-#endif
-
-
-/* Whether or not to use semaphores directly rather than emulating them with
- * mutexes and condition variables:
- */
-#if (defined(_POSIX_SEMAPHORES) && !defined(HAVE_BROKEN_POSIX_SEMAPHORES) && \
-     defined(HAVE_SEM_TIMEDWAIT))
-#  define USE_SEMAPHORES
-#else
-#  undef USE_SEMAPHORES
-#endif
+#endif  /* _POSIX_THREAD_ATTR_STACKSIZE */
 
 
 /* On platforms that don't use standard POSIX threads pthread_sigmask()
@@ -128,6 +98,9 @@ do { \
 /*
  * pthread_cond support
  */
+
+// _PyThread_cond_init() and _PyThread_cond_after() are used here
+// (if !USE_SEMAFORES), as well as for the GIL (in ceval_gil.h).
 
 #if defined(HAVE_PTHREAD_CONDATTR_SETCLOCK) && defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
 // monotonic is supported statically.  It doesn't mean it works on runtime.
@@ -175,32 +148,6 @@ _PyThread_cond_after(long long us, struct timespec *abs)
 }
 
 
-/* A pthread mutex isn't sufficient to model the Python lock type
- * because, according to Draft 5 of the docs (P1003.4a/D5), both of the
- * following are undefined:
- *  -> a thread tries to lock a mutex it already has locked
- *  -> a thread tries to unlock a mutex locked by a different thread
- * pthread mutexes are designed for serializing threads over short pieces
- * of code anyway, so wouldn't be an appropriate implementation of
- * Python's locks regardless.
- *
- * The pthread_lock struct implements a Python lock as a "locked?" bit
- * and a <condition, mutex> pair.  In general, if the bit can be acquired
- * instantly, it is, else the pair is used to block the thread until the
- * bit is cleared.     9 May 1994 tim@ksr.com
- */
-
-typedef struct {
-    char             locked; /* 0=unlocked, 1=locked */
-    /* a <cond, mutex> pair to handle an acquire of a locked lock */
-    pthread_cond_t   lock_released;
-    pthread_mutex_t  mut;
-} pthread_lock;
-
-#define CHECK_STATUS(name)  if (status != 0) { perror(name); error = 1; }
-#define CHECK_STATUS_PTHREAD(name)  if (status != 0) { fprintf(stderr, \
-    "%s: %s\n", name, strerror(status)); error = 1; }
-
 /*
  * Initialization.
  */
@@ -213,6 +160,7 @@ PyThread__init_thread(void)
 #endif
     init_condattr();
 }
+
 
 /*
  * Thread support.
@@ -365,29 +313,44 @@ PyThread_exit_thread(void)
     pthread_exit(0);
 }
 
-#ifdef USE_SEMAPHORES
-
 /*
  * Lock support.
  */
 
+#ifdef USE_SEMAPHORES
+
+#define CHECK_STATUS(name)  if (status != 0) { perror(name); error = 1; }
+
+static inline int
+init_lock(sem_t *lock)
+{
+    int status = sem_init(
+        lock,
+        0,  // It is shared between threads.
+        1   // initial value
+    );
+
+    int error = 0;
+    CHECK_STATUS("sem_init");
+    return error;
+}
+
+static inline int
+pythread_init_lock(PyThread_type_lock lock)
+{
+    return init_lock((sem_t *)lock) == 0 ? 0 : -1;
+}
+
 PyThread_type_lock
 PyThread_allocate_lock(void)
 {
-    sem_t *lock;
-    int status, error = 0;
-
     dprintf(("PyThread_allocate_lock called\n"));
     if (!initialized)
         PyThread_init_thread();
 
-    lock = (sem_t *)PyMem_RawMalloc(sizeof(sem_t));
-
+    sem_t *lock = (sem_t *)PyMem_RawMalloc(sizeof(sem_t));
     if (lock) {
-        status = sem_init(lock,0,1);
-        CHECK_STATUS("sem_init");
-
-        if (error) {
+        if (init_lock(lock) != 0) {
             PyMem_RawFree((void *)lock);
             lock = NULL;
         }
@@ -397,22 +360,27 @@ PyThread_allocate_lock(void)
     return (PyThread_type_lock)lock;
 }
 
+static inline void
+clear_lock(sem_t *lock)
+{
+    int status = sem_destroy(lock);
+    int error = 0;
+    CHECK_STATUS("sem_destroy");
+    (void) error; /* silence unused-but-set-variable warning */
+}
+
+static inline void
+pythread_clear_lock(PyThread_type_lock lock)
+{
+    clear_lock((sem_t *)lock);
+}
+
 void
 PyThread_free_lock(PyThread_type_lock lock)
 {
-    sem_t *thelock = (sem_t *)lock;
-    int status, error = 0;
-
-    (void) error; /* silence unused-but-set-variable warning */
     dprintf(("PyThread_free_lock(%p) called\n", lock));
-
-    if (!thelock)
-        return;
-
-    status = sem_destroy(thelock);
-    CHECK_STATUS("sem_destroy");
-
-    PyMem_RawFree((void *)thelock);
+    clear_lock((sem_t *)lock);
+    PyMem_RawFree((void *)lock);
 }
 
 /*
@@ -537,11 +505,40 @@ PyThread_release_lock(PyThread_type_lock lock)
     CHECK_STATUS("sem_post");
 }
 
-#else /* USE_SEMAPHORES */
+#else /* ! USE_SEMAPHORES */
 
-/*
- * Lock support.
- */
+#define CHECK_STATUS_PTHREAD(name)  if (status != 0) { fprintf(stderr, \
+    "%s: %s\n", name, strerror(status)); error = 1; }
+
+static inline int
+init_lock(pthread_lock *lock)
+{
+    int status, error = 0;
+
+    lock->locked = 0;
+
+    status = pthread_mutex_init(&lock->mut, NULL);
+    CHECK_STATUS_PTHREAD("pthread_mutex_init");
+    // XXX Fail if error != 0?
+    /* Mark the pthread mutex underlying a Python mutex as
+       pure happens-before.  We can't simply mark the
+       Python-level mutex as a mutex because it can be
+       acquired and released in different threads, which
+       will cause errors. */
+    _Py_ANNOTATE_PURE_HAPPENS_BEFORE_MUTEX(&lock->mut);
+
+    status = _PyThread_cond_init(&lock->lock_released);
+    CHECK_STATUS_PTHREAD("pthread_cond_init");
+
+    return error;
+}
+
+static inline int
+pythread_init_lock(PyThread_type_lock lock)
+{
+    return init_lock((pthread_lock *)lock) == 0 ? 0 : -1;
+}
+
 PyThread_type_lock
 PyThread_allocate_lock(void)
 {
@@ -554,23 +551,9 @@ PyThread_allocate_lock(void)
 
     lock = (pthread_lock *) PyMem_RawCalloc(1, sizeof(pthread_lock));
     if (lock) {
-        lock->locked = 0;
-
-        status = pthread_mutex_init(&lock->mut, NULL);
-        CHECK_STATUS_PTHREAD("pthread_mutex_init");
-        /* Mark the pthread mutex underlying a Python mutex as
-           pure happens-before.  We can't simply mark the
-           Python-level mutex as a mutex because it can be
-           acquired and released in different threads, which
-           will cause errors. */
-        _Py_ANNOTATE_PURE_HAPPENS_BEFORE_MUTEX(&lock->mut);
-
-        status = _PyThread_cond_init(&lock->lock_released);
-        CHECK_STATUS_PTHREAD("pthread_cond_init");
-
-        if (error) {
+        if (init_lock(lock) != 0) {
             PyMem_RawFree((void *)lock);
-            lock = 0;
+            lock = NULL;
         }
     }
 
@@ -578,25 +561,35 @@ PyThread_allocate_lock(void)
     return (PyThread_type_lock) lock;
 }
 
-void
-PyThread_free_lock(PyThread_type_lock lock)
+static inline void
+clear_lock(pthread_lock lock)
 {
-    pthread_lock *thelock = (pthread_lock *)lock;
     int status, error = 0;
 
     (void) error; /* silence unused-but-set-variable warning */
-    dprintf(("PyThread_free_lock(%p) called\n", lock));
 
     /* some pthread-like implementations tie the mutex to the cond
      * and must have the cond destroyed first.
      */
-    status = pthread_cond_destroy( &thelock->lock_released );
+    status = pthread_cond_destroy( &lock->lock_released );
     CHECK_STATUS_PTHREAD("pthread_cond_destroy");
 
-    status = pthread_mutex_destroy( &thelock->mut );
+    status = pthread_mutex_destroy( &lock->mut );
     CHECK_STATUS_PTHREAD("pthread_mutex_destroy");
+}
 
-    PyMem_RawFree((void *)thelock);
+static inline void
+pythread_clear_lock(PyThread_type_lock lock)
+{
+    clear_lock((pthread_lock *)lock);
+}
+
+void
+PyThread_free_lock(PyThread_type_lock lock)
+{
+    dprintf(("PyThread_free_lock(%p) called\n", lock));
+    clear_lock((pthread_lock *)lock);
+    PyMem_RawFree((void *)lock);
 }
 
 PyLockStatus
@@ -723,6 +716,11 @@ PyThread_acquire_lock(PyThread_type_lock lock, int waitflag)
 {
     return PyThread_acquire_lock_timed(lock, waitflag ? -1 : 0, /*intr_flag=*/0);
 }
+
+
+/*
+ * stack size
+ */
 
 /* set the thread stack size.
  * Return 0 if size is valid, -1 if size is invalid,
