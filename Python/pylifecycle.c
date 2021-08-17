@@ -1923,10 +1923,9 @@ new_interpreter(PyThreadState **tstate_p, int isolated_subinterpreter)
 #endif
     {
         /* No current thread state, copy from the main interpreter */
-        PyInterpreterState *main_interp = PyInterpreterState_Main();
+        PyInterpreterState *main_interp = _Py_GetMainInterpreter();
         config = _PyInterpreterState_GetConfig(main_interp);
     }
-
 
     status = _PyConfig_Copy(&interp->config, config);
     if (_PyStatus_EXCEPTION(status)) {

@@ -288,7 +288,7 @@ trip_signal(int sig_num)
     _Py_atomic_store(&is_tripped, 1);
 
     /* Signals are always handled by the main interpreter */
-    PyInterpreterState *interp = _PyRuntime.interpreters.main;
+    PyInterpreterState *interp = _Py_GetMainInterpreter();
 
     /* Notify ceval.c */
     _PyEval_SignalReceived(interp);

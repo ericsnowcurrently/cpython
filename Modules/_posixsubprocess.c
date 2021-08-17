@@ -1,6 +1,7 @@
 /* Authors: Gregory P. Smith & Jeffrey Yasskin */
 #include "Python.h"
 #include "pycore_fileutils.h"
+#include "pycore_pystate.h"  // _Py_GetMainInterpreter
 #if defined(HAVE_PIPE2) && !defined(_GNU_SOURCE)
 # define _GNU_SOURCE
 #endif
@@ -755,7 +756,7 @@ subprocess_fork_exec(PyObject *module, PyObject *args)
         return NULL;
 
     if ((preexec_fn != Py_None) &&
-            (PyInterpreterState_Get() != PyInterpreterState_Main())) {
+            (PyInterpreterState_Get() != _Py_GetMainInterpreter())) {
         PyErr_SetString(PyExc_RuntimeError,
                         "preexec_fn not supported within subinterpreters");
         return NULL;

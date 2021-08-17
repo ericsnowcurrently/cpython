@@ -1213,7 +1213,7 @@ PyInterpreterState_Head(void)
 PyInterpreterState *
 PyInterpreterState_Main(void)
 {
-    return _PyRuntime.interpreters.main;
+    return _Py_GetMainInterpreter();
 }
 
 PyInterpreterState *

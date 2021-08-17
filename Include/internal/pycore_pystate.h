@@ -21,12 +21,17 @@ _Py_IsMainThread(void)
 }
 
 
+static inline PyInterpreterState*
+_Py_GetMainInterpreter() {
+    /* Use directly _PyRuntime rather than tstate->interp->runtime, since
+       this function is used in performance critical code path (ceval) */
+    return _PyRuntime.interpreters.main;
+}
+
 static inline int
 _Py_IsMainInterpreter(PyInterpreterState *interp)
 {
-    /* Use directly _PyRuntime rather than tstate->interp->runtime, since
-       this function is used in performance critical code path (ceval) */
-    return (interp == _PyRuntime.interpreters.main);
+    return (interp == _Py_GetMainInterpreter());
 }
 
 
@@ -34,7 +39,7 @@ _Py_IsMainInterpreter(PyInterpreterState *interp)
 static inline int
 _Py_ThreadCanHandleSignals(PyInterpreterState *interp)
 {
-    return (_Py_IsMainThread() && interp == _PyRuntime.interpreters.main);
+    return (_Py_IsMainThread() && _Py_IsMainInterpreter(interp));
 }
 
 
