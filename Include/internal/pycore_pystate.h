@@ -138,7 +138,8 @@ PyAPI_FUNC(PyThreadState *) _PyThreadState_Swap(
     struct _gilstate_runtime_state *gilstate,
     PyThreadState *newts);
 
-PyAPI_FUNC(PyStatus) _PyInterpreterState_Enable(_PyRuntimeState *runtime);
+PyAPI_FUNC(PyStatus) _PyInterpreterState_Enable(_PyRuntimeState *);
+PyAPI_FUNC(PyStatus) _PyThreadState_Enable(PyInterpreterState *);
 
 #ifdef HAVE_FORK
 extern PyStatus _PyInterpreterState_DeleteExceptMain(_PyRuntimeState *runtime);

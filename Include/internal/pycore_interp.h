@@ -251,6 +251,7 @@ struct _is {
 
     /* thread states */
     struct pythreads {
+        _PyThread_type_lock mutex;
         struct _ts *head;
         struct _ts main;
 

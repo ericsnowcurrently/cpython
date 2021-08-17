@@ -637,6 +637,11 @@ pycore_create_interpreter(_PyRuntimeState *runtime,
         return status;
     }
 
+    status = _PyThreadState_Enable(interp);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+
     PyThreadState *tstate = PyThreadState_New(interp);
     if (tstate == NULL) {
         return _PyStatus_ERR("can't make first thread");
