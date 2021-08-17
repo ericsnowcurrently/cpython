@@ -10,6 +10,7 @@ extern "C" {
 
 #include "pycore_atomic.h"    // _Py_atomic_address
 #include "pycore_gil.h"       // struct _gil_runtime_state
+#include "pycore_thread.h"    // _PyThread_type_lock
 
 /* ceval state */
 
@@ -50,7 +51,7 @@ typedef struct _Py_AuditHookEntry {
 } _Py_AuditHookEntry;
 
 struct _Py_unicode_runtime_ids {
-    PyThread_type_lock lock;
+    _PyThread_type_lock lock;
     // next_index value must be preserved when Py_Initialize()/Py_Finalize()
     // is called multiple times: see _PyUnicode_FromId() implementation.
     Py_ssize_t next_index;
@@ -89,7 +90,7 @@ typedef struct pyruntimestate {
     _Py_AuditHookEntry *audit_hook_head;
 
     struct pyinterpreters {
-        PyThread_type_lock mutex;
+        _PyThread_type_lock mutex;
         PyInterpreterState *head;
         PyInterpreterState *main;
         /* _next_interp_id is an auto-numbered sequence of small
@@ -105,7 +106,7 @@ typedef struct pyruntimestate {
 
     // XXX Remove this field once we have a tp_* slot.
     struct _xidregistry {
-        PyThread_type_lock mutex;
+        _PyThread_type_lock mutex;
         struct _xidregitem *head;
     } xidregistry;
 

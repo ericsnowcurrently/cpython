@@ -36,6 +36,12 @@ to avoid the expense of doing their own locking).
 extern "C" {
 #endif
 
+static inline int
+init_lock_data(_PyThread_type_lock *lock)
+{
+    return _PyThread_init_lock((PyThread_type_lock *)&lock);
+}
+
 static void
 init_runtime(_PyRuntimeState *runtime, _PyRuntimeState *preserved)
 {
@@ -60,7 +66,6 @@ init_runtime(_PyRuntimeState *runtime, _PyRuntimeState *preserved)
 
     /* XID registry */
     assert(runtime->xidregistry.head == NULL);
-    assert(runtime->xidregistry.mutex == NULL);
 
     /* global ceval */
     _PyEval_InitRuntimeState(&runtime->ceval);
@@ -73,7 +78,6 @@ init_runtime(_PyRuntimeState *runtime, _PyRuntimeState *preserved)
 
     /* unicode IDs */
     runtime->unicode_ids.next_index = preserved->unicode_ids.next_index;
-    assert(runtime->unicode_ids.lock == NULL);
 }
 
 static PyStatus
@@ -83,21 +87,17 @@ init_runtime_threads(_PyRuntimeState *runtime)
     runtime->main_thread = PyThread_get_thread_ident();
 
     /* interpreters */
-    // We init the lock even if _PyInterpreterState_Enable()
-    // hasn't been called yet.
+    // We init interpreters.mutex in _PyInterpreterState_Enable().
     assert(runtime->interpreters.next_id < 0);
-    if (_PyThread_init_lock(&runtime->interpreters.mutex) != 0) {
-        return _PyStatus_NO_MEMORY();
-    }
     // For now we do not initialize the main interpreter locks here.
 
     /* XID registry */
-    if (_PyThread_init_lock(&runtime->xidregistry.mutex) != 0) {
+    if (init_lock_data(&runtime->xidregistry.mutex) != 0) {
         return _PyStatus_NO_MEMORY();
     }
 
     /* unicode IDs */
-    if (_PyThread_init_lock(&runtime->unicode_ids.lock) != 0) {
+    if (init_lock_data(&runtime->unicode_ids.lock) != 0) {
         return _PyStatus_NO_MEMORY();
     }
 
@@ -118,7 +118,7 @@ reinit_runtime_threads(_PyRuntimeState *runtime)
     /* interpreters */
     if(runtime->interpreters.next_id >= 0) {
         // _PyInterpreterState_Enable() has been called.
-        if (_PyThread_at_fork_reinit(&runtime->interpreters.mutex) != 0) {
+        if (init_lock_data(&runtime->interpreters.mutex) != 0) {
             return _PyStatus_NO_MEMORY();
         }
     }
@@ -130,12 +130,12 @@ reinit_runtime_threads(_PyRuntimeState *runtime)
     }
 
     /* XID registry */
-    if (_PyThread_at_fork_reinit(&runtime->xidregistry.mutex) != 0) {
+    if (init_lock_data(&runtime->xidregistry.mutex) != 0) {
         return _PyStatus_NO_MEMORY();
     }
 
     /* unicode IDs */
-    if (_PyThread_at_fork_reinit(&runtime->unicode_ids.lock) != 0) {
+    if (init_lock_data(&runtime->unicode_ids.lock) != 0) {
         return _PyStatus_NO_MEMORY();
     }
 
@@ -182,17 +182,11 @@ _PyRuntimeState_Fini(_PyRuntimeState *runtime)
     /* Force the allocator used by _PyRuntimeState_Init(). */
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
-#define FREE_LOCK(LOCK) \
-    if (LOCK != NULL) { \
-        PyThread_free_lock(LOCK); \
-        LOCK = NULL; \
-    }
 
-    FREE_LOCK(runtime->interpreters.mutex);
-    FREE_LOCK(runtime->xidregistry.mutex);
-    FREE_LOCK(runtime->unicode_ids.lock);
+    _PyThread_clear_lock(&runtime->interpreters.mutex);
+    _PyThread_clear_lock(&runtime->xidregistry.mutex);
+    _PyThread_clear_lock(&runtime->unicode_ids.lock);
 
-#undef FREE_LOCK
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
 }
 
@@ -215,9 +209,9 @@ _PyRuntimeState_ReInitThreads(_PyRuntimeState *runtime)
 #endif
 
 #define HEAD_LOCK(runtime) \
-    PyThread_acquire_lock((runtime)->interpreters.mutex, WAIT_LOCK)
+    PyThread_acquire_lock(&(runtime)->interpreters.mutex, WAIT_LOCK)
 #define HEAD_UNLOCK(runtime) \
-    PyThread_release_lock((runtime)->interpreters.mutex)
+    PyThread_release_lock(&(runtime)->interpreters.mutex)
 
 /* Forward declaration */
 static void _PyGILState_NoteThreadState(
@@ -232,19 +226,18 @@ _PyInterpreterState_Enable(_PyRuntimeState *runtime)
     PyStatus status = _PyStatus_OK();
 
     /* Py_Finalize() calls _PyRuntimeState_Fini() which clears the mutex.
-       Create a new mutex if needed. */
-    if (interpreters->mutex == NULL) {
-        /* Force default allocator, since _PyRuntimeState_Fini() must
-           use the same allocator than this function. */
-        PyMemAllocatorEx old_alloc;
-        _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+       Init the mutex if needed. */
 
-        if (_PyThread_init_lock(&runtime->interpreters.mutex) != 0) {
-            status = _PyStatus_NO_MEMORY();
-        }
+    /* Force default allocator, since _PyRuntimeState_Fini() must
+       use the same allocator than this function. */
+    PyMemAllocatorEx old_alloc;
+    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
 
-        PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+    if (init_lock_data(&runtime->interpreters.mutex) != 0) {
+        status = _PyStatus_NO_MEMORY();
     }
+
+    PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
 
     return status;
 }
@@ -1925,12 +1918,12 @@ _PyCrossInterpreterData_RegisterClass(PyTypeObject *cls,
     Py_INCREF((PyObject *)cls);
 
     struct _xidregistry *xidregistry = &_PyRuntime.xidregistry ;
-    PyThread_acquire_lock(xidregistry->mutex, WAIT_LOCK);
+    PyThread_acquire_lock(&xidregistry->mutex, WAIT_LOCK);
     if (xidregistry->head == NULL) {
         _register_builtins_for_crossinterpreter_data(xidregistry);
     }
     int res = _register_xidata(xidregistry, cls, getdata);
-    PyThread_release_lock(xidregistry->mutex);
+    PyThread_release_lock(&xidregistry->mutex);
     return res;
 }
 
@@ -1944,7 +1937,7 @@ _PyCrossInterpreterData_Lookup(PyObject *obj)
     struct _xidregistry *xidregistry = &_PyRuntime.xidregistry ;
     PyObject *cls = PyObject_Type(obj);
     crossinterpdatafunc getdata = NULL;
-    PyThread_acquire_lock(xidregistry->mutex, WAIT_LOCK);
+    PyThread_acquire_lock(&xidregistry->mutex, WAIT_LOCK);
     struct _xidregitem *cur = xidregistry->head;
     if (cur == NULL) {
         _register_builtins_for_crossinterpreter_data(xidregistry);
@@ -1957,7 +1950,7 @@ _PyCrossInterpreterData_Lookup(PyObject *obj)
         }
     }
     Py_DECREF(cls);
-    PyThread_release_lock(xidregistry->mutex);
+    PyThread_release_lock(&xidregistry->mutex);
     return getdata;
 }
 
