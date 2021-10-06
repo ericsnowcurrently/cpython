@@ -2103,9 +2103,9 @@ config_init_import(PyConfig *config, int compute_path_config)
     /* -X frozen_modules=[on|off] */
     const wchar_t *value = config_get_xoption_value(config, L"frozen_modules");
     if (value == NULL) {
-        // For now we always default to "off".
+        // For now we always default to "on".
         // In the near future we will be factoring in PGO and in-development.
-        config->use_frozen_modules = 0;
+        config->use_frozen_modules = 1;
     }
     else if (wcscmp(value, L"on") == 0) {
         config->use_frozen_modules = 1;
