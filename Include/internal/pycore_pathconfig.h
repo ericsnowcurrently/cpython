@@ -31,6 +31,7 @@ typedef struct _PyPathConfig {
     wchar_t *prefix;
     wchar_t *exec_prefix;
     wchar_t *stdlib_dir;
+    int stdlib_dir_verified;
     /* Set by Py_SetPath(), or computed by _PyConfig_InitPathConfig() */
     wchar_t *module_search_path;
     /* Python program name */

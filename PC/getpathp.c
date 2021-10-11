@@ -300,11 +300,12 @@ is_stdlibdir(wchar_t *stdlibdir)
 /* assumes argv0_dir is MAXPATHLEN+1 bytes long, already \0 term'd.
    assumption provided by only caller, calculate_path() */
 static int
-search_for_prefix(wchar_t *prefix, const wchar_t *argv0_dir)
+search_for_stdlib(const wchar_t *start_dir, wchar_t *prefix,
+                  int *stdlib_verified)
 {
-    /* Search from argv0_dir, until LANDMARK is found.
+    /* Search from start_dir (e.g. reduce(argv[0]), until LANDMARK is found.
        We guarantee 'prefix' is null terminated in bounds. */
-    wcscpy_s(prefix, MAXPATHLEN+1, argv0_dir);
+    wcscpy_s(prefix, MAXPATHLEN+1, start_dir);
     if (!prefix[0]) {
         return 0;
     }
@@ -319,6 +320,7 @@ search_for_prefix(wchar_t *prefix, const wchar_t *argv0_dir)
            is guaranteed to fit. */
         wcscpy(&stdlibdir[wcslen(prefix) + 1], STDLIB_SUBDIR);
         if (is_stdlibdir(stdlibdir)) {
+            *stdlib_verified |= LOCATION_EXISTS;
             return 1;
         }
         reduce(prefix);
@@ -772,7 +774,8 @@ static void
 calculate_home_prefix(PyCalculatePath *calculate,
                       const wchar_t *argv0_dir,
                       const wchar_t *zip_path,
-                      wchar_t *prefix)
+                      wchar_t *prefix,
+                      int *stdlib_verified)
 {
     if (calculate->home == NULL || *calculate->home == '\0') {
         if (zip_path[0] && exists(zip_path)) {
@@ -780,7 +783,7 @@ calculate_home_prefix(PyCalculatePath *calculate,
             reduce(prefix);
             calculate->home = prefix;
         }
-        else if (search_for_prefix(prefix, argv0_dir)) {
+        else if (search_for_stdlib(argv0_dir, prefix, stdlib_verified)) {
             calculate->home = prefix;
         }
         else {
@@ -798,7 +801,8 @@ calculate_module_search_path(PyCalculatePath *calculate,
                              _PyPathConfig *pathconfig,
                              const wchar_t *argv0_dir,
                              wchar_t *prefix,
-                             const wchar_t *zip_path)
+                             const wchar_t *zip_path,
+                             int *stdlib_verified)
 {
     int skiphome = calculate->home==NULL ? 0 : 1;
 #ifdef Py_ENABLE_SHARED
@@ -963,7 +967,7 @@ calculate_module_search_path(PyCalculatePath *calculate,
             }
             /* Up one level to the parent */
             reduce(lookBuf);
-            if (search_for_prefix(prefix, lookBuf)) {
+            if (search_for_stdlib(lookBuf, prefix, stdlib_verified)) {
                 break;
             }
             /* If we are out of paths to search - give up */
@@ -983,6 +987,7 @@ static PyStatus
 calculate_path(PyCalculatePath *calculate, _PyPathConfig *pathconfig)
 {
     PyStatus status;
+    int stdlib_verified = LOCATION_UNKNOWN;
 
     status = get_program_full_path(pathconfig);
     if (_PyStatus_EXCEPTION(status)) {
@@ -1026,11 +1031,14 @@ calculate_path(PyCalculatePath *calculate, _PyPathConfig *pathconfig)
         }
     }
 
-    calculate_home_prefix(calculate, argv0_dir, zip_path, prefix);
+
+    calculate_home_prefix(calculate, argv0_dir, zip_path, prefix,
+                          &stdlib_verified);
 
     if (pathconfig->module_search_path == NULL) {
         status = calculate_module_search_path(calculate, pathconfig,
-                                              argv0_dir, prefix, zip_path);
+                                              argv0_dir, prefix, zip_path,
+                                              &stdlib_verified);
         if (_PyStatus_EXCEPTION(status)) {
             return status;
         }
@@ -1042,6 +1050,7 @@ done:
         if (pathconfig->stdlib_dir == NULL) {
             return _PyStatus_NO_MEMORY();
         }
+        pathconfig->stdlib_dir_verified = stdlib_verified;
     }
     if (pathconfig->prefix == NULL) {
         pathconfig->prefix = _PyMem_RawWcsdup(prefix);

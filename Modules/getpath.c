@@ -1562,6 +1562,7 @@ calculate_path(PyCalculatePath *calculate, _PyPathConfig *pathconfig)
             if (pathconfig->stdlib_dir == NULL) {
                 return _PyStatus_NO_MEMORY();
             }
+            pathconfig->stdlib_dir_verified = calculate->stdlib_dir_verified;
         }
     }
 
