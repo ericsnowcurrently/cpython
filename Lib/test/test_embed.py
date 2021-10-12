@@ -1297,14 +1297,16 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
             module_search_paths = self.module_search_paths()
             module_search_paths[-1] = libdir
 
+            prefix = self._get_expected_config()['config']['prefix']
+            stdlib, = (e for e in module_search_paths
+                       if e.startswith(prefix) and not e.endswith('.zip'))
+
             executable = self.test_exe
             config = {
                 'base_executable': executable,
                 'executable': executable,
                 'module_search_paths': module_search_paths,
-                # The current getpath.c doesn't determine the stdlib dir
-                # in this case.
-                'stdlib_dir': None,
+                'stdlib_dir': stdlib,
                 'stdlib_dir_verified': 0,
             }
             env = self.copy_paths_by_env(config)
@@ -1350,6 +1352,10 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
                         paths[index] = os.path.join(pyvenv_home, os.path.basename(path))
                 paths[-1] = pyvenv_home
 
+            prefix = self._get_expected_config()['config']['prefix']
+            stdlib, = (e for e in paths
+                       if e.startswith(prefix) and not e.endswith('.zip'))
+
             executable = self.test_exe
             exec_prefix = pyvenv_home
             config = {
@@ -1358,12 +1364,13 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
                 'base_executable': executable,
                 'executable': executable,
                 'module_search_paths': paths,
+                'stdlib_dir': stdlib,
+                'stdlib_dir_verified': 0,
             }
             path_config = {}
             if MS_WINDOWS:
                 config['base_prefix'] = pyvenv_home
                 config['prefix'] = pyvenv_home
-                config['stdlib_dir'] = os.path.join(pyvenv_home, 'lib')
 
                 ver = sys.version_info
                 dll = f'python{ver.major}'
@@ -1372,11 +1379,6 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
                 dll += '.DLL'
                 dll = os.path.join(os.path.dirname(executable), dll)
                 path_config['python3_dll'] = dll
-            else:
-                # The current getpath.c doesn't determine the stdlib dir
-                # in this case.
-                config['stdlib_dir'] = None
-                config['stdlib_dir_verified'] = 0
 
             env = self.copy_paths_by_env(config)
             self.check_all_configs("test_init_compat_config", config,
