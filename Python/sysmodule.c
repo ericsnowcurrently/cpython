@@ -2974,7 +2974,7 @@ _PySys_UpdateConfig(PyThreadState *tstate)
 
     SET_SYS("_xoptions", sys_create_xoptions_dict(config));
 
-    const wchar_t *stdlibdir = _Py_GetStdlibDir();
+    const wchar_t *stdlibdir = _Py_GetStdlibDir(-1);
     if (stdlibdir != NULL) {
         SET_SYS_FROM_WSTR("_stdlib_dir", stdlibdir);
     }

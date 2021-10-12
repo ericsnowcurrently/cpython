@@ -602,8 +602,11 @@ Py_GetPath(void)
 
 
 wchar_t *
-_Py_GetStdlibDir(void)
+_Py_GetStdlibDir(int verified)
 {
+    if (verified >= 0 && !(_Py_path_config.stdlib_dir_verified & verified)) {
+        return NULL;
+    }
     wchar_t *stdlib_dir = _Py_path_config.stdlib_dir;
     if (stdlib_dir != NULL && stdlib_dir[0] != L'\0') {
         return stdlib_dir;
