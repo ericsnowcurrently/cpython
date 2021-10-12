@@ -85,6 +85,7 @@ pathconfig_copy(_PyPathConfig *config, const _PyPathConfig *config2)
     COPY_ATTR(exec_prefix);
     COPY_ATTR(module_search_path);
     COPY_ATTR(stdlib_dir);
+    config->stdlib_dir_verified = config2->stdlib_dir_verified;
     COPY_ATTR(program_name);
     COPY_ATTR(home);
 #ifdef MS_WINDOWS
@@ -169,7 +170,10 @@ pathconfig_set_from_config(_PyPathConfig *pathconfig, const PyConfig *config)
     COPY_CONFIG(program_full_path, executable);
     COPY_CONFIG(prefix, prefix);
     COPY_CONFIG(exec_prefix, exec_prefix);
-    COPY_CONFIG(stdlib_dir, stdlib_dir);
+    if (config->stdlib_dir != NULL) {
+        COPY_CONFIG(stdlib_dir, stdlib_dir);
+        pathconfig->stdlib_dir_verified = config->stdlib_dir_verified;
+    }
     COPY_CONFIG(program_name, program_name);
     COPY_CONFIG(home, home);
 #ifdef MS_WINDOWS
@@ -222,6 +226,7 @@ _PyPathConfig_AsDict(void)
     SET_ITEM_STR(exec_prefix);
     SET_ITEM_STR(module_search_path);
     SET_ITEM_STR(stdlib_dir);
+    SET_ITEM_INT(stdlib_dir_verified);
     SET_ITEM_STR(program_name);
     SET_ITEM_STR(home);
 #ifdef MS_WINDOWS
@@ -406,7 +411,10 @@ config_init_pathconfig(PyConfig *config, int compute_path_config)
     COPY_ATTR(program_full_path, executable);
     COPY_ATTR(prefix, prefix);
     COPY_ATTR(exec_prefix, exec_prefix);
-    COPY_ATTR(stdlib_dir, stdlib_dir);
+    if (config->stdlib_dir == NULL) {
+        COPY_ATTR(stdlib_dir, stdlib_dir);
+        config->stdlib_dir_verified = pathconfig.stdlib_dir_verified;
+    }
 
 #undef COPY_ATTR
 
@@ -500,9 +508,11 @@ Py_SetPath(const wchar_t *path)
     // XXX Copy this from the new module_search_path?
     if (_Py_path_config.home != NULL) {
         _Py_path_config.stdlib_dir = _PyMem_RawWcsdup(_Py_path_config.home);
+        _Py_path_config.stdlib_dir_verified = LOCATION_FORCED;
     }
     else {
         _Py_path_config.stdlib_dir = _PyMem_RawWcsdup(L"");
+        _Py_path_config.stdlib_dir_verified = LOCATION_UNKNOWN;
     }
     _Py_path_config.module_search_path = _PyMem_RawWcsdup(path);
 
@@ -532,6 +542,7 @@ Py_SetPythonHome(const wchar_t *home)
     _Py_path_config.home = _PyMem_RawWcsdup(home);
     if (_Py_path_config.home != NULL) {
         _Py_path_config.stdlib_dir = _PyMem_RawWcsdup(home);
+        _Py_path_config.stdlib_dir_verified = LOCATION_FORCED;
     }
 
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);

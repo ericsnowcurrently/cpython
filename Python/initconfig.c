@@ -911,6 +911,7 @@ _PyConfig_Copy(PyConfig *config, const PyConfig *config2)
     COPY_WSTRLIST(module_search_paths);
     COPY_ATTR(module_search_paths_set);
     COPY_WSTR_ATTR(stdlib_dir);
+    COPY_ATTR(stdlib_dir_verified);
 
     COPY_WSTR_ATTR(executable);
     COPY_WSTR_ATTR(base_executable);
@@ -1018,6 +1019,7 @@ _PyConfig_AsDict(const PyConfig *config)
     SET_ITEM_INT(module_search_paths_set);
     SET_ITEM_WSTRLIST(module_search_paths);
     SET_ITEM_WSTR(stdlib_dir);
+    SET_ITEM_INT(stdlib_dir_verified);
     SET_ITEM_WSTR(executable);
     SET_ITEM_WSTR(base_executable);
     SET_ITEM_WSTR(prefix);
@@ -1322,6 +1324,7 @@ _PyConfig_FromDict(PyConfig *config, PyObject *dict)
     GET_UINT(module_search_paths_set);
     GET_WSTRLIST(module_search_paths);
     GET_WSTR_OPT(stdlib_dir);
+    GET_UINT(stdlib_dir_verified);
     GET_WSTR_OPT(executable);
     GET_WSTR_OPT(base_executable);
     GET_WSTR_OPT(prefix);

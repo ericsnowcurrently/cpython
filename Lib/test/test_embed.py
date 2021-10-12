@@ -407,6 +407,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
         'module_search_paths_set': 1,
         'platlibdir': sys.platlibdir,
         'stdlib_dir': GET_DEFAULT_CONFIG,
+        'stdlib_dir_verified': GET_DEFAULT_CONFIG,
 
         'site_import': 1,
         'bytes_warning': 0,
@@ -517,6 +518,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
         'program_name',
         'home',
         'stdlib_dir',
+        'stdlib_dir_verified',
         # program_full_path and module_search_path are copied indirectly from
         # the core configuration in check_path_config().
     ]
@@ -551,7 +553,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
 
             configs = _testinternalcapi.get_configs()
 
-            data = json.dumps(configs)
+            data = json.dumps(configs, indent=2)
             data = data.encode('utf-8')
             sys.stdout.buffer.write(data)
             sys.stdout.buffer.flush()
@@ -1147,6 +1149,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
              # The current getpath.c doesn't determine the stdlib dir
              # in this case.
             'stdlib_dir': '',
+            'stdlib_dir_verified': 0,
         }
         self.default_program_name(config)
         env = {'TESTPATH': os.path.pathsep.join(paths)}
@@ -1170,6 +1173,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
              # The current getpath.c doesn't determine the stdlib dir
              # in this case.
             'stdlib_dir': '',
+            'stdlib_dir_verified': 0,
             # overridden by PyConfig
             'program_name': 'conf_program_name',
             'base_executable': 'conf_executable',
@@ -1260,6 +1264,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
             'base_exec_prefix': exec_prefix,
             'pythonpath_env': paths_str,
             'stdlib_dir': home,
+            'stdlib_dir_verified': 2,
         }
         self.default_program_name(config)
         env = {'TESTHOME': home, 'PYTHONPATH': paths_str}
@@ -1300,6 +1305,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
                 # The current getpath.c doesn't determine the stdlib dir
                 # in this case.
                 'stdlib_dir': None,
+                'stdlib_dir_verified': 0,
             }
             env = self.copy_paths_by_env(config)
             self.check_all_configs("test_init_compat_config", config,
@@ -1370,6 +1376,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
                 # The current getpath.c doesn't determine the stdlib dir
                 # in this case.
                 config['stdlib_dir'] = None
+                config['stdlib_dir_verified'] = 0
 
             env = self.copy_paths_by_env(config)
             self.check_all_configs("test_init_compat_config", config,
