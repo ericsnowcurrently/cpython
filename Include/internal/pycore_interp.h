@@ -13,6 +13,7 @@ extern "C" {
 #include "pycore_gil.h"           // struct _gil_runtime_state
 #include "pycore_gc.h"            // struct _gc_runtime_state
 #include "pycore_warnings.h"      // struct _warnings_runtime_state
+#include "pycore_capi_objects.h"  // struct _Py_capi_objects
 
 struct _pending_calls {
     PyThread_type_lock lock;
@@ -51,16 +52,6 @@ struct _Py_unicode_fs_codec {
     int utf8;         // encoding=="utf-8"?
     char *errors;     // Filesystem errors (encoded to UTF-8)
     _Py_error_handler error_handler;
-};
-
-struct _Py_capi_objects {
-    // XXX Add all PyAPI_DATA(PyObject *) here.
-    // ~67 exception types in the public C-API.
-    // ~80 types in the public C-API.
-    // ~17 types in the "private" C-API.
-    // ~8 types in the internal C-API.  (XXX Ignore them?)
-    // 5 singletons in the public C-API.
-    // 1 singleton in the "private" C-API.
 };
 
 struct _Py_bytes_state {
