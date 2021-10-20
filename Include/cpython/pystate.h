@@ -275,6 +275,13 @@ PyAPI_FUNC(int) _PyInterpreterState_SetConfig(
 PyAPI_FUNC(const PyConfig*) _Py_GetConfig(void);
 
 
+/* per-interpreter global objects */
+
+#define Py_CPYTHON_CAPI_OBJECTS_H
+#include "cpython/capi_objects.h"
+#undef Py_CPYTHON_CAPI_OBJECTS_H
+
+
 /* cross-interpreter data */
 
 struct _xid;

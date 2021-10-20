@@ -29,23 +29,6 @@ _PyType_HasFeature(PyTypeObject *type, unsigned long feature) {
 
 extern void _PyType_InitCache(PyInterpreterState *interp);
 
-// XXX PyAPI_FUNC() instead?
-static inline PyObject *
-_Py_ResolveObject(PyObject *op)
-{
-    // XXX assert that there is at least one (static) PyObject in the C-API.
-    // XXX Deprecate use of every PyAPI_DATA(PyObject *) in C-API.
-    if (_PyType_HasFeature(Py_TYPE(op), _Py_TPFLAGS_MUST_RESOLVE)) {
-        PyInterpreterState *interp = _PyInterpreterState_GET();
-        PyObject * resolved = _PyInterpreterState_LookUpObject(interp, op);
-        if (resolved != NULL) {
-            // XXX Set ob_refcnt to a high value.
-            return resolved;
-        }
-    }
-    return op;
-}
-
 /* Inline functions trading binary compatibility for speed:
    _PyObject_Init() is the fast version of PyObject_Init(), and
    _PyObject_InitVar() is the fast version of PyObject_InitVar().
