@@ -2859,15 +2859,10 @@ _PyExc_InitTypes(PyInterpreterState *interp)
 {
     struct _Py_exc_state *state = &interp->exc_state;
 
-#define PRE_INIT_WITH_BASE(PYNAME, base) \
+#define PRE_INIT_WITH_BASE(PYNAME, BASE) \
     do { \
         PyTypeObject *orig = &_PyExc_ ## PYNAME; \
-        PyTypeObject *exctype = _PyTypeObject_CopyRaw(orig, base); \
-        if (exctype == NULL) { \
-            return _PyStatus_ERR("exceptions bootstrapping error."); \
-        } \
-        _PyInterpreterState_SET_OBJECT(interp, PyExc_ ## PYNAME, \
-                                       (PyObject *)exctype); \
+        _Py_INIT_GLOBAL_TYPE(interp, PyExc_ ## PYNAME, BASE, orig); \
         /* Set the object for the limited API. */ \
         if (_Py_IsMainInterpreter(interp)) { \
             /* XXX Store the static type on interp (only main)? */ \
@@ -2879,15 +2874,9 @@ _PyExc_InitTypes(PyInterpreterState *interp)
             } \
         } \
     } while (0)
+#define PRE_INIT(PYNAME) PRE_INIT_WITH_BASE(PYNAME, RESOLVE_BASE(PYNAME))
 
-#define GET_OBJECT(interp, PYNAME) \
-    _PyInterpreterState_GET_OBJECT(interp, PyExc_ ## PYNAME)
-
-#define _PRE_INIT(PYNAME, PYBASE) \
-    PRE_INIT_WITH_BASE(PYNAME, (PyTypeObject *)GET_OBJECT(interp, PYBASE));
-#define PRE_INIT(PYNAME) _PRE_INIT(PYNAME, RESOLVE_PYBASE(PYNAME))
-
-    PRE_INIT_WITH_BASE(BaseException, NULL);
+    PRE_INIT_WITH_BASE(BaseException, PyBaseObject_Type);
     PRE_INIT(Exception);
     PRE_INIT(TypeError);
     PRE_INIT(StopAsyncIteration);
@@ -2957,9 +2946,7 @@ _PyExc_InitTypes(PyInterpreterState *interp)
     PRE_INIT(TimeoutError);
 
 #undef PRE_INIT_WITH_BASE
-#undef _PRE_INIT
 #undef PRE_INIT
-#undef GET_OBJECT
 
     if (preallocate_memerrors() < 0) {
         return _PyStatus_NO_MEMORY();
