@@ -2264,7 +2264,7 @@ int Py_IsFalse(PyObject *x)
 /****************************************/
 
 PyStatus
-_PyTypes_Init(void)
+_Py_InitTypes(void)
 {
     PyStatus status = _PyTypes_InitSlotDefs();
     if (_PyStatus_EXCEPTION(status)) {
