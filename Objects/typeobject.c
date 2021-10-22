@@ -8690,32 +8690,32 @@ add_operators(PyTypeObject *type)
    See Include/internal/pycore_capi_objects.h. */
 
 PyTypeObject *
-_PyTypeObject_CopyRaw(PyTypeObject *ob, PyTypeObject *base)
+_PyTypeObject_CopyRaw(PyTypeObject *orig, PyTypeObject *base)
 {
-    assert(!(ob->tp_flags & Py_TPFLAGS_READY));
+    assert(!(orig->tp_flags & Py_TPFLAGS_READY));
     // XXX Set these to NULL and re-run PyType_Ready?
-    assert(base != NULL || ob->tp_base == NULL);
-    assert(ob->tp_dict == NULL);
-    assert(ob->tp_bases == NULL);
-    assert(ob->tp_mro == NULL);
-    assert(ob->tp_cache == NULL);
-    assert(ob->tp_subclasses == NULL);
-    assert(ob->tp_weaklist == NULL);
+    assert(base != NULL || orig->tp_base == NULL);
+    assert(orig->tp_dict == NULL);
+    assert(orig->tp_bases == NULL);
+    assert(orig->tp_mro == NULL);
+    assert(orig->tp_cache == NULL);
+    assert(orig->tp_subclasses == NULL);
+    assert(orig->tp_weaklist == NULL);
     size_t size = sizeof(PyTypeObject);
-    PyTypeObject *copied = PyObject_Malloc(size);
-    if (copied == NULL) {
+    PyTypeObject *typeobj = PyObject_Malloc(size);
+    if (typeobj == NULL) {
         return NULL;
     }
-    memcpy(copied, ob, size);
-    Py_SET_REFCNT(copied, 1);
-    copied->tp_base = base;
-    if (!(copied->tp_flags & Py_TPFLAGS_READY)) {
-        if (PyType_Ready(copied) < 0) {
-            Py_DECREF(copied);
+    memcpy(typeobj, orig, size);
+    Py_SET_REFCNT(typeobj, 1);
+    typeobj->tp_base = base;
+    if (!(typeobj->tp_flags & Py_TPFLAGS_READY)) {
+        if (PyType_Ready(typeobj) < 0) {
+            Py_DECREF(typeobj);
             return NULL;
         }
     }
-    return copied;
+    return typeobj;
 }
 
 
