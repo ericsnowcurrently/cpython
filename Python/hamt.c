@@ -2953,7 +2953,7 @@ PyTypeObject _PyHamt_CollisionNode_Type = {
 
 
 int
-_PyHamt_Init(void)
+_PyHamt_InitTypes(void)
 {
     if ((PyType_Ready(&_PyHamt_Type) < 0) ||
         (PyType_Ready(&_PyHamt_ArrayNode_Type) < 0) ||

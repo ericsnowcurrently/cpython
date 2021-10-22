@@ -1317,7 +1317,7 @@ _PyContext_Fini(PyInterpreterState *interp)
 int
 _PyContext_Init(void)
 {
-    if (!_PyHamt_Init()) {
+    if (!_PyHamt_InitTypes()) {
         return 0;
     }
 

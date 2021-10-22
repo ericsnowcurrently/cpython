@@ -110,7 +110,7 @@ PyObject * _PyHamt_NewIterValues(PyHamtObject *o);
 /* Return a Items iterator over "o". */
 PyObject * _PyHamt_NewIterItems(PyHamtObject *o);
 
-int _PyHamt_Init(void);
+int _PyHamt_InitTypes(void);
 void _PyHamt_Fini(void);
 
 #endif /* !Py_INTERNAL_HAMT_H */
