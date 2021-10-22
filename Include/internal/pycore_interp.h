@@ -13,7 +13,7 @@ extern "C" {
 #include "pycore_gil.h"           // struct _gil_runtime_state
 #include "pycore_gc.h"            // struct _gc_runtime_state
 #include "pycore_warnings.h"      // struct _warnings_runtime_state
-#include "pycore_capi_objects.h"  // struct _Py_capi_objects
+#include "pycore_global_objects.h" // struct _Py_global_objects
 
 struct _pending_calls {
     PyThread_type_lock lock;
@@ -292,7 +292,7 @@ struct _is {
 
     PyObject *audit_hooks;
 
-    struct _Py_capi_objects capi_objects;
+    struct _Py_global_objects global_objects;
 
     /* Small integers are preallocated in this array so that they
        can be shared.

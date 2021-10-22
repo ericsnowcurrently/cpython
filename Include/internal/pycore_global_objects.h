@@ -8,7 +8,7 @@ extern "C" {
 #  error "this header requires Py_BUILD_CORE define"
 #endif
 
-struct _Py_capi_objects {
+struct _Py_global_objects {
     // All fields have a leading understcore to avoid collisions with macros.
 
     /* exception types in the public C-API */
@@ -252,30 +252,32 @@ struct _Py_capi_objects {
     // Include/setobject.h
     //PyObject *_PySet_Dummy;
     PyObject *__PySet_Dummy;
+
+    // XXX What about types not exposed in the C-API?
 };
 
 PyAPI_FUNC(PyTypeObject *) _PyTypeObject_CopyRaw(PyTypeObject *ob,
                                                  PyTypeObject *base);
 
 #define _PyInterpreterState_GET_OBJECT(interp, NAME) \
-    ((interp)->capi_objects._ ## NAME)
+    ((interp)->global_objects._ ## NAME)
 
 #define _PyInterpreterState_SET_OBJECT(interp, NAME, ob) \
     do { \
-        (interp)->capi_objects._ ## NAME = (ob); \
+        (interp)->global_objects._ ## NAME = (ob); \
     } while (0)
 
 #define _PyInterpreterState_CLEAR_OBJECT(interp, NAME) \
     do { \
-        Py_XDECREF((interp)->capi_objects._ ## NAME); \
-        (interp)->capi_objects._ ## NAME = NULL; \
+        Py_XDECREF((interp)->global_objects._ ## NAME); \
+        (interp)->global_objects._ ## NAME = NULL; \
     } while (0)
 
 #define _PyAPI_DEFINE_GLOBAL_GETTER(NAME) \
     PyObject * \
     _PyInterpreterState_GetObject_ ## NAME(PyInterpreterState *interp) \
     { \
-        return (interp)->capi_objects._ ## NAME; \
+        return (interp)->global_objects._ ## NAME; \
     }
 
 #ifdef __cplusplus

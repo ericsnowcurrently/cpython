@@ -8,7 +8,7 @@
 #include <Python.h>
 #include "pycore_initconfig.h"
 #include "pycore_object.h"
-#include "pycore_capi_objects.h"
+#include "pycore_global_objects.h"
 #include "structmember.h"         // PyMemberDef
 #include "osdefs.h"               // SEP
 
