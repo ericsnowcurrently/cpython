@@ -14,6 +14,24 @@ PyAPI_FUNC(Py_ssize_t) _Py_GetRefTotal(void);
 #endif
 
 
+/* per-interpreter global objects */
+
+#define _PyAPI_DECLARE_GLOBAL_GETTER(NAME) \
+    PyAPI_FUNC(PyObject *) _PyInterpreterState_GetObject_ ## NAME(PyInterpreterState *)
+// The corresponding _PyAPI_DEFINE_GLOBAL_GETTER() is in internal/pycore_capi_objects.h.
+
+// XXX Skip the getter function if Py_BUILD_CORE?
+
+// Get the corresponding interpreter-specific "global" object.
+// The function matches one declared with _PyAPI_DECLARE_GLOBAL_GETTER().
+#define _Py_GET_GLOBAL_OBJECT(interp, NAME) \
+    _PyInterpreterState_GetObject_ ## NAME(interp)
+
+// Get the corresponding interpreter-specific "global" object.
+#define _Py_CURRENT_GLOBAL_OBJECT(NAME) \
+    _Py_GET_GLOBAL_OBJECT(PyInterpreterState_Get(), NAME)
+
+
 /********************* String Literals ****************************************/
 /* This structure helps managing static strings. The basic usage goes like this:
    Instead of doing

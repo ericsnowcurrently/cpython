@@ -37,6 +37,7 @@
 #include "pymacro.h"
 #include "pymath.h"
 #include "pymem.h"
+#include "pystate_essential.h"
 #include "object.h"
 #include "objimpl.h"
 #include "typeslots.h"

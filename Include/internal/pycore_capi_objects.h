@@ -9,241 +9,274 @@ extern "C" {
 #endif
 
 struct _Py_capi_objects {
-    // exception types in the public C-API
-    // Include/pyerrors.h
-    PyObject *PyExc_BaseException;
-    PyObject *PyExc_Exception;
-    PyObject *PyExc_StopAsyncIteration;
-    PyObject *PyExc_StopIteration;
-    PyObject *PyExc_GeneratorExit;
-    PyObject *PyExc_ArithmeticError;
-    PyObject *PyExc_LookupError;
-    PyObject *PyExc_AssertionError;
-    PyObject *PyExc_AttributeError;
-    PyObject *PyExc_BufferError;
-    PyObject *PyExc_EOFError;
-    PyObject *PyExc_FloatingPointError;
-    PyObject *PyExc_OSError;
-    PyObject *PyExc_ImportError;
-    PyObject *PyExc_ModuleNotFoundError;
-    PyObject *PyExc_IndexError;
-    PyObject *PyExc_KeyError;
-    PyObject *PyExc_KeyboardInterrupt;
-    PyObject *PyExc_MemoryError;
-    PyObject *PyExc_NameError;
-    PyObject *PyExc_OverflowError;
-    PyObject *PyExc_RuntimeError;
-    PyObject *PyExc_RecursionError;
-    PyObject *PyExc_NotImplementedError;
-    PyObject *PyExc_SyntaxError;
-    PyObject *PyExc_IndentationError;
-    PyObject *PyExc_TabError;
-    PyObject *PyExc_ReferenceError;
-    PyObject *PyExc_SystemError;
-    PyObject *PyExc_SystemExit;
-    PyObject *PyExc_TypeError;
-    PyObject *PyExc_UnboundLocalError;
-    PyObject *PyExc_UnicodeError;
-    PyObject *PyExc_UnicodeEncodeError;
-    PyObject *PyExc_UnicodeDecodeError;
-    PyObject *PyExc_UnicodeTranslateError;
-    PyObject *PyExc_ValueError;
-    PyObject *PyExc_ZeroDivisionError;
-    PyObject *PyExc_BlockingIOError;
-    PyObject *PyExc_BrokenPipeError;
-    PyObject *PyExc_ChildProcessError;
-    PyObject *PyExc_ConnectionError;
-    PyObject *PyExc_ConnectionAbortedError;
-    PyObject *PyExc_ConnectionRefusedError;
-    PyObject *PyExc_ConnectionResetError;
-    PyObject *PyExc_FileExistsError;
-    PyObject *PyExc_FileNotFoundError;
-    PyObject *PyExc_InterruptedError;
-    PyObject *PyExc_IsADirectoryError;
-    PyObject *PyExc_NotADirectoryError;
-    PyObject *PyExc_PermissionError;
-    PyObject *PyExc_ProcessLookupError;
-    PyObject *PyExc_TimeoutError;
+    // All fields have a leading understcore to avoid collisions with macros.
 
-    // warning category types in the public C-API
+    /* exception types in the public C-API */
     // Include/pyerrors.h
-    PyObject *PyExc_Warning;
-    PyObject *PyExc_UserWarning;
-    PyObject *PyExc_DeprecationWarning;
-    PyObject *PyExc_PendingDeprecationWarning;
-    PyObject *PyExc_SyntaxWarning;
-    PyObject *PyExc_RuntimeWarning;
-    PyObject *PyExc_FutureWarning;
-    PyObject *PyExc_ImportWarning;
-    PyObject *PyExc_UnicodeWarning;
-    PyObject *PyExc_BytesWarning;
-    PyObject *PyExc_EncodingWarning;
-    PyObject *PyExc_ResourceWarning;
+    PyObject *_PyExc_BaseException;
+    PyObject *_PyExc_Exception;
+    PyObject *_PyExc_StopAsyncIteration;
+    PyObject *_PyExc_StopIteration;
+    PyObject *_PyExc_GeneratorExit;
+    PyObject *_PyExc_ArithmeticError;
+    PyObject *_PyExc_LookupError;
+    PyObject *_PyExc_AssertionError;
+    PyObject *_PyExc_AttributeError;
+    PyObject *_PyExc_BufferError;
+    PyObject *_PyExc_EOFError;
+    PyObject *_PyExc_FloatingPointError;
+    PyObject *_PyExc_OSError;
+    PyObject *_PyExc_ImportError;
+    PyObject *_PyExc_ModuleNotFoundError;
+    PyObject *_PyExc_IndexError;
+    PyObject *_PyExc_KeyError;
+    PyObject *_PyExc_KeyboardInterrupt;
+    PyObject *_PyExc_MemoryError;
+    PyObject *_PyExc_NameError;
+    PyObject *_PyExc_OverflowError;
+    PyObject *_PyExc_RuntimeError;
+    PyObject *_PyExc_RecursionError;
+    PyObject *_PyExc_NotImplementedError;
+    PyObject *_PyExc_SyntaxError;
+    PyObject *_PyExc_IndentationError;
+    PyObject *_PyExc_TabError;
+    PyObject *_PyExc_ReferenceError;
+    PyObject *_PyExc_SystemError;
+    PyObject *_PyExc_SystemExit;
+    PyObject *_PyExc_TypeError;
+    PyObject *_PyExc_UnboundLocalError;
+    PyObject *_PyExc_UnicodeError;
+    PyObject *_PyExc_UnicodeEncodeError;
+    PyObject *_PyExc_UnicodeDecodeError;
+    PyObject *_PyExc_UnicodeTranslateError;
+    PyObject *_PyExc_ValueError;
+    PyObject *_PyExc_ZeroDivisionError;
+    PyObject *_PyExc_BlockingIOError;
+    PyObject *_PyExc_BrokenPipeError;
+    PyObject *_PyExc_ChildProcessError;
+    PyObject *_PyExc_ConnectionError;
+    PyObject *_PyExc_ConnectionAbortedError;
+    PyObject *_PyExc_ConnectionRefusedError;
+    PyObject *_PyExc_ConnectionResetError;
+    PyObject *_PyExc_FileExistsError;
+    PyObject *_PyExc_FileNotFoundError;
+    PyObject *_PyExc_InterruptedError;
+    PyObject *_PyExc_IsADirectoryError;
+    PyObject *_PyExc_NotADirectoryError;
+    PyObject *_PyExc_PermissionError;
+    PyObject *_PyExc_ProcessLookupError;
+    PyObject *_PyExc_TimeoutError;
 
-    // types in the limited C-API
+    /* warning category types in the public C-API */
+    // Include/pyerrors.h
+    PyObject *_PyExc_Warning;
+    PyObject *_PyExc_UserWarning;
+    PyObject *_PyExc_DeprecationWarning;
+    PyObject *_PyExc_PendingDeprecationWarning;
+    PyObject *_PyExc_SyntaxWarning;
+    PyObject *_PyExc_RuntimeWarning;
+    PyObject *_PyExc_FutureWarning;
+    PyObject *_PyExc_ImportWarning;
+    PyObject *_PyExc_UnicodeWarning;
+    PyObject *_PyExc_BytesWarning;
+    PyObject *_PyExc_EncodingWarning;
+    PyObject *_PyExc_ResourceWarning;
+
+    /* types in the limited C-API */
     // Include/bltinmodule.h
-    PyTypeObject PyFilter_Type;
-    PyTypeObject PyMap_Type;
-    PyTypeObject PyZip_Type;
+    PyTypeObject *_PyFilter_Type;
+    PyTypeObject *_PyMap_Type;
+    PyTypeObject *_PyZip_Type;
     // Include/boolobject.h
-    PyTypeObject PyBool_Type;
+    PyTypeObject *_PyBool_Type;
     // Include/bytearrayobject.h
-    PyTypeObject PyByteArray_Type;
-    PyTypeObject PyByteArrayIter_Type;
+    PyTypeObject *_PyByteArray_Type;
+    PyTypeObject *_PyByteArrayIter_Type;
     // Include/bytesobject.h
-    PyTypeObject PyBytes_Type;
-    PyTypeObject PyBytesIter_Type;
+    PyTypeObject *_PyBytes_Type;
+    PyTypeObject *_PyBytesIter_Type;
     // Include/complexobject.h
-    PyTypeObject PyComplex_Type;
+    PyTypeObject *_PyComplex_Type;
     // Include/descrobject.h
-    PyTypeObject PyClassMethodDescr_Type;
-    PyTypeObject PyGetSetDescr_Type;
-    PyTypeObject PyMemberDescr_Type;
-    PyTypeObject PyMethodDescr_Type;
-    PyTypeObject PyWrapperDescr_Type;
-    PyTypeObject PyDictProxy_Type;
-    PyTypeObject PyProperty_Type;
+    PyTypeObject *_PyClassMethodDescr_Type;
+    PyTypeObject *_PyGetSetDescr_Type;
+    PyTypeObject *_PyMemberDescr_Type;
+    PyTypeObject *_PyMethodDescr_Type;
+    PyTypeObject *_PyWrapperDescr_Type;
+    PyTypeObject *_PyDictProxy_Type;
+    PyTypeObject *_PyProperty_Type;
     // Include/dictobject.h
-    PyTypeObject PyDict_Type;
-    PyTypeObject PyDictKeys_Type;
-    PyTypeObject PyDictValues_Type;
-    PyTypeObject PyDictItems_Type;
-    PyTypeObject PyDictIterKey_Type;
-    PyTypeObject PyDictIterValue_Type;
-    PyTypeObject PyDictIterItem_Type;
-    PyTypeObject PyDictRevIterKey_Type;
-    PyTypeObject PyDictRevIterItem_Type;
-    PyTypeObject PyDictRevIterValue_Type;
+    PyTypeObject *_PyDict_Type;
+    PyTypeObject *_PyDictKeys_Type;
+    PyTypeObject *_PyDictValues_Type;
+    PyTypeObject *_PyDictItems_Type;
+    PyTypeObject *_PyDictIterKey_Type;
+    PyTypeObject *_PyDictIterValue_Type;
+    PyTypeObject *_PyDictIterItem_Type;
+    PyTypeObject *_PyDictRevIterKey_Type;
+    PyTypeObject *_PyDictRevIterItem_Type;
+    PyTypeObject *_PyDictRevIterValue_Type;
     // Include/enumobject.h
-    PyTypeObject PyEnum_Type;
-    PyTypeObject PyReversed_Type;
+    PyTypeObject *_PyEnum_Type;
+    PyTypeObject *_PyReversed_Type;
     // Include/floatobject.h
-    PyTypeObject PyFloat_Type;
+    PyTypeObject *_PyFloat_Type;
     // Include/genericaliasobject.h
-    PyTypeObject Py_GenericAliasType;
+    PyTypeObject *_Py_GenericAliasType;
     // Include/iterobject.h
-    PyTypeObject PySeqIter_Type;
-    PyTypeObject PyCallIter_Type;
+    PyTypeObject *_PySeqIter_Type;
+    PyTypeObject *_PyCallIter_Type;
     // Include/listobject.h
-    PyTypeObject PyList_Type;
-    PyTypeObject PyListIter_Type;
-    PyTypeObject PyListRevIter_Type;
+    PyTypeObject *_PyList_Type;
+    PyTypeObject *_PyListIter_Type;
+    PyTypeObject *_PyListRevIter_Type;
     // Include/longobject.h
-    PyTypeObject PyLong_Type;
+    PyTypeObject *_PyLong_Type;
     // Include/memoryobject.h
-    PyTypeObject PyMemoryView_Type;
+    PyTypeObject *_PyMemoryView_Type;
     // Include/methodobject.h
-    PyTypeObject PyCFunction_Type;
+    PyTypeObject *_PyCFunction_Type;
     // Include/moduleobject.h
-    PyTypeObject PyModule_Type;
-    PyTypeObject PyModuleDef_Type;
+    PyTypeObject *_PyModule_Type;
+    PyTypeObject *_PyModuleDef_Type;
     // Include/object.h
-    PyTypeObject PyType_Type;
-    PyTypeObject PyBaseObject_Type;
-    PyTypeObject PySuper_Type;
+    PyTypeObject *_PyType_Type;
+    PyTypeObject *_PyBaseObject_Type;
+    PyTypeObject *_PySuper_Type;
     // Include/pycapsule.h
-    PyTypeObject PyCapsule_Type;
+    PyTypeObject *_PyCapsule_Type;
     // Include/rangeobject.h
-    PyTypeObject PyRange_Type;
-    PyTypeObject PyRangeIter_Type;
-    PyTypeObject PyLongRangeIter_Type;
+    PyTypeObject *_PyRange_Type;
+    PyTypeObject *_PyRangeIter_Type;
+    PyTypeObject *_PyLongRangeIter_Type;
     // Include/setobject.h
-    PyTypeObject PySet_Type;
-    PyTypeObject PyFrozenSet_Type;
-    PyTypeObject PySetIter_Type;
+    PyTypeObject *_PySet_Type;
+    PyTypeObject *_PyFrozenSet_Type;
+    PyTypeObject *_PySetIter_Type;
     // Include/sliceobject.h
-    PyTypeObject PySlice_Type;
-    PyTypeObject PyEllipsis_Type;
+    PyTypeObject *_PySlice_Type;
+    PyTypeObject *_PyEllipsis_Type;
     // Include/traceback.h
-    PyTypeObject PyTraceBack_Type;
+    PyTypeObject *_PyTraceBack_Type;
     // Include/tupleobject.h
-    PyTypeObject PyTuple_Type;
-    PyTypeObject PyTupleIter_Type;
+    PyTypeObject *_PyTuple_Type;
+    PyTypeObject *_PyTupleIter_Type;
     // Include/unicodeobject.h
-    PyTypeObject PyUnicode_Type;
-    PyTypeObject PyUnicodeIter_Type;
+    PyTypeObject *_PyUnicode_Type;
+    PyTypeObject *_PyUnicodeIter_Type;
 
-    // types in the public C-API
+    /* types in the public C-API */
     // Include/cpython/cellobject.h
-    PyTypeObject PyCell_Type;
+    PyTypeObject *_PyCell_Type;
     // Include/cpython/classobject.h
-    PyTypeObject PyMethod_Type;
-    PyTypeObject PyInstanceMethod_Type;
+    PyTypeObject *_PyMethod_Type;
+    PyTypeObject *_PyInstanceMethod_Type;
     // Include/cpython/code.h
-    PyTypeObject PyCode_Type;
+    PyTypeObject *_PyCode_Type;
     // Include/cpython/context.h
-    PyTypeObject PyContext_Type;
-    PyTypeObject PyContextVar_Type;
-    PyTypeObject PyContextToken_Type;
+    PyTypeObject *_PyContext_Type;
+    PyTypeObject *_PyContextVar_Type;
+    PyTypeObject *_PyContextToken_Type;
     // Include/cpython/fileobject.h
-    PyTypeObject PyStdPrinter_Type;
+    PyTypeObject *_PyStdPrinter_Type;
     // Include/cpython/frameobject.h
-    PyTypeObject PyFrame_Type;
+    PyTypeObject *_PyFrame_Type;
     // Include/cpython/funcobject.h
-    PyTypeObject PyFunction_Type;
-    PyTypeObject PyClassMethod_Type;
-    PyTypeObject PyStaticMethod_Type;
+    PyTypeObject *_PyFunction_Type;
+    PyTypeObject *_PyClassMethod_Type;
+    PyTypeObject *_PyStaticMethod_Type;
     // Include/cpython/genobject.h
-    PyTypeObject PyGen_Type;
-    PyTypeObject PyCoro_Type;
-    PyTypeObject PyAsyncGen_Type;
+    PyTypeObject *_PyGen_Type;
+    PyTypeObject *_PyCoro_Type;
+    PyTypeObject *_PyAsyncGen_Type;
     // Include/cpython/methodobject.h
-    PyTypeObject PyCMethod_Type;
+    PyTypeObject *_PyCMethod_Type;
     // Include/cpython/odictobject.h
-    PyTypeObject PyODict_Type;
-    PyTypeObject PyODictIter_Type;
-    PyTypeObject PyODictKeys_Type;
-    PyTypeObject PyODictItems_Type;
-    PyTypeObject PyODictValues_Type;
+    PyTypeObject *_PyODict_Type;
+    PyTypeObject *_PyODictIter_Type;
+    PyTypeObject *_PyODictKeys_Type;
+    PyTypeObject *_PyODictItems_Type;
+    PyTypeObject *_PyODictValues_Type;
     // Include/cpython/picklebufobject.h
-    PyTypeObject PyPickleBuffer_Type;
+    PyTypeObject *_PyPickleBuffer_Type;
 
-    // types in the "private" C-API
+    /* types in the "private" C-API */
     // Include/descrobject.h
-    PyTypeObject _PyMethodWrapper_Type;
+    PyTypeObject *__PyMethodWrapper_Type;
     // Include/memoryobject.h
-    PyTypeObject _PyManagedBuffer_Type;
+    PyTypeObject *__PyManagedBuffer_Type;
     // Include/weakrefobject.h
-    PyTypeObject _PyWeakref_RefType;
-    PyTypeObject _PyWeakref_ProxyType;
-    PyTypeObject _PyWeakref_CallableProxyType;
+    PyTypeObject *__PyWeakref_RefType;
+    PyTypeObject *__PyWeakref_ProxyType;
+    PyTypeObject *__PyWeakref_CallableProxyType;
     // Include/cpython/genobject.h
-    PyTypeObject _PyCoroWrapper_Type;
-    PyTypeObject _PyAsyncGenASend_Type;
-    PyTypeObject _PyAsyncGenWrappedValue_Type;
-    PyTypeObject _PyAsyncGenAThrow_Type;
+    PyTypeObject *__PyCoroWrapper_Type;
+    PyTypeObject *__PyAsyncGenASend_Type;
+    PyTypeObject *__PyAsyncGenWrappedValue_Type;
+    PyTypeObject *__PyAsyncGenAThrow_Type;
     // Include/cpython/object.h
-    PyTypeObject _PyNone_Type;
-    PyTypeObject _PyNotImplemented_Type;
+    PyTypeObject *__PyNone_Type;
+    PyTypeObject *__PyNotImplemented_Type;
 
-    // types in the internal C-API  (XXX Ignore them?)
+    /* types in the internal C-API */
+    // XXX Ignore them?)
     // Include/internal/pycore_hamt.h
-    PyTypeObject _PyHamt_Type;
-    PyTypeObject _PyHamt_ArrayNode_Type;
-    PyTypeObject _PyHamt_BitmapNode_Type;
-    PyTypeObject _PyHamt_CollisionNode_Type;
-    PyTypeObject _PyHamtKeys_Type;
-    PyTypeObject _PyHamtValues_Type;
-    PyTypeObject _PyHamtItems_Type;
+    PyTypeObject *__PyHamt_Type;
+    PyTypeObject *__PyHamt_ArrayNode_Type;
+    PyTypeObject *__PyHamt_BitmapNode_Type;
+    PyTypeObject *__PyHamt_CollisionNode_Type;
+    PyTypeObject *__PyHamtKeys_Type;
+    PyTypeObject *__PyHamtValues_Type;
+    PyTypeObject *__PyHamtItems_Type;
     // Include/internal/pycore_interpreteridobject.h
-    PyTypeObject _PyInterpreterID_Type;
+    PyTypeObject *__PyInterpreterID_Type;
     // Include/internal/pycore_namespace.h
-    PyTypeObject _PyNamespace_Type;
+    PyTypeObject *__PyNamespace_Type;
 
-    // singletons in the public C-API
+    /* singletons in the public C-API */
     // Include/object.h
-    PyObject _Py_NoneStruct;
-    PyObject _Py_NotImplementedStruct;
+    //PyObject _Py_NoneStruct;
+    //PyObject _Py_NotImplementedStruct;
+    PyObject *_Py_None;
+    PyObject *_Py_NotImplemented;
     // Include/sliceobject.h
-    PyObject _Py_EllipsisObject;
+    //PyObject _Py_EllipsisObject;
+    PyObject *_Py_Ellipsis;
     // Include/boolobject.h
-    struct _longobject _Py_FalseStruct;
-    struct _longobject _Py_TrueStruct;
+    //struct _longobject _Py_FalseStruct;
+    //struct _longobject _Py_TrueStruct;
+    PyObject *_Py_False;
+    PyObject *_Py_True;
 
-    // singletons in the "private" C-API
+    /* singletons in the "private" C-API */
     // Include/setobject.h
-    PyObject *_PySet_Dummy;
+    //PyObject *_PySet_Dummy;
+    PyObject *__PySet_Dummy;
 };
+
+PyAPI_FUNC(PyTypeObject *) _PyTypeObject_CopyRaw(PyTypeObject *ob,
+                                                 PyTypeObject *base);
+
+#define _PyInterpreterState_GET_OBJECT(interp, NAME) \
+    ((interp)->capi_objects._ ## NAME)
+
+#define _PyInterpreterState_SET_OBJECT(interp, NAME, ob) \
+    do { \
+        (interp)->capi_objects._ ## NAME = (ob); \
+    } while (0)
+
+#define _PyInterpreterState_CLEAR_OBJECT(interp, NAME) \
+    do { \
+        Py_XDECREF((interp)->capi_objects._ ## NAME); \
+        (interp)->capi_objects._ ## NAME = NULL; \
+    } while (0)
+
+#define _PyAPI_DEFINE_GLOBAL_GETTER(NAME) \
+    PyObject * \
+    _PyInterpreterState_GetObject_ ## NAME(PyInterpreterState *interp) \
+    { \
+        return (interp)->capi_objects._ ## NAME; \
+    }
 
 #ifdef __cplusplus
 }

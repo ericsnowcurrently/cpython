@@ -8686,6 +8686,39 @@ add_operators(PyTypeObject *type)
 }
 
 
+/* This function is used to copy a static type into a PyInterpreterState.
+   See Include/internal/pycore_capi_objects.h. */
+
+PyTypeObject *
+_PyTypeObject_CopyRaw(PyTypeObject *ob, PyTypeObject *base)
+{
+    assert(!(ob->tp_flags & Py_TPFLAGS_READY));
+    // XXX Set these to NULL and re-run PyType_Ready?
+    assert(base != NULL || ob->tp_base == NULL);
+    assert(ob->tp_dict == NULL);
+    assert(ob->tp_bases == NULL);
+    assert(ob->tp_mro == NULL);
+    assert(ob->tp_cache == NULL);
+    assert(ob->tp_subclasses == NULL);
+    assert(ob->tp_weaklist == NULL);
+    size_t size = sizeof(PyTypeObject);
+    PyTypeObject *copied = PyObject_Malloc(size);
+    if (copied == NULL) {
+        return NULL;
+    }
+    memcpy(copied, ob, size);
+    Py_SET_REFCNT(copied, 1);
+    copied->tp_base = base;
+    if (!(copied->tp_flags & Py_TPFLAGS_READY)) {
+        if (PyType_Ready(copied) < 0) {
+            Py_DECREF(copied);
+            return NULL;
+        }
+    }
+    return copied;
+}
+
+
 /* Cooperative 'super' */
 
 typedef struct {
