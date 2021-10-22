@@ -36,7 +36,7 @@ struct _pycontexttokenobject {
 };
 
 
-int _PyContext_Init(void);
+int _PyContext_InitTypes(void);
 void _PyContext_Fini(PyInterpreterState *interp);
 
 #endif /* !Py_INTERNAL_CONTEXT_H */

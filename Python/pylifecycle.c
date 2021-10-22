@@ -729,7 +729,7 @@ pycore_init_types(PyInterpreterState *interp)
     }
 
     if (is_main_interp) {
-        if (!_PyContext_Init()) {
+        if (!_PyContext_InitTypes()) {
             return _PyStatus_ERR("can't init context");
         }
     }
