@@ -61,11 +61,13 @@ PyAPI_FUNC(const char *) PyExceptionClass_Name(PyObject *);
 #define PyExceptionInstance_Class(x) ((PyObject*)Py_TYPE(x))
 
 
+#ifdef Py_LIMITED_API
+
 /* Predefined exceptions */
 
 PyAPI_DATA(PyObject *) PyExc_BaseException;
 PyAPI_DATA(PyObject *) PyExc_Exception;
-#if !defined(Py_LIMITED_API) || Py_LIMITED_API+0 >= 0x03050000
+#if Py_LIMITED_API+0 >= 0x03050000
 PyAPI_DATA(PyObject *) PyExc_StopAsyncIteration;
 #endif
 PyAPI_DATA(PyObject *) PyExc_StopIteration;
@@ -80,7 +82,7 @@ PyAPI_DATA(PyObject *) PyExc_EOFError;
 PyAPI_DATA(PyObject *) PyExc_FloatingPointError;
 PyAPI_DATA(PyObject *) PyExc_OSError;
 PyAPI_DATA(PyObject *) PyExc_ImportError;
-#if !defined(Py_LIMITED_API) || Py_LIMITED_API+0 >= 0x03060000
+#if Py_LIMITED_API+0 >= 0x03060000
 PyAPI_DATA(PyObject *) PyExc_ModuleNotFoundError;
 #endif
 PyAPI_DATA(PyObject *) PyExc_IndexError;
@@ -90,7 +92,7 @@ PyAPI_DATA(PyObject *) PyExc_MemoryError;
 PyAPI_DATA(PyObject *) PyExc_NameError;
 PyAPI_DATA(PyObject *) PyExc_OverflowError;
 PyAPI_DATA(PyObject *) PyExc_RuntimeError;
-#if !defined(Py_LIMITED_API) || Py_LIMITED_API+0 >= 0x03050000
+#if Py_LIMITED_API+0 >= 0x03050000
 PyAPI_DATA(PyObject *) PyExc_RecursionError;
 #endif
 PyAPI_DATA(PyObject *) PyExc_NotImplementedError;
@@ -109,7 +111,7 @@ PyAPI_DATA(PyObject *) PyExc_UnicodeTranslateError;
 PyAPI_DATA(PyObject *) PyExc_ValueError;
 PyAPI_DATA(PyObject *) PyExc_ZeroDivisionError;
 
-#if !defined(Py_LIMITED_API) || Py_LIMITED_API+0 >= 0x03030000
+#if Py_LIMITED_API+0 >= 0x03030000
 PyAPI_DATA(PyObject *) PyExc_BlockingIOError;
 PyAPI_DATA(PyObject *) PyExc_BrokenPipeError;
 PyAPI_DATA(PyObject *) PyExc_ChildProcessError;
@@ -148,6 +150,8 @@ PyAPI_DATA(PyObject *) PyExc_UnicodeWarning;
 PyAPI_DATA(PyObject *) PyExc_BytesWarning;
 PyAPI_DATA(PyObject *) PyExc_EncodingWarning;
 PyAPI_DATA(PyObject *) PyExc_ResourceWarning;
+
+#endif  // Py_LIMITED_API
 
 
 /* Convenience functions */
