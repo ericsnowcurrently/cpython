@@ -2855,7 +2855,7 @@ PyObject *PyExc_ProcessLookupError;
 PyObject *PyExc_TimeoutError;
 
 PyStatus
-_PyExc_Init(PyInterpreterState *interp)
+_PyExc_InitTypes(PyInterpreterState *interp)
 {
     struct _Py_exc_state *state = &interp->exc_state;
 

@@ -710,15 +710,13 @@ pycore_init_types(PyInterpreterState *interp)
         if (_PyStatus_EXCEPTION(status)) {
             return status;
         }
-    }
 
-    if (is_main_interp) {
         if (_PyFloat_InitTypes() < 0) {
             return _PyStatus_ERR("can't init float");
         }
     }
 
-    status = _PyExc_Init(interp);
+    status = _PyExc_InitTypes(interp);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }

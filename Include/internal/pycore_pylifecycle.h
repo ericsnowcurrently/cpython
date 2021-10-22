@@ -65,7 +65,7 @@ extern PyStatus _PySys_Create(
 extern PyStatus _PySys_ReadPreinitWarnOptions(PyWideStringList *options);
 extern PyStatus _PySys_ReadPreinitXOptions(PyConfig *config);
 extern int _PySys_UpdateConfig(PyThreadState *tstate);
-extern PyStatus _PyExc_Init(PyInterpreterState *interp);
+extern PyStatus _PyExc_InitTypes(PyInterpreterState *interp);
 extern PyStatus _PyErr_InitTypes(void);
 extern PyStatus _PyBuiltins_AddExceptions(PyObject * bltinmod);
 extern void _PyFloat_Init(void);
