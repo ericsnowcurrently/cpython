@@ -2263,8 +2263,6 @@ int Py_IsFalse(PyObject *x)
 /* lifecycle for runtime-global objects */
 /****************************************/
 
-// Initalize global state for global types.
-
 PyStatus
 _PyTypes_Init(void)
 {
@@ -2273,7 +2271,7 @@ _PyTypes_Init(void)
         return status;
     }
 
-#define INIT_TYPE(TYPE) \
+#define PREP_TYPE(TYPE) \
     do { \
         if (PyType_Ready(&(TYPE)) < 0) { \
             return _PyStatus_ERR("Can't initialize " #TYPE " type"); \
@@ -2281,99 +2279,99 @@ _PyTypes_Init(void)
     } while (0)
 
     // Base types
-    INIT_TYPE(PyBaseObject_Type);
-    INIT_TYPE(PyType_Type);
+    PREP_TYPE(PyBaseObject_Type);
+    PREP_TYPE(PyType_Type);
     assert(PyBaseObject_Type.tp_base == NULL);
     assert(PyType_Type.tp_base == &PyBaseObject_Type);
 
     // All other static types
-    INIT_TYPE(PyAsyncGen_Type);
-    INIT_TYPE(PyBool_Type);
-    INIT_TYPE(PyByteArrayIter_Type);
-    INIT_TYPE(PyByteArray_Type);
-    INIT_TYPE(PyBytesIter_Type);
-    INIT_TYPE(PyBytes_Type);
-    INIT_TYPE(PyCFunction_Type);
-    INIT_TYPE(PyCMethod_Type);
-    INIT_TYPE(PyCallIter_Type);
-    INIT_TYPE(PyCapsule_Type);
-    INIT_TYPE(PyCell_Type);
-    INIT_TYPE(PyClassMethodDescr_Type);
-    INIT_TYPE(PyClassMethod_Type);
-    INIT_TYPE(PyCode_Type);
-    INIT_TYPE(PyComplex_Type);
-    INIT_TYPE(PyCoro_Type);
-    INIT_TYPE(PyDictItems_Type);
-    INIT_TYPE(PyDictIterItem_Type);
-    INIT_TYPE(PyDictIterKey_Type);
-    INIT_TYPE(PyDictIterValue_Type);
-    INIT_TYPE(PyDictKeys_Type);
-    INIT_TYPE(PyDictProxy_Type);
-    INIT_TYPE(PyDictRevIterItem_Type);
-    INIT_TYPE(PyDictRevIterKey_Type);
-    INIT_TYPE(PyDictRevIterValue_Type);
-    INIT_TYPE(PyDictValues_Type);
-    INIT_TYPE(PyDict_Type);
-    INIT_TYPE(PyEllipsis_Type);
-    INIT_TYPE(PyEnum_Type);
-    INIT_TYPE(PyFloat_Type);
-    INIT_TYPE(PyFrame_Type);
-    INIT_TYPE(PyFrozenSet_Type);
-    INIT_TYPE(PyFunction_Type);
-    INIT_TYPE(PyGen_Type);
-    INIT_TYPE(PyGetSetDescr_Type);
-    INIT_TYPE(PyInstanceMethod_Type);
-    INIT_TYPE(PyListIter_Type);
-    INIT_TYPE(PyListRevIter_Type);
-    INIT_TYPE(PyList_Type);
-    INIT_TYPE(PyLongRangeIter_Type);
-    INIT_TYPE(PyLong_Type);
-    INIT_TYPE(PyMemberDescr_Type);
-    INIT_TYPE(PyMemoryView_Type);
-    INIT_TYPE(PyMethodDescr_Type);
-    INIT_TYPE(PyMethod_Type);
-    INIT_TYPE(PyModuleDef_Type);
-    INIT_TYPE(PyModule_Type);
-    INIT_TYPE(PyODictItems_Type);
-    INIT_TYPE(PyODictIter_Type);
-    INIT_TYPE(PyODictKeys_Type);
-    INIT_TYPE(PyODictValues_Type);
-    INIT_TYPE(PyODict_Type);
-    INIT_TYPE(PyPickleBuffer_Type);
-    INIT_TYPE(PyProperty_Type);
-    INIT_TYPE(PyRangeIter_Type);
-    INIT_TYPE(PyRange_Type);
-    INIT_TYPE(PyReversed_Type);
-    INIT_TYPE(PySTEntry_Type);
-    INIT_TYPE(PySeqIter_Type);
-    INIT_TYPE(PySetIter_Type);
-    INIT_TYPE(PySet_Type);
-    INIT_TYPE(PySlice_Type);
-    INIT_TYPE(PyStaticMethod_Type);
-    INIT_TYPE(PyStdPrinter_Type);
-    INIT_TYPE(PySuper_Type);
-    INIT_TYPE(PyTraceBack_Type);
-    INIT_TYPE(PyTupleIter_Type);
-    INIT_TYPE(PyTuple_Type);
-    INIT_TYPE(PyUnicodeIter_Type);
-    INIT_TYPE(PyUnicode_Type);
-    INIT_TYPE(PyWrapperDescr_Type);
-    INIT_TYPE(Py_GenericAliasType);
-    INIT_TYPE(_PyAnextAwaitable_Type);
-    INIT_TYPE(_PyAsyncGenASend_Type);
-    INIT_TYPE(_PyAsyncGenAThrow_Type);
-    INIT_TYPE(_PyAsyncGenWrappedValue_Type);
-    INIT_TYPE(_PyCoroWrapper_Type);
-    INIT_TYPE(_PyInterpreterID_Type);
-    INIT_TYPE(_PyManagedBuffer_Type);
-    INIT_TYPE(_PyMethodWrapper_Type);
-    INIT_TYPE(_PyNamespace_Type);
-    INIT_TYPE(_PyNone_Type);
-    INIT_TYPE(_PyNotImplemented_Type);
-    INIT_TYPE(_PyWeakref_CallableProxyType);
-    INIT_TYPE(_PyWeakref_ProxyType);
-    INIT_TYPE(_PyWeakref_RefType);
-    INIT_TYPE(_PyUnion_Type);
+    PREP_TYPE(PyAsyncGen_Type);
+    PREP_TYPE(PyBool_Type);
+    PREP_TYPE(PyByteArrayIter_Type);
+    PREP_TYPE(PyByteArray_Type);
+    PREP_TYPE(PyBytesIter_Type);
+    PREP_TYPE(PyBytes_Type);
+    PREP_TYPE(PyCFunction_Type);
+    PREP_TYPE(PyCMethod_Type);
+    PREP_TYPE(PyCallIter_Type);
+    PREP_TYPE(PyCapsule_Type);
+    PREP_TYPE(PyCell_Type);
+    PREP_TYPE(PyClassMethodDescr_Type);
+    PREP_TYPE(PyClassMethod_Type);
+    PREP_TYPE(PyCode_Type);
+    PREP_TYPE(PyComplex_Type);
+    PREP_TYPE(PyCoro_Type);
+    PREP_TYPE(PyDictItems_Type);
+    PREP_TYPE(PyDictIterItem_Type);
+    PREP_TYPE(PyDictIterKey_Type);
+    PREP_TYPE(PyDictIterValue_Type);
+    PREP_TYPE(PyDictKeys_Type);
+    PREP_TYPE(PyDictProxy_Type);
+    PREP_TYPE(PyDictRevIterItem_Type);
+    PREP_TYPE(PyDictRevIterKey_Type);
+    PREP_TYPE(PyDictRevIterValue_Type);
+    PREP_TYPE(PyDictValues_Type);
+    PREP_TYPE(PyDict_Type);
+    PREP_TYPE(PyEllipsis_Type);
+    PREP_TYPE(PyEnum_Type);
+    PREP_TYPE(PyFloat_Type);
+    PREP_TYPE(PyFrame_Type);
+    PREP_TYPE(PyFrozenSet_Type);
+    PREP_TYPE(PyFunction_Type);
+    PREP_TYPE(PyGen_Type);
+    PREP_TYPE(PyGetSetDescr_Type);
+    PREP_TYPE(PyInstanceMethod_Type);
+    PREP_TYPE(PyListIter_Type);
+    PREP_TYPE(PyListRevIter_Type);
+    PREP_TYPE(PyList_Type);
+    PREP_TYPE(PyLongRangeIter_Type);
+    PREP_TYPE(PyLong_Type);
+    PREP_TYPE(PyMemberDescr_Type);
+    PREP_TYPE(PyMemoryView_Type);
+    PREP_TYPE(PyMethodDescr_Type);
+    PREP_TYPE(PyMethod_Type);
+    PREP_TYPE(PyModuleDef_Type);
+    PREP_TYPE(PyModule_Type);
+    PREP_TYPE(PyODictItems_Type);
+    PREP_TYPE(PyODictIter_Type);
+    PREP_TYPE(PyODictKeys_Type);
+    PREP_TYPE(PyODictValues_Type);
+    PREP_TYPE(PyODict_Type);
+    PREP_TYPE(PyPickleBuffer_Type);
+    PREP_TYPE(PyProperty_Type);
+    PREP_TYPE(PyRangeIter_Type);
+    PREP_TYPE(PyRange_Type);
+    PREP_TYPE(PyReversed_Type);
+    PREP_TYPE(PySTEntry_Type);
+    PREP_TYPE(PySeqIter_Type);
+    PREP_TYPE(PySetIter_Type);
+    PREP_TYPE(PySet_Type);
+    PREP_TYPE(PySlice_Type);
+    PREP_TYPE(PyStaticMethod_Type);
+    PREP_TYPE(PyStdPrinter_Type);
+    PREP_TYPE(PySuper_Type);
+    PREP_TYPE(PyTraceBack_Type);
+    PREP_TYPE(PyTupleIter_Type);
+    PREP_TYPE(PyTuple_Type);
+    PREP_TYPE(PyUnicodeIter_Type);
+    PREP_TYPE(PyUnicode_Type);
+    PREP_TYPE(PyWrapperDescr_Type);
+    PREP_TYPE(Py_GenericAliasType);
+    PREP_TYPE(_PyAnextAwaitable_Type);
+    PREP_TYPE(_PyAsyncGenASend_Type);
+    PREP_TYPE(_PyAsyncGenAThrow_Type);
+    PREP_TYPE(_PyAsyncGenWrappedValue_Type);
+    PREP_TYPE(_PyCoroWrapper_Type);
+    PREP_TYPE(_PyInterpreterID_Type);
+    PREP_TYPE(_PyManagedBuffer_Type);
+    PREP_TYPE(_PyMethodWrapper_Type);
+    PREP_TYPE(_PyNamespace_Type);
+    PREP_TYPE(_PyNone_Type);
+    PREP_TYPE(_PyNotImplemented_Type);
+    PREP_TYPE(_PyWeakref_CallableProxyType);
+    PREP_TYPE(_PyWeakref_ProxyType);
+    PREP_TYPE(_PyWeakref_RefType);
+    PREP_TYPE(_PyUnion_Type);
 
     return _PyStatus_OK();
 #undef INIT_TYPE
