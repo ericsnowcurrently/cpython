@@ -12,7 +12,9 @@ extern "C" {
    tuning dictionaries, and several ideas for possible optimizations.
 */
 
+#ifdef Py_LIMITED_API
 PyAPI_DATA(PyTypeObject) PyDict_Type;
+#endif
 
 #define PyDict_Check(op) \
                  PyType_FastSubclass(Py_TYPE(op), Py_TPFLAGS_DICT_SUBCLASS)

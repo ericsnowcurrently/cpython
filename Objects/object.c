@@ -2264,7 +2264,7 @@ int Py_IsFalse(PyObject *x)
 /****************************************/
 
 PyStatus
-_Py_InitTypes(void)
+_Py_InitTypes(PyInterpreterState *interp)
 {
     PyStatus status = _PyTypes_InitSlotDefs();
     if (_PyStatus_EXCEPTION(status)) {
@@ -2311,7 +2311,7 @@ _Py_InitTypes(void)
     PREP_TYPE(PyDictRevIterKey_Type);
     PREP_TYPE(PyDictRevIterValue_Type);
     PREP_TYPE(PyDictValues_Type);
-    PREP_TYPE(PyDict_Type);
+    _PyDict_InitTypes(interp);
     PREP_TYPE(PyEllipsis_Type);
     PREP_TYPE(PyEnum_Type);
     PREP_TYPE(PyFloat_Type);

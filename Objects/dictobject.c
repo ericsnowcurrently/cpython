@@ -119,6 +119,8 @@ As a consequence of this, split keys have a maximum size of 16.
 #include "pycore_object.h"        // _PyObject_GC_TRACK()
 #include "pycore_pyerrors.h"      // _PyErr_Fetch()
 #include "pycore_pystate.h"       // _PyThreadState_GET()
+#include "pycore_initconfig.h"    // _PyStatus_ERR()
+#include "pycore_global_objects.h"
 #include "stringlib/eq.h"         // unicode_eq()
 
 /*[clinic input]
@@ -3450,6 +3452,8 @@ PyDoc_STRVAR(dictionary_doc,
 "dict(**kwargs) -> new dictionary initialized with the name=value pairs\n"
 "    in the keyword argument list.  For example:  dict(one=1, two=2)");
 
+#undef PyDict_Type
+
 PyTypeObject PyDict_Type = {
     PyVarObject_HEAD_INIT(&PyType_Type, 0)
     "dict",
@@ -5216,4 +5220,32 @@ uint32_t _PyDictKeys_GetVersionForCurrentState(PyDictKeysObject *dictkeys)
     uint32_t v = next_dict_keys_version++;
     dictkeys->dk_version = v;
     return v;
+}
+
+
+/* lifecycle for runtime-global objects */
+
+PyStatus
+_PyDict_InitTypes(PyInterpreterState *interp) {
+
+#define INIT_TYPE(NAME) \
+    do { \
+        PyTypeObject *orig = &NAME; \
+        _Py_INIT_GLOBAL_TYPE(interp, NAME, PyBaseObject_Type, orig); \
+        /* Set the object for the limited API. */ \
+        if (_Py_IsMainInterpreter(interp)) { \
+            /* XXX Store the static type on interp (only main)? */ \
+            if (!(orig->tp_flags & Py_TPFLAGS_READY)) { \
+                if (PyType_Ready(orig) < 0) { \
+                    return _PyStatus_ERR("count not init dict"); \
+                } \
+            } \
+        } \
+    } while (0)
+
+    INIT_TYPE(PyDict_Type);
+
+#undef INIT_TYPE
+
+    return _PyStatus_OK();
 }

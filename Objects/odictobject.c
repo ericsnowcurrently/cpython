@@ -1552,6 +1552,9 @@ odict_init(PyObject *self, PyObject *args, PyObject *kwds)
 
 /* PyODict_Type */
 
+#undef PyDict_Type
+PyAPI_DATA(PyTypeObject) PyDict_Type;
+
 PyTypeObject PyODict_Type = {
     PyVarObject_HEAD_INIT(&PyType_Type, 0)
     "collections.OrderedDict",                  /* tp_name */

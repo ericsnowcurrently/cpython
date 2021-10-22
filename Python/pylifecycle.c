@@ -697,7 +697,7 @@ pycore_init_types(PyInterpreterState *interp)
             return _PyStatus_ERR("can't initialize structseq");
         }
 
-        status = _Py_InitTypes();
+        status = _Py_InitTypes(interp);
         if (_PyStatus_EXCEPTION(status)) {
             return status;
         }

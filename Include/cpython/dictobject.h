@@ -89,3 +89,9 @@ PyAPI_FUNC(PyObject *) _PyDictView_Intersect(PyObject* self, PyObject *other);
 uint32_t _PyDictKeys_GetVersionForCurrentState(PyDictKeysObject *dictkeys);
 
 Py_ssize_t _PyDictKeys_StringLookup(PyDictKeysObject* dictkeys, PyObject *key);
+
+
+/* dict-related global objects */
+
+_PyAPI_DECLARE_GLOBAL_GETTER(PyDict_Type);
+#define PyDict_Type (*((PyTypeObject *)_Py_CURRENT_GLOBAL_OBJECT(PyDict_Type)))
