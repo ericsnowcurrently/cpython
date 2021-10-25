@@ -2342,7 +2342,7 @@ _Py_InitTypes(void)
     PREP_TYPE(PyRangeIter_Type);
     PREP_TYPE(PyRange_Type);
     PREP_TYPE(PyReversed_Type);
-    PREP_TYPE(PySTEntry_Type);
+    PREP_TYPE(PySTEntry_Type);  // not in C-API
     PREP_TYPE(PySeqIter_Type);
     PREP_TYPE(PySetIter_Type);
     PREP_TYPE(PySet_Type);
@@ -2357,7 +2357,7 @@ _Py_InitTypes(void)
     PREP_TYPE(PyUnicode_Type);
     PREP_TYPE(PyWrapperDescr_Type);
     PREP_TYPE(Py_GenericAliasType);
-    PREP_TYPE(_PyAnextAwaitable_Type);
+    PREP_TYPE(_PyAnextAwaitable_Type);  // not in C-API
     PREP_TYPE(_PyAsyncGenASend_Type);
     PREP_TYPE(_PyAsyncGenAThrow_Type);
     PREP_TYPE(_PyAsyncGenWrappedValue_Type);
@@ -2371,7 +2371,9 @@ _Py_InitTypes(void)
     PREP_TYPE(_PyWeakref_CallableProxyType);
     PREP_TYPE(_PyWeakref_ProxyType);
     PREP_TYPE(_PyWeakref_RefType);
-    PREP_TYPE(_PyUnion_Type);
+    PREP_TYPE(_PyUnion_Type);  // not in C-API
+    // _PyContext_*Type and _PyHamt_*Type are initialized
+    // in _PyContext_InitTypes().
 
     return _PyStatus_OK();
 #undef INIT_TYPE
