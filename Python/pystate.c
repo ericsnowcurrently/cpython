@@ -265,6 +265,7 @@ PyInterpreterState_New(void)
     HEAD_UNLOCK(runtime);
 
     if (interp == NULL) {
+        PyThread_free_lock(pending_lock);
         return NULL;
     }
 
@@ -279,6 +280,9 @@ out_of_memory:
         _PyErr_NoMemory(tstate);
     }
 
+    if (pending_lock != NULL) {
+        PyThread_free_lock(pending_lock);
+    }
     PyMem_RawFree(interp);
     return NULL;
 }
