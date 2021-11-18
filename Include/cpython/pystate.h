@@ -75,6 +75,8 @@ typedef struct _stack_chunk {
 struct _ts {
     /* See Python/ceval.c for comments explaining most fields */
 
+    int initialized;
+
     struct _ts *prev;
     struct _ts *next;
     PyInterpreterState *interp;

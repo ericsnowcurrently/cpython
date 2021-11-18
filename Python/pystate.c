@@ -634,6 +634,11 @@ allocate_chunk(int size_in_bytes, _PyStackChunk* previous)
 static void
 init_threadstate(PyThreadState *tstate, _PyStackChunk *datastack_chunk)
 {
+    if (tstate->initialized) {
+        return;
+    }
+    tstate->initialized = 1;
+
     tstate->recursion_depth = 0;
     tstate->recursion_headroom = 0;
     tstate->stackcheck_counter = 0;
@@ -693,7 +698,7 @@ new_threadstate(PyInterpreterState *interp, int init)
 {
     _PyRuntimeState *runtime = interp->runtime;
 
-    PyThreadState *tstate = (PyThreadState *)PyMem_RawMalloc(sizeof(PyThreadState));
+    PyThreadState *tstate = (PyThreadState *)PyMem_RawCalloc(1, sizeof(PyThreadState));
     if (tstate == NULL) {
         return NULL;
     }
