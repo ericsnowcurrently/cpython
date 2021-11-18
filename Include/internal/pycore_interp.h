@@ -253,6 +253,7 @@ struct _is {
     struct _is *next;
 
     struct pythreads {
+        int _preallocated_used;
         uint64_t next_unique_id;
         struct _ts *head;
         /* Used in Modules/_threadmodule.c. */
@@ -340,6 +341,10 @@ struct _is {
 
     struct ast_state ast;
     struct type_cache type_cache;
+
+    struct {
+        PyThreadState tstate;
+    } _preallocated;
 };
 
 extern void _PyInterpreterState_ClearModules(PyInterpreterState *interp);
