@@ -228,6 +228,17 @@ init_interpreter(PyInterpreterState *interp, PyThread_type_lock pending_lock)
     _Py_PREALLOCATED_DICT_INIT(&interp->_preallocated, modules, 7);
     Py_INCREF(&interp->_preallocated.modules);  // It will never get deallocated.
     interp->modules = (PyObject *)&interp->_preallocated.modules;
+
+    // For now some global state is shared between the main interpreter
+    // and subinterpreters.
+    PyInterpreterState *main_interp = interp->runtime->interpreters.main;
+
+    if (main_interp == NULL || interp == main_interp) {
+        interp->int_state.small = interp->_preallocated.int_state_small;
+    }
+    else {
+        interp->int_state.small = main_interp->int_state.small;
+    }
 }
 
 PyInterpreterState *
@@ -266,8 +277,8 @@ PyInterpreterState_New(void)
         }
     }
 
-    init_interpreter(interp, pending_lock);
     interp->runtime = runtime;
+    init_interpreter(interp, pending_lock);
 
     HEAD_LOCK(runtime);
     if (interpreters->next_id < 0) {

@@ -14,12 +14,18 @@ extern "C" {
 // Return a borrowed reference to the zero singleton.
 // The function cannot return NULL.
 static inline PyObject* _PyLong_GetZero(void)
-{ return (PyObject *)&_PyRuntime.small_ints[_PY_NSMALLNEGINTS]; }
+{
+    PyLongObject *small = _PyInterpreterState_GET()->int_state.small;
+    return (PyObject *)&small[_PY_NSMALLNEGINTS];
+}
 
 // Return a borrowed reference to the one singleton.
 // The function cannot return NULL.
 static inline PyObject* _PyLong_GetOne(void)
-{ return (PyObject *)&_PyRuntime.small_ints[_PY_NSMALLNEGINTS+1]; }
+{
+    PyLongObject *small = _PyInterpreterState_GET()->int_state.small;
+    return (PyObject *)&small[_PY_NSMALLNEGINTS+1];
+}
 
 PyObject *_PyLong_Add(PyLongObject *left, PyLongObject *right);
 PyObject *_PyLong_Multiply(PyLongObject *left, PyLongObject *right);

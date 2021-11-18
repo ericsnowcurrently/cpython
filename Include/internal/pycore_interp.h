@@ -344,12 +344,30 @@ struct _is {
     struct type_cache type_cache;
 
     struct {
+        PyLongObject *small;  // an array
+    } int_state;
+
+    struct {
         PyThreadState tstate;
 
         // import state
         _Py_PREALLOCATE_DICT_MAX_128(modules, 7, 75)
+
+        /* Small integers are preallocated in this array so that they
+         * can be shared.
+         * The integers that are preallocated are those in the range
+         *-_PY_NSMALLNEGINTS (inclusive) to _PY_NSMALLPOSINTS (not inclusive).
+         */
+#define _PY_NSMALLPOSINTS           257
+#define _PY_NSMALLNEGINTS           5
+        PyLongObject int_state_small[_PY_NSMALLNEGINTS + _PY_NSMALLPOSINTS];
     } _preallocated;
 };
+
+// _PyLong_GetZero() and _PyLong_GetOne() must always be available
+#if _PY_NSMALLPOSINTS < 2
+#  error "_PY_NSMALLPOSINTS must be greater than 1"
+#endif
 
 extern void _PyInterpreterState_ClearModules(PyInterpreterState *interp);
 extern void _PyInterpreterState_Clear(PyThreadState *tstate);

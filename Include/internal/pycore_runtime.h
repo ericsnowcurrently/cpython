@@ -12,14 +12,6 @@ extern "C" {
 #include "pycore_gil.h"       // struct _gil_runtime_state
 #include "pycore_interp.h"    // struct _is
 
-#define _PY_NSMALLPOSINTS           257
-#define _PY_NSMALLNEGINTS           5
-
-// _PyLong_GetZero() and _PyLong_GetOne() must always be available
-#if _PY_NSMALLPOSINTS < 2
-#  error "_PY_NSMALLPOSINTS must be greater than 1"
-#endif
-
 /* ceval state */
 
 struct _ceval_runtime_state {
@@ -108,13 +100,6 @@ typedef struct pyruntimestate {
     } xidregistry;
 
     unsigned long main_thread;
-
-    /* Small integers are preallocated in this array so that they
-     * can be shared.
-     * The integers that are preallocated are those in the range
-     *-_PY_NSMALLNEGINTS (inclusive) to _PY_NSMALLPOSINTS (not inclusive).
-     */
-    PyLongObject small_ints[_PY_NSMALLNEGINTS + _PY_NSMALLPOSINTS];
 
 #define NEXITFUNCS 32
     void (*exitfuncs[NEXITFUNCS])(void);
