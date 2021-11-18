@@ -225,9 +225,15 @@ init_interpreter(PyInterpreterState *interp, PyThread_type_lock pending_lock)
 
     interp->audit_hooks = NULL;
 
-    _Py_PREALLOCATED_DICT_INIT(&interp->_preallocated, modules, 7);
-    Py_INCREF(&interp->_preallocated.modules);  // It will never get deallocated.
-    interp->modules = (PyObject *)&interp->_preallocated.modules;
+#define INIT_PREALLOCATED(TYPE, NAME, SIZE) \
+    _Py_PREALLOCATED_##TYPE##_INIT(&interp->_preallocated, NAME, SIZE); \
+    Py_INCREF(&interp->_preallocated.NAME);  /* It will never get deallocated. */ \
+    interp->NAME = (PyObject *)&interp->_preallocated.NAME;
+
+    INIT_PREALLOCATED(DICT, modules, 7);
+    INIT_PREALLOCATED(LIST, modules_by_index, 30);
+
+#undef INIT_PREALLOCATED
 
     // For now some global state is shared between the main interpreter
     // and subinterpreters.

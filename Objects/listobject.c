@@ -44,11 +44,14 @@ list_resize(PyListObject *self, Py_ssize_t newsize)
     size_t new_allocated, num_allocated_bytes;
     Py_ssize_t allocated = self->allocated;
 
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    int preallocated = _Py_IsPreallocated(interp, (void *)self->ob_item);
+
     /* Bypass realloc() when a previous overallocation is large enough
        to accommodate the newsize.  If the newsize falls lower than half
        the allocated size, then proceed with the realloc() to shrink the list.
     */
-    if (allocated >= newsize && newsize >= (allocated >> 1)) {
+    if (allocated >= newsize && (preallocated || newsize >= (allocated >> 1))) {
         assert(self->ob_item != NULL || newsize == 0);
         Py_SET_SIZE(self, newsize);
         return 0;
@@ -74,10 +77,20 @@ list_resize(PyListObject *self, Py_ssize_t newsize)
     if (newsize == 0)
         new_allocated = 0;
     num_allocated_bytes = new_allocated * sizeof(PyObject *);
-    items = (PyObject **)PyMem_Realloc(self->ob_item, num_allocated_bytes);
-    if (items == NULL) {
-        PyErr_NoMemory();
-        return -1;
+    if (preallocated) {
+        items = PyMem_Malloc(num_allocated_bytes);
+        if (items == NULL) {
+            PyErr_NoMemory();
+            return -1;
+        }
+        memcpy(items, self->ob_item, allocated * sizeof(PyObject *));
+    }
+    else {
+        items = (PyObject **)PyMem_Realloc(self->ob_item, num_allocated_bytes);
+        if (items == NULL) {
+            PyErr_NoMemory();
+            return -1;
+        }
     }
     self->ob_item = items;
     Py_SET_SIZE(self, newsize);
@@ -136,6 +149,24 @@ _PyList_DebugMallocStats(FILE *out)
 #endif
 }
 
+static inline void
+init_list(PyListObject *op, PyObject **valarray, Py_ssize_t size)
+{
+    assert(size >= 0);
+    op->ob_item = valarray;
+    Py_SET_SIZE(op, size);
+    op->allocated = size;
+}
+
+void
+_PyList_PreInit(PyListObject *op, PyObject **valarray, Py_ssize_t size)
+{
+    init_list(op, valarray, size);
+    Py_SET_SIZE(op, 0);
+    Py_SET_TYPE(op, &PyList_Type);
+    Py_SET_REFCNT(op, 1);
+}
+
 PyObject *
 PyList_New(Py_ssize_t size)
 {
@@ -165,18 +196,15 @@ PyList_New(Py_ssize_t size)
             return NULL;
         }
     }
-    if (size <= 0) {
-        op->ob_item = NULL;
-    }
-    else {
-        op->ob_item = (PyObject **) PyMem_Calloc(size, sizeof(PyObject *));
-        if (op->ob_item == NULL) {
+    PyObject **valarray = NULL;
+    if (size > 0) {
+        valarray = (PyObject **) PyMem_Calloc(size, sizeof(PyObject *));
+        if (valarray == NULL) {
             Py_DECREF(op);
             return PyErr_NoMemory();
         }
     }
-    Py_SET_SIZE(op, size);
-    op->allocated = size;
+    init_list(op, valarray, size);
     _PyObject_GC_TRACK(op);
     return (PyObject *) op;
 }
@@ -606,7 +634,10 @@ _list_clear(PyListObject *a)
         while (--i >= 0) {
             Py_XDECREF(item[i]);
         }
-        PyMem_Free(item);
+        PyInterpreterState *interp = _PyInterpreterState_GET();
+        if (!_Py_IsPreallocated(interp, (void *)item)) {
+            PyMem_Free(item);
+        }
     }
     /* Never fails; the return value can be ignored.
        Note that there is no guarantee that the list is actually empty

@@ -14,6 +14,7 @@ extern "C" {
 #include "pycore_gc.h"            // struct _gc_runtime_state
 #include "pycore_warnings.h"      // struct _warnings_runtime_state
 #include "pycore_dict.h"          // _Py_PREALLOCATE_DICT_MAX_128()
+#include "pycore_list.h"          // _Py_PREALLOCATE_LIST()
 
 struct _pending_calls {
     PyThread_type_lock lock;
@@ -352,6 +353,7 @@ struct _is {
 
         // import state
         _Py_PREALLOCATE_DICT_MAX_128(modules, 7, 75)
+        _Py_PREALLOCATE_LIST(modules_by_index, 30)  // XXX size?
 
         /* Small integers are preallocated in this array so that they
          * can be shared.
@@ -368,6 +370,19 @@ struct _is {
 #if _PY_NSMALLPOSINTS < 2
 #  error "_PY_NSMALLPOSINTS must be greater than 1"
 #endif
+
+
+static inline int
+_Py_IsPreallocated(PyInterpreterState *interp, void *ptr)
+{
+    if (ptr <= (void *)interp) {
+        return 0;
+    }
+    if (ptr >= ((void *)interp) + sizeof(PyInterpreterState)) {
+        return 0;
+    }
+    return 1;
+}
 
 extern void _PyInterpreterState_ClearModules(PyInterpreterState *interp);
 extern void _PyInterpreterState_Clear(PyThreadState *tstate);
