@@ -11,6 +11,7 @@
 #include "pycore_pymem.h"         // _PyMem_SetDefaultAllocator()
 #include "pycore_pystate.h"       // _PyThreadState_GET()
 #include "pycore_sysmodule.h"
+#include "pycore_dict.h"          // _Py_PREALLOCATED_DICT_INIT()
 
 /* --------------------------------------------------------------------------
 CAUTION
@@ -223,6 +224,10 @@ init_interpreter(PyInterpreterState *interp, PyThread_type_lock pending_lock)
     interp->threads.next_unique_id = 0;
 
     interp->audit_hooks = NULL;
+
+    _Py_PREALLOCATED_DICT_INIT(&interp->_preallocated, modules, 7);
+    Py_INCREF(&interp->_preallocated.modules);  // It will never get deallocated.
+    interp->modules = (PyObject *)&interp->_preallocated.modules;
 }
 
 PyInterpreterState *

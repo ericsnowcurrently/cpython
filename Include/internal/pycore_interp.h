@@ -13,6 +13,7 @@ extern "C" {
 #include "pycore_gil.h"           // struct _gil_runtime_state
 #include "pycore_gc.h"            // struct _gc_runtime_state
 #include "pycore_warnings.h"      // struct _warnings_runtime_state
+#include "pycore_dict.h"          // _Py_PREALLOCATE_DICT_MAX_128()
 
 struct _pending_calls {
     PyThread_type_lock lock;
@@ -344,6 +345,9 @@ struct _is {
 
     struct {
         PyThreadState tstate;
+
+        // import state
+        _Py_PREALLOCATE_DICT_MAX_128(modules, 7, 75)
     } _preallocated;
 };
 

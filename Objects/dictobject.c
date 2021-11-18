@@ -552,15 +552,10 @@ _PyDict_CheckConsistency(PyObject *op, int check_content)
 }
 
 
-static PyDictKeysObject*
-new_keys_object(uint8_t log2_size)
+static inline Py_ssize_t
+_keys_indices_size(uint8_t log2_size)
 {
-    PyDictKeysObject *dk;
-    Py_ssize_t es, usable;
-
-    assert(log2_size >= PyDict_LOG_MINSIZE);
-
-    usable = USABLE_FRACTION(1<<log2_size);
+    Py_ssize_t es;
     if (log2_size <= 7) {
         es = 1;
     }
@@ -575,6 +570,32 @@ new_keys_object(uint8_t log2_size)
     else {
         es = sizeof(Py_ssize_t);
     }
+    return es << log2_size;
+}
+
+static inline void
+_keys_init(PyDictKeysObject *dk, uint8_t log2_size,
+           Py_ssize_t usable, Py_ssize_t indices_size)
+{
+    dk->dk_refcnt = 1;
+    dk->dk_log2_size = log2_size;
+    dk->dk_kind = DICT_KEYS_UNICODE;
+    dk->dk_nentries = 0;
+    dk->dk_usable = usable;
+    dk->dk_version = 0;
+    memset(&dk->dk_indices[0], 0xff, indices_size);
+    memset(DK_ENTRIES(dk), 0, sizeof(PyDictKeyEntry) * usable);
+}
+
+static PyDictKeysObject*
+new_keys_object(uint8_t log2_size)
+{
+    PyDictKeysObject *dk;
+
+    assert(log2_size >= PyDict_LOG_MINSIZE);
+
+    Py_ssize_t usable = USABLE_FRACTION(1<<log2_size);
+    Py_ssize_t indices_size = _keys_indices_size(log2_size);
 
 #if PyDict_MAXFREELIST > 0
     struct _Py_dict_state *state = get_dict_state();
@@ -589,7 +610,7 @@ new_keys_object(uint8_t log2_size)
 #endif
     {
         dk = PyObject_Malloc(sizeof(PyDictKeysObject)
-                             + (es<<log2_size)
+                             + indices_size
                              + sizeof(PyDictKeyEntry) * usable);
         if (dk == NULL) {
             PyErr_NoMemory();
@@ -599,14 +620,7 @@ new_keys_object(uint8_t log2_size)
 #ifdef Py_REF_DEBUG
     _Py_RefTotal++;
 #endif
-    dk->dk_refcnt = 1;
-    dk->dk_log2_size = log2_size;
-    dk->dk_kind = DICT_KEYS_UNICODE;
-    dk->dk_nentries = 0;
-    dk->dk_usable = usable;
-    dk->dk_version = 0;
-    memset(&dk->dk_indices[0], 0xff, es<<log2_size);
-    memset(DK_ENTRIES(dk), 0, sizeof(PyDictKeyEntry) * usable);
+    _keys_init(dk, log2_size, usable, indices_size);
     return dk;
 }
 
@@ -640,6 +654,29 @@ new_values(Py_ssize_t size)
     return (PyDictValues*)PyMem_Malloc(n);
 }
 
+static inline void
+init_dict(PyDictObject *mp, PyDictKeysObject *keys, PyDictValues *values,
+          Py_ssize_t used)
+{
+    assert(keys != NULL);
+    mp->ma_keys = keys;
+    mp->ma_values = values;
+    mp->ma_used = used;
+    mp->ma_version_tag = DICT_NEXT_VERSION();
+    ASSERT_CONSISTENT(mp);
+}
+
+void
+_PyDict_PreInit(PyDictObject *mp, PyDictKeysObject *keys, uint8_t log2_size)
+{
+    assert(log2_size >= PyDict_LOG_MINSIZE);
+
+    Py_ssize_t usable = USABLE_FRACTION(1 << log2_size);
+    Py_ssize_t indices_size = _keys_indices_size(log2_size);
+    _keys_init(keys, log2_size, usable, indices_size);
+    init_dict(mp, keys, NULL, 0);
+}
+
 #define free_values(values) PyMem_Free(values)
 
 /* Consumes a reference to the keys object */
@@ -647,7 +684,6 @@ static PyObject *
 new_dict(PyDictKeysObject *keys, PyDictValues *values, Py_ssize_t used, int free_values_on_failure)
 {
     PyDictObject *mp;
-    assert(keys != NULL);
 #if PyDict_MAXFREELIST > 0
     struct _Py_dict_state *state = get_dict_state();
 #ifdef Py_DEBUG
@@ -672,11 +708,7 @@ new_dict(PyDictKeysObject *keys, PyDictValues *values, Py_ssize_t used, int free
             return NULL;
         }
     }
-    mp->ma_keys = keys;
-    mp->ma_values = values;
-    mp->ma_used = used;
-    mp->ma_version_tag = DICT_NEXT_VERSION();
-    ASSERT_CONSISTENT(mp);
+    init_dict(mp, keys, values, used);
     return (PyObject *)mp;
 }
 

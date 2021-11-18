@@ -103,6 +103,26 @@ extern uint64_t _pydict_global_version;
 
 PyObject *_PyObject_MakeDictFromInstanceAttributes(PyObject *obj, PyDictValues *values);
 
+extern void _PyDict_PreInit(PyDictObject *mp, PyDictKeysObject *keys,
+                            uint8_t log2_size);
+
+// See _PyDict_NewPresized() in Objects/dictobject.c.
+#define _Py_PREALLOCATE_DICT_MAX_128(name, log2_size, size) \
+    PyDictObject name; \
+    struct _dictkeysobject _##name##_keys; \
+    char _##name##_keys_indices[1 << log2_size]; \
+    char _##name##_keys_entries[(((1 << log2_size) << 1)/3) * sizeof(PyDictKeyEntry)]; \
+    struct _dictvalues _##name##_values; \
+    char _##name##_values_entries[size * sizeof(PyObject *)];
+
+#define _Py_PREALLOCATED_DICT_INIT(ptr, name, log2_size) \
+    do { \
+        PyDictObject *mp = &(ptr)->name; \
+        struct _dictkeysobject *keys = &(ptr)->_##name##_keys; \
+        _PyDict_PreInit(mp, keys, log2_size); \
+        mp->ma_values = &(ptr)->_##name##_values; \
+    } while (0)
+
 #ifdef __cplusplus
 }
 #endif
