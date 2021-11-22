@@ -13,6 +13,7 @@ extern "C" {
 #include "pycore_gil.h"           // struct _gil_runtime_state
 #include "pycore_gc.h"            // struct _gc_runtime_state
 #include "pycore_warnings.h"      // struct _warnings_runtime_state
+#include "pycore_global_objects.h"  // struct _Py_global_objects
 
 struct _pending_calls {
     PyThread_type_lock lock;
@@ -339,6 +340,8 @@ struct _is {
 
     struct ast_state ast;
     struct type_cache type_cache;
+
+    struct _Py_global_objects global_objects;
 };
 
 extern void _PyInterpreterState_ClearModules(PyInterpreterState *interp);
