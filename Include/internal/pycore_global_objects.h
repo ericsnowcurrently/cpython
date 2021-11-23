@@ -39,6 +39,7 @@ PyObject *      (Py_True)
 
 # Include/pyerrors.h
 PyObject *      PyExc_BaseException
+PyObject *      BaseExceptionGroup
 PyObject *      PyExc_Exception
 PyObject *      PyExc_StopAsyncIteration
 PyObject *      PyExc_StopIteration
@@ -333,6 +334,76 @@ struct _Py_global_objects {
     PyObject *$None;
     PyObject *$NotImplemented;
     PyObject *$Ellipsis;
+
+    /* exception types */
+    PyObject *$ArithmeticError;
+    PyObject *$AssertionError;
+    PyObject *$AttributeError;
+    PyObject *$BaseException;
+    PyObject *$BaseExceptionGroup;
+    PyObject *$BlockingIOError;
+    PyObject *$BrokenPipeError;
+    PyObject *$BufferError;
+    PyObject *$ChildProcessError;
+    PyObject *$ConnectionAbortedError;
+    PyObject *$ConnectionError;
+    PyObject *$ConnectionRefusedError;
+    PyObject *$ConnectionResetError;
+    PyObject *$EOFError;
+    PyObject *$Exception;
+    PyObject *$FileExistsError;
+    PyObject *$FileNotFoundError;
+    PyObject *$FloatingPointError;
+    PyObject *$GeneratorExit;
+    PyObject *$ImportError;
+    PyObject *$IndentationError;
+    PyObject *$IndexError;
+    PyObject *$InterruptedError;
+    PyObject *$IsADirectoryError;
+    PyObject *$KeyError;
+    PyObject *$KeyboardInterrupt;
+    PyObject *$LookupError;
+    PyObject *$MemoryError;
+    PyObject *$ModuleNotFoundError;
+    PyObject *$NameError;
+    PyObject *$NotADirectoryError;
+    PyObject *$NotImplementedError;
+    PyObject *$OSError;
+    PyObject *$OverflowError;
+    PyObject *$PermissionError;
+    PyObject *$ProcessLookupError;
+    PyObject *$RecursionError;
+    PyObject *$ReferenceError;
+    PyObject *$RuntimeError;
+    PyObject *$StopAsyncIteration;
+    PyObject *$StopIteration;
+    PyObject *$SyntaxError;
+    PyObject *$SystemError;
+    PyObject *$SystemExit;
+    PyObject *$TabError;
+    PyObject *$TimeoutError;
+    PyObject *$TypeError;
+    PyObject *$UnboundLocalError;
+    PyObject *$UnicodeDecodeError;
+    PyObject *$UnicodeEncodeError;
+    PyObject *$UnicodeError;
+    PyObject *$UnicodeTranslateError;
+    PyObject *$ValueError;
+    PyObject *$ZeroDivisionError;
+
+    /* warning category types */
+    PyObject *$BytesWarning;
+    PyObject *$DeprecationWarning;
+    PyObject *$EncodingWarning;
+    PyObject *$FutureWarning;
+    PyObject *$ImportWarning;
+    PyObject *$PendingDeprecationWarning;
+    PyObject *$ResourceWarning;
+    PyObject *$RuntimeWarning;
+    PyObject *$SyntaxWarning;
+    PyObject *$UnicodeWarning;
+    PyObject *$UserWarning;
+    PyObject *$Warning;
 };
 
 /* low-level helpers for mapping object names to interpreter state */
