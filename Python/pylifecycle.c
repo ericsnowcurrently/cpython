@@ -719,12 +719,14 @@ pycore_init_types(PyInterpreterState *interp)
         if (_PyStructSequence_Init() < 0) {
             return _PyStatus_ERR("can't initialize structseq");
         }
+    }
 
-        status = _PyTypes_Init();
-        if (_PyStatus_EXCEPTION(status)) {
-            return status;
-        }
+    status = _PyTypes_Init(interp);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
 
+    if (is_main_interp) {
         if (_PyLong_InitTypes() < 0) {
             return _PyStatus_ERR("can't init int type");
         }
