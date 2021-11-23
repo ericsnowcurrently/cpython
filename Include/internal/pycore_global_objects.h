@@ -322,6 +322,15 @@ PyTypeObject    _PyInterpreterID_Type
 # Include/internal/pycore_namespace.h
 PyTypeObject    _PyNamespace_Type
 
+# Include/internal/pycore_unionobject.h
+PyTypeObject    _PyUnion_Type
+
+# Include/internal/pycore_symtable.h
+PyTypeObject    PySTEntry_Type
+
+# Include/iterobject.h  (#ifdef Py_BUILD_CORE)
+PyTypeObject    _PyAnextAwaitable_Type
+
 */
 
 struct _Py_global_objects {
@@ -404,26 +413,148 @@ struct _Py_global_objects {
     PyObject *$UnicodeWarning;
     PyObject *$UserWarning;
     PyObject *$Warning;
+
+    /* other __builtins__ */
+    PyObject *$bool;
+    PyObject *$bytearray;
+    PyObject *$bytes;
+    PyObject *$classmethod;
+    PyObject *$complex;
+    PyObject *$dict;
+    PyObject *$enumerate;
+    PyObject *$filter;
+    PyObject *$float;
+    PyObject *$frozenset;
+    PyObject *$int;
+    PyObject *$list;
+    PyObject *$map;
+    PyObject *$memoryview;
+    PyObject *$object;
+    PyObject *$property;
+    PyObject *$range;
+    PyObject *$reversed;
+    PyObject *$set;
+    PyObject *$staticmethod;
+    PyObject *$str;
+    PyObject *$super;
+    PyObject *$tuple;
+    PyObject *$type;
+    PyObject *$zip;
+
+    /* singleton types */
+    PyObject *$EllipsisType;
+    PyObject *$_NoneType;
+    PyObject *$_NotImplementedType;
+
+    /* module-specific types */
+    PyObject *$OrderedDict;  // collections
+    PyObject *$PickleBufferType;  // pickle
+    PyObject *$_WeakrefCallableProxyType;  // weakref
+    PyObject *$_WeakrefProxyType;  // weakref
+    PyObject *$_WeakrefRefType;  // weakref
+
+    /* runtime init only types */
+    // XXX Keep on _PyRuntimeState?
+    PyObject *$StdPrinterType;
+
+    /* adapter types */
+    PyObject *$CallIterType;  // iter(callable, sentinel)
+    PyObject *$GenericAliasType;  // typing
+    PyObject *$InstanceMethodType;
+    PyObject *$SeqIterType;  // old iterator protocol
+    PyObject *$_AsyncGenASendType;
+    PyObject *$_AsyncGenAThrowType;
+    PyObject *$_AsyncGenWrappedValueType;
+    PyObject *$_CoroutineWrapperType;  // _PyCoroWrapper_Type
+    // ...exposed in types module:
+    PyObject *$MappingProxyType;  // PyDictProxy_Type
+    PyObject *$MethodType;
+
+    /* other C wrapper types */
+    PyObject *$CapsuleType;
+    PyObject *$ModuleDefType;
+    // ...exposed in types module:
+    PyObject *$BuiltinFunctionType;  // PyCFunction_Type
+    PyObject *$BuiltinMethodType;  // PyCMethod_Type
+    PyObject *$ClassMethodDescriptorType;
+    PyObject *$GetSetDescriptorType;
+    PyObject *$MemberDescriptorType;
+    PyObject *$MethodDescriptorType;
+    PyObject *$WrapperDescriptorType;
+    PyObject *$_MethodWrapperType;
+
+    /* other types */
+    PyObject *$ContextTokenType;
+    PyObject *$ContextType;
+    PyObject *$ContextVarType;
+    PyObject *$HamtType;
+    PyObject *$Hamt_ArrayNodeType;
+    PyObject *$Hamt_BitmapNode_Type;
+    PyObject *$Hamt_CollisionNodeType;
+    PyObject *$STEntryType;
+    PyObject *$SliceType;
+    PyObject *$_AnextAwaitableType;
+    PyObject *$_InterpreterIDType;
+    PyObject *$_ManagedBufferType;
+    PyObject *$_UnionType;
+    // ...exposed in types module:
+    PyObject *$AsyncGeneratorType;  // PyAsyncGen_Type
+    PyObject *$CellType;
+    PyObject *$CodeType;
+    PyObject *$CoroutineType;  // PyCoro_Type
+    PyObject *$FrameType;
+    PyObject *$FunctionType;
+    PyObject *$GeneratorType;  // PyGen_Type
+    PyObject *$ModuleType;
+    PyObject *$SimpleNamespace;  // _PyNamespace_Type
+    PyObject *$TracebackType;
+
+    /* type views */
+    PyObject *$Hamt_items;
+    PyObject *$Hamt_keys;
+    PyObject *$Hamt_values;
+    PyObject *$OrderedDict_items;
+    PyObject *$OrderedDict_keys;
+    PyObject *$OrderedDict_values;
+    PyObject *$dict_items;
+    PyObject *$dict_keys;
+    PyObject *$dict_values;
+
+    /* type iterators */
+    PyObject *$LongRangeIterType;
+    PyObject *$OrderedDict_iter;
+    PyObject *$bytearray_iter;
+    PyObject *$bytes_iter;
+    PyObject *$dict_items_iter;
+    PyObject *$dict_items_reversed;
+    PyObject *$dict_keys_iter;
+    PyObject *$dict_keys_reversed;
+    PyObject *$dict_values_iter;
+    PyObject *$dict_values_reversed;
+    PyObject *$list_iter;
+    PyObject *$list_reversed;
+    PyObject *$range_iter;
+    PyObject *$set_iter;
+    PyObject *$str_iter;
+    PyObject *$tuple_iter;
 };
 
 /* low-level helpers for mapping object names to interpreter state */
 
 #define _PyInterpreterState_GET_OBJECT(interp, NAME) \
-    ((interp)->global_objects.$ ## NAME)
+    (assert(interp->global_objects.$ ## NAME == NULL), \
+     interp->global_objects.$ ## NAME)
 
 #define _PyInterpreterState_SET_OBJECT(interp, NAME, ob) \
     do { \
-        assert((interp)->global_objects._ ## NAME == NULL); \
+        assert(interp->global_objects.$ ## NAME == NULL); \
         assert(ob != NULL); \
         Py_INCREF(ob); \
-        (interp)->global_objects.$ ## NAME = (PyObject *)(ob); \
+        interp->global_objects.$ ## NAME = (PyObject *)(ob); \
     } while (0)
 
 #define _PyInterpreterState_CLEAR_OBJECT(interp, NAME) \
-    do { \
-        Py_XDECREF((interp)->global_objects._ ## NAME); \
-        (interp)->global_objects.$ ## NAME = NULL; \
-    } while (0)
+    Py_XSETREF(interp->global_objects.$ ## NAME, NULL)
 
 
 /* legacy C-API (symbols exposed for stable ABI < 3.11) */
