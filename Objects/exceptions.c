@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include "pycore_initconfig.h"
 #include "pycore_object.h"
+#include "pycore_global_objects.h"  // _PyInterpreterState_SET_OBJECT()
 #include "structmember.h"         // PyMemberDef
 #include "osdefs.h"               // SEP
 
@@ -3162,13 +3163,24 @@ _PyExc_Init(PyInterpreterState *interp)
 {
     struct _Py_exc_state *state = &interp->exc_state;
 
+    PyInterpreterState *main_interp = PyInterpreterState_Main();
+    int is_main = _Py_IsMainInterpreter(interp);
+
+    // XXX Init per-interpreter.
 #define PRE_INIT(TYPE) \
-    if (!(_PyExc_ ## TYPE.tp_flags & Py_TPFLAGS_READY)) { \
-        if (PyType_Ready(&_PyExc_ ## TYPE) < 0) { \
-            return _PyStatus_ERR("exceptions bootstrapping error."); \
+    do { \
+        if (!(_PyExc_ ## TYPE.tp_flags & Py_TPFLAGS_READY)) { \
+            if (PyType_Ready(&_PyExc_ ## TYPE) < 0) { \
+                return _PyStatus_ERR("exceptions bootstrapping error."); \
+            } \
+            Py_INCREF(PyExc_ ## TYPE); \
         } \
-        Py_INCREF(PyExc_ ## TYPE); \
-    }
+        PyObject *ob = PyExc_ ## TYPE; \
+        if (!is_main) { \
+            ob = _PyInterpreterState_GET_OBJECT(main_interp, TYPE); \
+        } \
+        _PyInterpreterState_SET_OBJECT(interp, TYPE, ob); \
+    } while (0)
 
 #define ADD_ERRNO(TYPE, CODE) \
     do { \
