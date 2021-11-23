@@ -326,6 +326,13 @@ PyTypeObject    _PyNamespace_Type
 struct _Py_global_objects {
     // All field names here have an extra leading dollar sign.
     // This helps avoid collisions with keywords, etc.
+
+    /* singletons */
+    PyObject *$True;
+    PyObject *$False;
+    PyObject *$None;
+    PyObject *$NotImplemented;
+    PyObject *$Ellipsis;
 };
 
 /* low-level helpers for mapping object names to interpreter state */

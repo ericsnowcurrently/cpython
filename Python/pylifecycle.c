@@ -654,10 +654,32 @@ pycore_create_interpreter(_PyRuntimeState *runtime,
 }
 
 
+/* Initialize global objects needed early in runtime init, incl. singletons. */
+
 static PyStatus
-pycore_init_singletons(PyInterpreterState *interp)
+pycore_init_core_objects(PyInterpreterState *interp)
 {
     PyStatus status;
+
+    PyInterpreterState *main_interp = PyInterpreterState_Main();
+    int is_main = _Py_IsMainInterpreter(interp);
+
+#define INIT_SINGLETON(NAME) \
+    do { \
+        PyObject *ob = Py_ ## NAME; \
+        if (!is_main) { \
+            /* XXX Init per-interpreter. */ \
+            ob = _PyInterpreterState_GET_OBJECT(main_interp, NAME); \
+        } \
+        _PyInterpreterState_SET_OBJECT(interp, NAME, ob); \
+    } while (0)
+
+    INIT_SINGLETON(True);
+    INIT_SINGLETON(False);
+    INIT_SINGLETON(None);
+    INIT_SINGLETON(NotImplemented);
+    INIT_SINGLETON(Ellipsis);
+#undef INIT_SINGLETON
 
     _PyLong_Init(interp);
 
@@ -683,6 +705,8 @@ pycore_init_singletons(PyInterpreterState *interp)
     return _PyStatus_OK();
 }
 
+
+/* Initialze global type objects and any related global state. */
 
 static PyStatus
 pycore_init_types(PyInterpreterState *interp)
@@ -792,10 +816,10 @@ pycore_interp_init(PyThreadState *tstate)
     PyStatus status;
     PyObject *sysmod = NULL;
 
-    // Create singletons before the first PyType_Ready() call, since
-    // PyType_Ready() uses singletons like the Unicode empty string (tp_doc)
+    // Create the core objects before the first PyType_Ready() call, since
+    // PyType_Ready() uses some, like the Unicode empty string (tp_doc)
     // and the empty tuple singletons (tp_bases).
-    status = pycore_init_singletons(interp);
+    status = pycore_init_core_objects(interp);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
