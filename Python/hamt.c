@@ -3,6 +3,7 @@
 #include "pycore_bitutils.h"      // _Py_popcount32
 #include "pycore_hamt.h"
 #include "pycore_object.h"        // _PyObject_GC_TRACK()
+#include "pycore_global_objects.h"  // _PyInterpreterState_SET_OBJECT()
 #include <stddef.h>               // offsetof()
 
 /*
@@ -2951,23 +2952,6 @@ PyTypeObject _PyHamt_CollisionNode_Type = {
     .tp_hash = PyObject_HashNotImplemented,
 };
 
-
-int
-_PyHamt_Init(void)
-{
-    if ((PyType_Ready(&_PyHamt_Type) < 0) ||
-        (PyType_Ready(&_PyHamt_ArrayNode_Type) < 0) ||
-        (PyType_Ready(&_PyHamt_BitmapNode_Type) < 0) ||
-        (PyType_Ready(&_PyHamt_CollisionNode_Type) < 0) ||
-        (PyType_Ready(&_PyHamtKeys_Type) < 0) ||
-        (PyType_Ready(&_PyHamtValues_Type) < 0) ||
-        (PyType_Ready(&_PyHamtItems_Type) < 0))
-    {
-        return 0;
-    }
-
-    return 1;
-}
 
 void
 _PyHamt_Fini(void)

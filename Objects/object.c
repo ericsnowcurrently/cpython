@@ -4,10 +4,12 @@
 #include "Python.h"
 #include "pycore_call.h"          // _PyObject_CallNoArgs()
 #include "pycore_ceval.h"         // _Py_EnterRecursiveCall()
+#include "pycore_context.h"       // _PyContext_Type
 #include "pycore_dict.h"          // _PyObject_MakeDictFromInstanceAttributes()
 #include "pycore_floatobject.h"   // _PyFloat_DebugMallocStats()
-#include "pycore_initconfig.h"    // _PyStatus_EXCEPTION()
 #include "pycore_global_objects.h"  // _PyInterpreterState_SET_OBJECT()
+#include "pycore_hamt.h"          // _PyHamt_Type
+#include "pycore_initconfig.h"    // _PyStatus_EXCEPTION()
 #include "pycore_namespace.h"     // _PyNamespace_Type
 #include "pycore_object.h"        // _PyType_CheckConsistency()
 #include "pycore_pyerrors.h"      // _PyErr_Occurred()
@@ -1918,6 +1920,9 @@ _PyTypes_Init(PyInterpreterState *interp)
     _INIT_TYPE(PyClassMethod_Type, classmethod);
     _INIT_TYPE(PyCode_Type, CodeType);
     _INIT_TYPE(PyComplex_Type, complex);
+    _INIT_TYPE(PyContextToken_Type, ContextTokenType);
+    _INIT_TYPE(PyContextVar_Type, ContextVarType);
+    _INIT_TYPE(PyContext_Type, ContextType);
     _INIT_TYPE(PyCoro_Type, CoroutineType);
     _INIT_TYPE(PyDictProxy_Type, MappingProxyType);
     INIT_TYPE(PyDict_Type, dict);
@@ -1961,6 +1966,10 @@ _PyTypes_Init(PyInterpreterState *interp)
     _INIT_TYPE(_PyAsyncGenAThrow_Type, _AsyncGenAThrowType);
     _INIT_TYPE(_PyAsyncGenWrappedValue_Type, _AsyncGenWrappedValueType);
     _INIT_TYPE(_PyCoroWrapper_Type, _CoroutineWrapperType);
+    _INIT_TYPE(_PyHamt_ArrayNode_Type, _Hamt_ArrayNodeType);
+    _INIT_TYPE(_PyHamt_BitmapNode_Type, _Hamt_BitmapNodeType);
+    _INIT_TYPE(_PyHamt_CollisionNode_Type, _Hamt_CollisionNodeType);
+    _INIT_TYPE(_PyHamt_Type, _HamtType);
     _INIT_TYPE(_PyInterpreterID_Type, _InterpreterIDType);
     _INIT_TYPE(_PyManagedBuffer_Type, _ManagedBufferType);
     _INIT_TYPE(_PyMethodWrapper_Type, _MethodWrapperType);
@@ -1980,6 +1989,9 @@ _PyTypes_Init(PyInterpreterState *interp)
     INIT_ADAPTER(OrderedDict, iter, PyODictIter_Type);
     INIT_ADAPTER(OrderedDict, keys, PyODictKeys_Type);
     INIT_ADAPTER(OrderedDict, values, PyODictValues_Type);
+    INIT_ADAPTER(_Hamt, items, _PyHamtItems_Type);
+    INIT_ADAPTER(_Hamt, keys, _PyHamtKeys_Type);
+    INIT_ADAPTER(_Hamt, values, _PyHamtValues_Type);
     INIT_ADAPTER(bytearray, iter, PyByteArrayIter_Type);
     INIT_ADAPTER(bytes, iter, PyBytesIter_Type);
     INIT_ADAPTER(dict, items, PyDictItems_Type);
