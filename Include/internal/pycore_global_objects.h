@@ -487,13 +487,13 @@ struct _Py_global_objects {
     PyObject *$ContextTokenType;
     PyObject *$ContextType;
     PyObject *$ContextVarType;
-    PyObject *$HamtType;
-    PyObject *$Hamt_ArrayNodeType;
-    PyObject *$Hamt_BitmapNode_Type;
-    PyObject *$Hamt_CollisionNodeType;
     PyObject *$STEntryType;
     PyObject *$SliceType;
     PyObject *$_AnextAwaitableType;
+    PyObject *$_HamtType;
+    PyObject *$_Hamt_ArrayNodeType;
+    PyObject *$_Hamt_BitmapNodeType;
+    PyObject *$_Hamt_CollisionNodeType;
     PyObject *$_InterpreterIDType;
     PyObject *$_ManagedBufferType;
     PyObject *$_UnionType;
@@ -510,12 +510,12 @@ struct _Py_global_objects {
     PyObject *$TracebackType;
 
     /* type views */
-    PyObject *$Hamt_items;
-    PyObject *$Hamt_keys;
-    PyObject *$Hamt_values;
     PyObject *$OrderedDict_items;
     PyObject *$OrderedDict_keys;
     PyObject *$OrderedDict_values;
+    PyObject *$_Hamt_items;
+    PyObject *$_Hamt_keys;
+    PyObject *$_Hamt_values;
     PyObject *$dict_items;
     PyObject *$dict_keys;
     PyObject *$dict_values;

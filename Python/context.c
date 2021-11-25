@@ -1324,14 +1324,7 @@ _PyContext_Fini(PyInterpreterState *interp)
 int
 _PyContext_Init(void)
 {
-    if (!_PyHamt_Init()) {
-        return 0;
-    }
-
-    if ((PyType_Ready(&PyContext_Type) < 0) ||
-        (PyType_Ready(&PyContextVar_Type) < 0) ||
-        (PyType_Ready(&PyContextToken_Type) < 0) ||
-        (PyType_Ready(&PyContextTokenMissing_Type) < 0))
+    if (PyType_Ready(&PyContextTokenMissing_Type) < 0)
     {
         return 0;
     }
