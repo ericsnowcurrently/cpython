@@ -218,6 +218,27 @@ _PyInterpreterState_GetObject_None(PyInterpreterState *interp)
     return _PyInterpreterState_GET_OBJECT(interp, None);
 }
 
+static inline void
+_PyNotImplemented_Init(PyInterpreterState *interp)
+{
+    PyObject *ob;
+    if (_Py_IsMainInterpreter(interp)) {
+        ob = &_Py_NotImplementedStruct;
+    }
+    else {
+        /* XXX Make a per-interpreter copy. */
+        PyInterpreterState *main_interp = PyInterpreterState_Main();
+        ob = _PyInterpreterState_GET_OBJECT(main_interp, NotImplemented);
+    }
+    _PyInterpreterState_SET_OBJECT(interp, NotImplemented, ob);
+}
+
+static inline PyObject *
+_PyInterpreterState_GetObject_NotImplemented(PyInterpreterState *interp)
+{
+    return _PyInterpreterState_GET_OBJECT(interp, NotImplemented);
+}
+
 #ifdef __cplusplus
 }
 #endif

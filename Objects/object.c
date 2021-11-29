@@ -1851,6 +1851,12 @@ PyObject _Py_NotImplementedStruct = {
     1, &_PyNotImplemented_Type
 };
 
+PyObject *
+PyInterpreterState_GetObject_NotImplemented(PyInterpreterState *interp)
+{
+    return _PyInterpreterState_GetObject_NotImplemented(interp);
+}
+
 PyStatus
 _PyTypes_Init(void)
 {

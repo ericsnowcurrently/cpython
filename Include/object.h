@@ -633,8 +633,15 @@ PyAPI_FUNC(int) Py_IsNone(PyObject *x);
 Py_NotImplemented is a singleton used to signal that an operation is
 not implemented for a given type combination.
 */
+#if Py_LIMITED_API+0 < 0x03110000
 PyAPI_DATA(PyObject) _Py_NotImplementedStruct; /* Don't use this directly */
 #define Py_NotImplemented (&_Py_NotImplementedStruct)
+#else
+PyAPI_FUNC(PyObject *) PyInterpreterState_GetObject_NotImplemented(
+        PyInterpreterState *interp);
+#define Py_NotImplemented \
+    (PyInterpreterState_GetObject_NotImplemented(_PyInterpreterState_GET())
+#endif
 
 /* Macro for returning Py_NotImplemented from a function */
 #define Py_RETURN_NOTIMPLEMENTED return Py_NewRef(Py_NotImplemented)

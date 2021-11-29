@@ -677,7 +677,7 @@ pycore_init_core_objects(PyInterpreterState *interp)
     INIT_SINGLETON(True);
     INIT_SINGLETON(False);
     _PyNone_Init(interp);
-    INIT_SINGLETON(NotImplemented);
+    _PyNotImplemented_Init(interp);
     INIT_SINGLETON(Ellipsis);
 #undef INIT_SINGLETON
 
