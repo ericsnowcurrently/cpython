@@ -13,6 +13,77 @@
 #include "structmember.h"         // PyMemberDef
 #include "osdefs.h"               // SEP
 
+#undef PyExc_ArithmeticError
+#undef PyExc_AssertionError
+#undef PyExc_AttributeError
+#undef PyExc_BaseException
+#undef PyExc_BaseExceptionGroup
+#undef PyExc_BlockingIOError
+#undef PyExc_BrokenPipeError
+#undef PyExc_BufferError
+#undef PyExc_ChildProcessError
+#undef PyExc_ConnectionAbortedError
+#undef PyExc_ConnectionError
+#undef PyExc_ConnectionRefusedError
+#undef PyExc_ConnectionResetError
+#undef PyExc_EOFError
+#undef PyExc_Exception
+#undef PyExc_FileExistsError
+#undef PyExc_FileNotFoundError
+#undef PyExc_FloatingPointError
+#undef PyExc_GeneratorExit
+#undef PyExc_ImportError
+#undef PyExc_IndentationError
+#undef PyExc_IndexError
+#undef PyExc_InterruptedError
+#undef PyExc_IsADirectoryError
+#undef PyExc_KeyError
+#undef PyExc_KeyboardInterrupt
+#undef PyExc_LookupError
+#undef PyExc_MemoryError
+#undef PyExc_ModuleNotFoundError
+#undef PyExc_NameError
+#undef PyExc_NotADirectoryError
+#undef PyExc_NotImplementedError
+#undef PyExc_OSError
+#undef PyExc_OverflowError
+#undef PyExc_PermissionError
+#undef PyExc_ProcessLookupError
+#undef PyExc_RecursionError
+#undef PyExc_ReferenceError
+#undef PyExc_RuntimeError
+#undef PyExc_StopAsyncIteration
+#undef PyExc_StopIteration
+#undef PyExc_SyntaxError
+#undef PyExc_SystemError
+#undef PyExc_SystemExit
+#undef PyExc_TabError
+#undef PyExc_TimeoutError
+#undef PyExc_TypeError
+#undef PyExc_UnboundLocalError
+#undef PyExc_UnicodeDecodeError
+#undef PyExc_UnicodeEncodeError
+#undef PyExc_UnicodeError
+#undef PyExc_UnicodeTranslateError
+#undef PyExc_ValueError
+#undef PyExc_ZeroDivisionError
+
+#undef PyExc_EnvironmentError
+#undef PyExc_IOError
+#undef PyExc_WindowsError
+
+#undef PyExc_BytesWarning
+#undef PyExc_DeprecationWarning
+#undef PyExc_EncodingWarning
+#undef PyExc_FutureWarning
+#undef PyExc_ImportWarning
+#undef PyExc_PendingDeprecationWarning
+#undef PyExc_ResourceWarning
+#undef PyExc_RuntimeWarning
+#undef PyExc_SyntaxWarning
+#undef PyExc_UnicodeWarning
+#undef PyExc_UserWarning
+#undef PyExc_Warning
 
 /* Compatibility aliases */
 PyObject *PyExc_EnvironmentError = NULL;
@@ -3175,8 +3246,12 @@ _PyExc_Init(PyInterpreterState *interp)
             } \
             Py_INCREF(PyExc_ ## TYPE); \
         } \
-        PyObject *ob = PyExc_ ## TYPE; \
-        if (!is_main) { \
+        PyObject *ob; \
+        if (is_main) { \
+            ob = (PyObject *)&_PyExc_ ## TYPE; \
+        } \
+        else { \
+            /* XXX Make a per-interpreter copy. */ \
             ob = _PyInterpreterState_GET_OBJECT(main_interp, TYPE); \
         } \
         _PyInterpreterState_SET_OBJECT(interp, TYPE, ob); \

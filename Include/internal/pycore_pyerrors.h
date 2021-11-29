@@ -8,6 +8,9 @@ extern "C" {
 #  error "this header requires Py_BUILD_CORE define"
 #endif
 
+#include "pycore_interp.h"          // struct _is
+#include "pycore_global_objects.h"  // _PyInterpreterState_SET_OBJECT()
+
 static inline PyObject* _PyErr_Occurred(PyThreadState *tstate)
 {
     assert(tstate != NULL);
@@ -95,6 +98,88 @@ PyAPI_FUNC(void) _Py_NO_RETURN _Py_FatalRefcountErrorFunc(
     const char *message);
 
 #define _Py_FatalRefcountError(message) _Py_FatalRefcountErrorFunc(__func__, message)
+
+
+//////////////////////////////////
+// C-API exceptions
+
+#define DEFINE_GETTER(NAME) \
+    static inline PyObject * \
+    _PyInterpreterState_GetObject_ ## NAME(PyInterpreterState *interp) \
+    { \
+        return _PyInterpreterState_GET_OBJECT(interp, NAME); \
+    }
+
+DEFINE_GETTER(ArithmeticError);
+DEFINE_GETTER(AssertionError);
+DEFINE_GETTER(AttributeError);
+DEFINE_GETTER(BaseException);
+DEFINE_GETTER(BaseExceptionGroup);
+DEFINE_GETTER(BlockingIOError);
+DEFINE_GETTER(BrokenPipeError);
+DEFINE_GETTER(BufferError);
+DEFINE_GETTER(ChildProcessError);
+DEFINE_GETTER(ConnectionAbortedError);
+DEFINE_GETTER(ConnectionError);
+DEFINE_GETTER(ConnectionRefusedError);
+DEFINE_GETTER(ConnectionResetError);
+DEFINE_GETTER(EOFError);
+DEFINE_GETTER(Exception);
+DEFINE_GETTER(FileExistsError);
+DEFINE_GETTER(FileNotFoundError);
+DEFINE_GETTER(FloatingPointError);
+DEFINE_GETTER(GeneratorExit);
+DEFINE_GETTER(ImportError);
+DEFINE_GETTER(IndentationError);
+DEFINE_GETTER(IndexError);
+DEFINE_GETTER(InterruptedError);
+DEFINE_GETTER(IsADirectoryError);
+DEFINE_GETTER(KeyError);
+DEFINE_GETTER(KeyboardInterrupt);
+DEFINE_GETTER(LookupError);
+DEFINE_GETTER(MemoryError);
+DEFINE_GETTER(ModuleNotFoundError);
+DEFINE_GETTER(NameError);
+DEFINE_GETTER(NotADirectoryError);
+DEFINE_GETTER(NotImplementedError);
+DEFINE_GETTER(OSError);
+DEFINE_GETTER(OverflowError);
+DEFINE_GETTER(PermissionError);
+DEFINE_GETTER(ProcessLookupError);
+DEFINE_GETTER(RecursionError);
+DEFINE_GETTER(ReferenceError);
+DEFINE_GETTER(RuntimeError);
+DEFINE_GETTER(StopAsyncIteration);
+DEFINE_GETTER(StopIteration);
+DEFINE_GETTER(SyntaxError);
+DEFINE_GETTER(SystemError);
+DEFINE_GETTER(SystemExit);
+DEFINE_GETTER(TabError);
+DEFINE_GETTER(TimeoutError);
+DEFINE_GETTER(TypeError);
+DEFINE_GETTER(UnboundLocalError);
+DEFINE_GETTER(UnicodeDecodeError);
+DEFINE_GETTER(UnicodeEncodeError);
+DEFINE_GETTER(UnicodeError);
+DEFINE_GETTER(UnicodeTranslateError);
+DEFINE_GETTER(ValueError);
+DEFINE_GETTER(ZeroDivisionError);
+
+DEFINE_GETTER(BytesWarning);
+DEFINE_GETTER(DeprecationWarning);
+DEFINE_GETTER(EncodingWarning);
+DEFINE_GETTER(FutureWarning);
+DEFINE_GETTER(ImportWarning);
+DEFINE_GETTER(PendingDeprecationWarning);
+DEFINE_GETTER(ResourceWarning);
+DEFINE_GETTER(RuntimeWarning);
+DEFINE_GETTER(SyntaxWarning);
+DEFINE_GETTER(UnicodeWarning);
+DEFINE_GETTER(UserWarning);
+DEFINE_GETTER(Warning);
+
+#undef DEFINE_GETTER
+
 
 #ifdef __cplusplus
 }

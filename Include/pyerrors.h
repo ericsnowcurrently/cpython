@@ -65,6 +65,8 @@ PyAPI_FUNC(const char *) PyExceptionClass_Name(PyObject *);
 
 /* Predefined exceptions */
 
+#if Py_LIMITED_API+0 < 0x03110000
+
 PyAPI_DATA(PyObject *) PyExc_BaseException;
 PyAPI_DATA(PyObject *) PyExc_Exception;
 PyAPI_DATA(PyObject *) PyExc_BaseExceptionGroup;
@@ -151,6 +153,232 @@ PyAPI_DATA(PyObject *) PyExc_UnicodeWarning;
 PyAPI_DATA(PyObject *) PyExc_BytesWarning;
 PyAPI_DATA(PyObject *) PyExc_EncodingWarning;
 PyAPI_DATA(PyObject *) PyExc_ResourceWarning;
+
+#else  // Py_LIMITED_API
+
+#define DECLARE_GETTER(NAME) \
+    PyAPI_FUNC(PyObject *) PyInterpreterState_GetObject_ ## NAME( \
+        PyInterpreterState *interp)
+
+DECLARE_GETTER(ArithmeticError);
+DECLARE_GETTER(AssertionError);
+DECLARE_GETTER(AttributeError);
+DECLARE_GETTER(BaseException);
+DECLARE_GETTER(BaseExceptionGroup);
+DECLARE_GETTER(BlockingIOError);
+DECLARE_GETTER(BrokenPipeError);
+DECLARE_GETTER(BufferError);
+DECLARE_GETTER(ChildProcessError);
+DECLARE_GETTER(ConnectionAbortedError);
+DECLARE_GETTER(ConnectionError);
+DECLARE_GETTER(ConnectionRefusedError);
+DECLARE_GETTER(ConnectionResetError);
+DECLARE_GETTER(EOFError);
+DECLARE_GETTER(Exception);
+DECLARE_GETTER(FileExistsError);
+DECLARE_GETTER(FileNotFoundError);
+DECLARE_GETTER(FloatingPointError);
+DECLARE_GETTER(GeneratorExit);
+DECLARE_GETTER(ImportError);
+DECLARE_GETTER(IndentationError);
+DECLARE_GETTER(IndexError);
+DECLARE_GETTER(InterruptedError);
+DECLARE_GETTER(IsADirectoryError);
+DECLARE_GETTER(KeyError);
+DECLARE_GETTER(KeyboardInterrupt);
+DECLARE_GETTER(LookupError);
+DECLARE_GETTER(MemoryError);
+DECLARE_GETTER(ModuleNotFoundError);
+DECLARE_GETTER(NameError);
+DECLARE_GETTER(NotADirectoryError);
+DECLARE_GETTER(NotImplementedError);
+DECLARE_GETTER(OSError);
+DECLARE_GETTER(OverflowError);
+DECLARE_GETTER(PermissionError);
+DECLARE_GETTER(ProcessLookupError);
+DECLARE_GETTER(RecursionError);
+DECLARE_GETTER(ReferenceError);
+DECLARE_GETTER(RuntimeError);
+DECLARE_GETTER(StopAsyncIteration);
+DECLARE_GETTER(StopIteration);
+DECLARE_GETTER(SyntaxError);
+DECLARE_GETTER(SystemError);
+DECLARE_GETTER(SystemExit);
+DECLARE_GETTER(TabError);
+DECLARE_GETTER(TimeoutError);
+DECLARE_GETTER(TypeError);
+DECLARE_GETTER(UnboundLocalError);
+DECLARE_GETTER(UnicodeDecodeError);
+DECLARE_GETTER(UnicodeEncodeError);
+DECLARE_GETTER(UnicodeError);
+DECLARE_GETTER(UnicodeTranslateError);
+DECLARE_GETTER(ValueError);
+DECLARE_GETTER(ZeroDivisionError);
+
+#define PyExc_BaseException \
+    (PyInterpreterState_GetObject_BaseException(_PyInterpreterState_GET())
+#define PyExc_Exception \
+    (PyInterpreterState_GetObject_Exception(_PyInterpreterState_GET())
+#define PyExc_BaseExceptionGroup \
+    (PyInterpreterState_GetObject_BaseExceptionGroup(_PyInterpreterState_GET())
+#define PyExc_StopAsyncIteration \
+    (PyInterpreterState_GetObject_StopAsyncIteration(_PyInterpreterState_GET())
+#define PyExc_StopIteration \
+    (PyInterpreterState_GetObject_StopIteration(_PyInterpreterState_GET())
+#define PyExc_GeneratorExit \
+    (PyInterpreterState_GetObject_GeneratorExit(_PyInterpreterState_GET())
+#define PyExc_ArithmeticError \
+    (PyInterpreterState_GetObject_ArithmeticError(_PyInterpreterState_GET())
+#define PyExc_LookupError \
+    (PyInterpreterState_GetObject_LookupError(_PyInterpreterState_GET())
+
+#define PyExc_AssertionError \
+    (PyInterpreterState_GetObject_AssertionError(_PyInterpreterState_GET())
+#define PyExc_AttributeError \
+    (PyInterpreterState_GetObject_AttributeError(_PyInterpreterState_GET())
+#define PyExc_BufferError \
+    (PyInterpreterState_GetObject_BufferError(_PyInterpreterState_GET())
+#define PyExc_EOFError \
+    (PyInterpreterState_GetObject_EOFError(_PyInterpreterState_GET())
+#define PyExc_FloatingPointError \
+    (PyInterpreterState_GetObject_FloatingPointError(_PyInterpreterState_GET())
+#define PyExc_OSError \
+    (PyInterpreterState_GetObject_OSError(_PyInterpreterState_GET())
+#define PyExc_ImportError \
+    (PyInterpreterState_GetObject_ImportError(_PyInterpreterState_GET())
+#define PyExc_ModuleNotFoundError \
+    (PyInterpreterState_GetObject_ModuleNotFoundError(_PyInterpreterState_GET())
+#define PyExc_IndexError \
+    (PyInterpreterState_GetObject_IndexError(_PyInterpreterState_GET())
+#define PyExc_KeyError \
+    (PyInterpreterState_GetObject_KeyError(_PyInterpreterState_GET())
+#define PyExc_KeyboardInterrupt \
+    (PyInterpreterState_GetObject_KeyboardInterrupt(_PyInterpreterState_GET())
+#define PyExc_MemoryError \
+    (PyInterpreterState_GetObject_MemoryError(_PyInterpreterState_GET())
+#define PyExc_NameError \
+    (PyInterpreterState_GetObject_NameError(_PyInterpreterState_GET())
+#define PyExc_OverflowError \
+    (PyInterpreterState_GetObject_OverflowError(_PyInterpreterState_GET())
+#define PyExc_RuntimeError \
+    (PyInterpreterState_GetObject_RuntimeError(_PyInterpreterState_GET())
+#define PyExc_RecursionError \
+    (PyInterpreterState_GetObject_RecursionError(_PyInterpreterState_GET())
+#define PyExc_NotImplementedError \
+    (PyInterpreterState_GetObject_NotImplementedError(_PyInterpreterState_GET())
+#define PyExc_SyntaxError \
+    (PyInterpreterState_GetObject_SyntaxError(_PyInterpreterState_GET())
+#define PyExc_IndentationError \
+    (PyInterpreterState_GetObject_IndentationError(_PyInterpreterState_GET())
+#define PyExc_TabError \
+    (PyInterpreterState_GetObject_TabError(_PyInterpreterState_GET())
+#define PyExc_ReferenceError \
+    (PyInterpreterState_GetObject_ReferenceError(_PyInterpreterState_GET())
+#define PyExc_SystemError \
+    (PyInterpreterState_GetObject_SystemError(_PyInterpreterState_GET())
+#define PyExc_SystemExit \
+    (PyInterpreterState_GetObject_SystemExit(_PyInterpreterState_GET())
+#define PyExc_TypeError \
+    (PyInterpreterState_GetObject_TypeError(_PyInterpreterState_GET())
+#define PyExc_UnboundLocalError \
+    (PyInterpreterState_GetObject_UnboundLocalError(_PyInterpreterState_GET())
+#define PyExc_UnicodeError \
+    (PyInterpreterState_GetObject_UnicodeError(_PyInterpreterState_GET())
+#define PyExc_UnicodeEncodeError \
+    (PyInterpreterState_GetObject_UnicodeEncodeError(_PyInterpreterState_GET())
+#define PyExc_UnicodeDecodeError \
+    (PyInterpreterState_GetObject_UnicodeDecodeError(_PyInterpreterState_GET())
+#define PyExc_UnicodeTranslateError \
+    (PyInterpreterState_GetObject_UnicodeTranslateError(_PyInterpreterState_GET())
+#define PyExc_ValueError \
+    (PyInterpreterState_GetObject_ValueError(_PyInterpreterState_GET())
+#define PyExc_ZeroDivisionError \
+    (PyInterpreterState_GetObject_ZeroDivisionError(_PyInterpreterState_GET())
+
+#define PyExc_BlockingIOError \
+    (PyInterpreterState_GetObject_BlockingIOError(_PyInterpreterState_GET())
+#define PyExc_BrokenPipeError \
+    (PyInterpreterState_GetObject_BrokenPipeError(_PyInterpreterState_GET())
+#define PyExc_ChildProcessError \
+    (PyInterpreterState_GetObject_ChildProcessError(_PyInterpreterState_GET())
+#define PyExc_ConnectionError \
+    (PyInterpreterState_GetObject_ConnectionError(_PyInterpreterState_GET())
+#define PyExc_ConnectionAbortedError \
+    (PyInterpreterState_GetObject_ConnectionAbortedError(_PyInterpreterState_GET())
+#define PyExc_ConnectionRefusedError \
+    (PyInterpreterState_GetObject_ConnectionRefusedError(_PyInterpreterState_GET())
+#define PyExc_ConnectionResetError \
+    (PyInterpreterState_GetObject_ConnectionResetError(_PyInterpreterState_GET())
+#define PyExc_FileExistsError \
+    (PyInterpreterState_GetObject_FileExistsError(_PyInterpreterState_GET())
+#define PyExc_FileNotFoundError \
+    (PyInterpreterState_GetObject_FileNotFoundError(_PyInterpreterState_GET())
+#define PyExc_InterruptedError \
+    (PyInterpreterState_GetObject_InterruptedError(_PyInterpreterState_GET())
+#define PyExc_IsADirectoryError \
+    (PyInterpreterState_GetObject_IsADirectoryError(_PyInterpreterState_GET())
+#define PyExc_NotADirectoryError \
+    (PyInterpreterState_GetObject_NotADirectoryError(_PyInterpreterState_GET())
+#define PyExc_PermissionError \
+    (PyInterpreterState_GetObject_PermissionError(_PyInterpreterState_GET())
+#define PyExc_ProcessLookupError \
+    (PyInterpreterState_GetObject_ProcessLookupError(_PyInterpreterState_GET())
+#define PyExc_TimeoutError \
+    (PyInterpreterState_GetObject_TimeoutError(_PyInterpreterState_GET())
+
+/* Compatibility aliases */
+#define PyExc_EnvironmentError \
+    (PyInterpreterState_GetObject_OSError(_PyInterpreterState_GET())
+#define PyExc_IOError \
+    (PyInterpreterState_GetObject_OSError(_PyInterpreterState_GET())
+#ifdef MS_WINDOWS
+#define PyExc_WindowsError \
+    (PyInterpreterState_GetObject_OSError(_PyInterpreterState_GET())
+#endif
+
+/* Predefined warning categories */
+
+DECLARE_GETTER(BytesWarning);
+DECLARE_GETTER(DeprecationWarning);
+DECLARE_GETTER(EncodingWarning);
+DECLARE_GETTER(FutureWarning);
+DECLARE_GETTER(ImportWarning);
+DECLARE_GETTER(PendingDeprecationWarning);
+DECLARE_GETTER(ResourceWarning);
+DECLARE_GETTER(RuntimeWarning);
+DECLARE_GETTER(SyntaxWarning);
+DECLARE_GETTER(UnicodeWarning);
+DECLARE_GETTER(UserWarning);
+DECLARE_GETTER(Warning);
+
+#define PyExc_Warning \
+    (PyInterpreterState_GetObject_Warning(_PyInterpreterState_GET())
+#define PyExc_UserWarning \
+    (PyInterpreterState_GetObject_UserWarning(_PyInterpreterState_GET())
+#define PyExc_DeprecationWarning \
+    (PyInterpreterState_GetObject_DeprecationWarning(_PyInterpreterState_GET())
+#define PyExc_PendingDeprecationWarning \
+    (PyInterpreterState_GetObject_PendingDeprecationWarning(_PyInterpreterState_GET())
+#define PyExc_SyntaxWarning \
+    (PyInterpreterState_GetObject_SyntaxWarning(_PyInterpreterState_GET())
+#define PyExc_RuntimeWarning \
+    (PyInterpreterState_GetObject_RuntimeWarning(_PyInterpreterState_GET())
+#define PyExc_FutureWarning \
+    (PyInterpreterState_GetObject_FutureWarning(_PyInterpreterState_GET())
+#define PyExc_ImportWarning \
+    (PyInterpreterState_GetObject_ImportWarning(_PyInterpreterState_GET())
+#define PyExc_UnicodeWarning \
+    (PyInterpreterState_GetObject_UnicodeWarning(_PyInterpreterState_GET())
+#define PyExc_BytesWarning \
+    (PyInterpreterState_GetObject_BytesWarning(_PyInterpreterState_GET())
+#define PyExc_EncodingWarning \
+    (PyInterpreterState_GetObject_EncodingWarning(_PyInterpreterState_GET())
+#define PyExc_ResourceWarning \
+    (PyInterpreterState_GetObject_ResourceWarning(_PyInterpreterState_GET())
+
+#undef DECLARE_GETTER
+
+#endif // Py_LIMITED_API
 
 
 /* Convenience functions */
