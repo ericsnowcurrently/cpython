@@ -17,6 +17,7 @@ this type and there is exactly one in existence.
 #include "pycore_abstract.h"      // _PyIndex_Check()
 #include "pycore_long.h"          // _PyLong_GetZero()
 #include "pycore_object.h"        // _PyObject_GC_TRACK()
+#include "pycore_sliceobject.h"   // _PyInterpreterState_GetObject_Ellipsis()
 #include "structmember.h"         // PyMemberDef
 
 static PyObject *
@@ -92,6 +93,12 @@ PyObject _Py_EllipsisObject = {
     _PyObject_EXTRA_INIT
     1, &PyEllipsis_Type
 };
+
+PyObject *
+PyInterpreterState_GetObject_Ellipsis(PyInterpreterState *interp)
+{
+    return _PyInterpreterState_GetObject_Ellipsis(interp);
+}
 
 
 /* Slice object implementation */

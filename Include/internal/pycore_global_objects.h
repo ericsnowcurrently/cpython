@@ -361,6 +361,7 @@ PyAPI_DATA(struct _longobject) _Py_FalseStruct;
 PyAPI_DATA(struct _longobject) _Py_TrueStruct;
 PyAPI_DATA(PyObject) _Py_NoneStruct;
 PyAPI_DATA(PyObject) _Py_NotImplementedStruct;
+PyAPI_DATA(PyObject) _Py_EllipsisObject;
 
 
 #ifdef __cplusplus

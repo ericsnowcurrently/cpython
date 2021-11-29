@@ -13,6 +13,7 @@
 #include "pycore_pyerrors.h"      // _PyErr_Occurred()
 #include "pycore_pylifecycle.h"   // _PyErr_Print()
 #include "pycore_pystate.h"       // _PyThreadState_GET()
+#include "pycore_sliceobject.h"   // _PyEllipsis_Init()
 #include "pycore_sysmodule.h"     // _PySys_ClearAuditHooks()
 #include "pycore_traceback.h"     // _Py_DumpTracebackThreads()
 
@@ -662,25 +663,14 @@ pycore_init_core_objects(PyInterpreterState *interp)
 {
     PyStatus status;
 
-    PyInterpreterState *main_interp = PyInterpreterState_Main();
-    int is_main = _Py_IsMainInterpreter(interp);
-
-#define INIT_SINGLETON(NAME) \
-    do { \
-        PyObject *ob = Py_ ## NAME; \
-        if (!is_main) { \
-            /* XXX Init per-interpreter. */ \
-            ob = _PyInterpreterState_GET_OBJECT(main_interp, NAME); \
-        } \
-        _PyInterpreterState_SET_OBJECT(interp, NAME, ob); \
-    } while (0)
-
+    // singletons
     _PyTrue_Init(interp);
     _PyFalse_Init(interp);
     _PyNone_Init(interp);
     _PyNotImplemented_Init(interp);
-    INIT_SINGLETON(Ellipsis);
-#undef INIT_SINGLETON
+    _PyEllipsis_Init(interp);
+
+    // type-specific state and cached objects
 
     _PyLong_Init(interp);
 

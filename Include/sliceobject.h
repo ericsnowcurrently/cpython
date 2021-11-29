@@ -6,9 +6,15 @@ extern "C" {
 
 /* The unique ellipsis object "..." */
 
+#if Py_LIMITED_API+0 < 0x03110000
 PyAPI_DATA(PyObject) _Py_EllipsisObject; /* Don't use this directly */
-
 #define Py_Ellipsis (&_Py_EllipsisObject)
+#else
+PyAPI_FUNC(PyObject *) PyInterpreterState_GetObject_Ellipsis(
+        PyInterpreterState *interp);
+#define Py_Ellipsis \
+    (PyInterpreterState_GetObject_Ellipsis(_PyInterpreterState_GET())
+#endif
 
 /* Slice object interface */
 
