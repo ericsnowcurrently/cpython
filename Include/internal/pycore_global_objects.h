@@ -355,6 +355,11 @@ struct _Py_global_objects {
     } while (0)
 
 
+/* legacy C-API (symbols exposed for stable ABI < 3.11) */
+
+PyAPI_DATA(PyObject) _Py_NoneStruct;
+
+
 #ifdef __cplusplus
 }
 #endif

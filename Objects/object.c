@@ -1744,6 +1744,12 @@ PyObject _Py_NoneStruct = {
   1, &_PyNone_Type
 };
 
+PyObject *
+PyInterpreterState_GetObject_None(PyInterpreterState *interp)
+{
+    return _PyInterpreterState_GetObject_None(interp);
+}
+
 /* NotImplemented is an object that can be used to signal that an
    operation is not implemented for the given type combination. */
 

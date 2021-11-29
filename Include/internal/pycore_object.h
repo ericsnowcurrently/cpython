@@ -9,6 +9,7 @@ extern "C" {
 #endif
 
 #include "pycore_gc.h"            // _PyObject_GC_IS_TRACKED()
+#include "pycore_global_objects.h"  // _PyInterpreterState_SET_OBJECT()
 #include "pycore_interp.h"        // PyInterpreterState.gc
 #include "pycore_pystate.h"       // _PyInterpreterState_GET()
 
@@ -191,6 +192,31 @@ int _PyObject_VisitInstanceAttributes(PyObject *self, visitproc visit, void *arg
 void _PyObject_ClearInstanceAttributes(PyObject *self);
 void _PyObject_FreeInstanceAttributes(PyObject *self);
 int _PyObject_IsInstanceDictEmpty(PyObject *);
+
+
+//////////////////////////////////
+// singletons
+
+static inline void
+_PyNone_Init(PyInterpreterState *interp)
+{
+    PyObject *ob;
+    if (_Py_IsMainInterpreter(interp)) {
+        ob = &_Py_NoneStruct;
+    }
+    else {
+        /* XXX Make a per-interpreter copy. */
+        PyInterpreterState *main_interp = PyInterpreterState_Main();
+        ob = _PyInterpreterState_GET_OBJECT(main_interp, None);
+    }
+    _PyInterpreterState_SET_OBJECT(interp, None, ob);
+}
+
+static inline PyObject *
+_PyInterpreterState_GetObject_None(PyInterpreterState *interp)
+{
+    return _PyInterpreterState_GET_OBJECT(interp, None);
+}
 
 #ifdef __cplusplus
 }

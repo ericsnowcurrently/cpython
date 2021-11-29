@@ -613,8 +613,14 @@ where NULL (nil) is not suitable (since NULL often means 'error').
 
 Don't forget to apply Py_INCREF() when returning this value!!!
 */
+#if Py_LIMITED_API+0 < 0x03110000
 PyAPI_DATA(PyObject) _Py_NoneStruct; /* Don't use this directly */
 #define Py_None (&_Py_NoneStruct)
+#else
+PyAPI_FUNC(PyObject *) PyInterpreterState_GetObject_None(
+        PyInterpreterState *interp);
+#define Py_None (PyInterpreterState_GetObject_None(_PyInterpreterState_GET())
+#endif
 
 // Test if an object is the None singleton, the same as "x is None" in Python.
 PyAPI_FUNC(int) Py_IsNone(PyObject *x);
