@@ -1,6 +1,7 @@
 /* Boolean type, a subtype of int */
 
 #include "Python.h"
+#include "pycore_boolobject.h"    // _PyInterpreterState_GetObject_False()
 #include "pycore_pyerrors.h"      // _Py_FatalRefcountError()
 
 /* We define bool_repr to return "False" or "True" */
@@ -214,3 +215,15 @@ struct _longobject _Py_TrueStruct = {
     PyVarObject_HEAD_INIT(&PyBool_Type, 1)
     { 1 }
 };
+
+PyObject *
+PyInterpreterState_GetObject_False(PyInterpreterState *interp)
+{
+    return _PyInterpreterState_GetObject_False(interp);
+}
+
+PyObject *
+PyInterpreterState_GetObject_True(PyInterpreterState *interp)
+{
+    return _PyInterpreterState_GetObject_True(interp);
+}
