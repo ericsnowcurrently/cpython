@@ -2,6 +2,7 @@
 
 #include "Python.h"
 
+#include "pycore_boolobject.h"    // _PyFalse_Init()
 #include "pycore_ceval.h"         // _PyEval_FiniGIL()
 #include "pycore_context.h"       // _PyContext_Init()
 #include "pycore_fileutils.h"     // _Py_ResetForceASCII()
@@ -674,8 +675,8 @@ pycore_init_core_objects(PyInterpreterState *interp)
         _PyInterpreterState_SET_OBJECT(interp, NAME, ob); \
     } while (0)
 
-    INIT_SINGLETON(True);
-    INIT_SINGLETON(False);
+    _PyTrue_Init(interp);
+    _PyFalse_Init(interp);
     _PyNone_Init(interp);
     _PyNotImplemented_Init(interp);
     INIT_SINGLETON(Ellipsis);
