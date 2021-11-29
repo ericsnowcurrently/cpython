@@ -36,6 +36,10 @@ PyAPI_FUNC(void) PyInterpreterState_Delete(PyInterpreterState *);
 PyAPI_FUNC(PyInterpreterState *) PyInterpreterState_Get(void);
 #endif
 
+#ifndef Py_BUILD_CORE
+#define _PyInterpreterState_GET PyInterpreterState_Get
+#endif
+
 #if !defined(Py_LIMITED_API) || Py_LIMITED_API+0 >= 0x03080000
 /* New in 3.8 */
 PyAPI_FUNC(PyObject *) PyInterpreterState_GetDict(PyInterpreterState *);
