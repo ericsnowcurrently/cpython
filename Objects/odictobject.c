@@ -1594,6 +1594,8 @@ PyTypeObject PyODict_Type = {
     0,                                          /* tp_free */
 };
 
+#undef PyDict_Type
+
 
 /* ----------------------------------------------
  * the public OrderedDict API

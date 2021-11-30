@@ -12,11 +12,19 @@ extern "C" {
    tuning dictionaries, and several ideas for possible optimizations.
 */
 
+#if Py_LIMITED_API+0 < 0x03110000
 PyAPI_DATA(PyTypeObject) PyDict_Type;
+#define _PyDict_Type (&PyDict_Type)
+#else
+PyAPI_FUNC(PyObject *) PyInterpreterState_GetObject_dict(PyInterpreterState *);
+#define _PyDict_Type \
+    ((PyTypeObject *)PyInterpreterState_GetObject_dict(_PyInterpreterState_GET()))
+#define PyDict_Type (*_PyDict_Type)
+#endif
 
 #define PyDict_Check(op) \
                  PyType_FastSubclass(Py_TYPE(op), Py_TPFLAGS_DICT_SUBCLASS)
-#define PyDict_CheckExact(op) Py_IS_TYPE(op, &PyDict_Type)
+#define PyDict_CheckExact(op) Py_IS_TYPE(op, _PyDict_Type)
 
 PyAPI_FUNC(PyObject *) PyDict_New(void);
 PyAPI_FUNC(PyObject *) PyDict_GetItem(PyObject *mp, PyObject *key);

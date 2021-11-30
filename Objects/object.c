@@ -1874,7 +1874,7 @@ _PyTypes_Init(PyInterpreterState *interp)
         return _PyStatus_ERR("Can't initialize " #TYPE " type"); \
     }
 
-#define INIT_TYPE(TYPE, NAME) \
+#define _INIT_TYPE(TYPE, NAME) \
     do { \
         READY_TYPE(TYPE); \
         PyObject *ob = (PyObject *)&TYPE; \
@@ -1884,82 +1884,96 @@ _PyTypes_Init(PyInterpreterState *interp)
         _PyInterpreterState_SET_OBJECT(interp, NAME, ob); \
     } while (0)
 
+#define INIT_TYPE(TYPE, NAME) \
+    do { \
+        extern PyTypeObject *_PyInterpreterState_Object_ ## NAME; \
+        PyTypeObject *type = _PyInterpreterState_Object_ ## NAME; \
+        if (PyType_Ready(type) < 0) { \
+            return _PyStatus_ERR("Can't initialize " #NAME " type"); \
+        } \
+        PyObject *ob = (PyObject *)type; \
+        if (!is_main) { \
+            ob = _PyInterpreterState_GET_OBJECT(main_interp, NAME); \
+        } \
+        _PyInterpreterState_SET_OBJECT(interp, NAME, ob); \
+    } while (0)
+
     // Base types
-    INIT_TYPE(PyBaseObject_Type, object);
-    INIT_TYPE(PyType_Type, type);
+    _INIT_TYPE(PyBaseObject_Type, object);
+    _INIT_TYPE(PyType_Type, type);
     assert(PyBaseObject_Type.tp_base == NULL);
     assert(PyType_Type.tp_base == &PyBaseObject_Type);
 
     // All other static types (in alphabetical order):
-    INIT_TYPE(PyAsyncGen_Type, AsyncGeneratorType);
-    INIT_TYPE(PyBool_Type, bool);
-    INIT_TYPE(PyByteArray_Type, bytearray);
-    INIT_TYPE(PyBytes_Type, bytes);
-    INIT_TYPE(PyCFunction_Type, BuiltinFunctionType);
-    INIT_TYPE(PyCMethod_Type, BuiltinMethodType);
-    INIT_TYPE(PyCallIter_Type, CallIterType);
-    INIT_TYPE(PyCapsule_Type, CapsuleType);
-    INIT_TYPE(PyCell_Type, CellType);
-    INIT_TYPE(PyClassMethodDescr_Type, ClassMethodDescriptorType);
-    INIT_TYPE(PyClassMethod_Type, classmethod);
-    INIT_TYPE(PyCode_Type, CodeType);
-    INIT_TYPE(PyComplex_Type, complex);
-    INIT_TYPE(PyCoro_Type, CoroutineType);
-    INIT_TYPE(PyDictProxy_Type, MappingProxyType);
+    _INIT_TYPE(PyAsyncGen_Type, AsyncGeneratorType);
+    _INIT_TYPE(PyBool_Type, bool);
+    _INIT_TYPE(PyByteArray_Type, bytearray);
+    _INIT_TYPE(PyBytes_Type, bytes);
+    _INIT_TYPE(PyCFunction_Type, BuiltinFunctionType);
+    _INIT_TYPE(PyCMethod_Type, BuiltinMethodType);
+    _INIT_TYPE(PyCallIter_Type, CallIterType);
+    _INIT_TYPE(PyCapsule_Type, CapsuleType);
+    _INIT_TYPE(PyCell_Type, CellType);
+    _INIT_TYPE(PyClassMethodDescr_Type, ClassMethodDescriptorType);
+    _INIT_TYPE(PyClassMethod_Type, classmethod);
+    _INIT_TYPE(PyCode_Type, CodeType);
+    _INIT_TYPE(PyComplex_Type, complex);
+    _INIT_TYPE(PyCoro_Type, CoroutineType);
+    _INIT_TYPE(PyDictProxy_Type, MappingProxyType);
     INIT_TYPE(PyDict_Type, dict);
-    INIT_TYPE(PyEllipsis_Type, EllipsisType);
-    INIT_TYPE(PyEnum_Type, enumerate);
-    INIT_TYPE(PyFloat_Type, float);
-    INIT_TYPE(PyFrame_Type, FrameType);
-    INIT_TYPE(PyFrozenSet_Type, frozenset);
-    INIT_TYPE(PyFunction_Type, FunctionType);
-    INIT_TYPE(PyGen_Type, GeneratorType);
-    INIT_TYPE(PyGetSetDescr_Type, GetSetDescriptorType);
-    INIT_TYPE(PyInstanceMethod_Type, InstanceMethodType);
-    INIT_TYPE(PyList_Type, list);
-    INIT_TYPE(PyLongRangeIter_Type, LongRangeIterType);
-    INIT_TYPE(PyLong_Type, int);
-    INIT_TYPE(PyMemberDescr_Type, MemberDescriptorType);
-    INIT_TYPE(PyMemoryView_Type, memoryview);
-    INIT_TYPE(PyMethodDescr_Type, MethodDescriptorType);
-    INIT_TYPE(PyMethod_Type, MethodType);
-    INIT_TYPE(PyModuleDef_Type, ModuleDefType);
-    INIT_TYPE(PyModule_Type, ModuleType);
-    INIT_TYPE(PyODict_Type, OrderedDict);
-    INIT_TYPE(PyPickleBuffer_Type, PickleBufferType);
-    INIT_TYPE(PyProperty_Type, property);
-    INIT_TYPE(PyRange_Type, range);
-    INIT_TYPE(PyReversed_Type, reversed);
-    INIT_TYPE(PySTEntry_Type, STEntryType);
-    INIT_TYPE(PySeqIter_Type, SeqIterType);
-    INIT_TYPE(PySet_Type, set);
-    INIT_TYPE(PySlice_Type, SliceType);
-    INIT_TYPE(PyStaticMethod_Type, staticmethod);
-    INIT_TYPE(PyStdPrinter_Type, StdPrinterType);
-    INIT_TYPE(PySuper_Type, super);
-    INIT_TYPE(PyTraceBack_Type, TracebackType);
-    INIT_TYPE(PyTuple_Type, tuple);
-    INIT_TYPE(PyUnicode_Type, str);
-    INIT_TYPE(PyWrapperDescr_Type, WrapperDescriptorType);
-    INIT_TYPE(Py_GenericAliasType, GenericAliasType);
-    INIT_TYPE(_PyAnextAwaitable_Type, _AnextAwaitableType);
-    INIT_TYPE(_PyAsyncGenASend_Type, _AsyncGenASendType);
-    INIT_TYPE(_PyAsyncGenAThrow_Type, _AsyncGenAThrowType);
-    INIT_TYPE(_PyAsyncGenWrappedValue_Type, _AsyncGenWrappedValueType);
-    INIT_TYPE(_PyCoroWrapper_Type, _CoroutineWrapperType);
-    INIT_TYPE(_PyInterpreterID_Type, _InterpreterIDType);
-    INIT_TYPE(_PyManagedBuffer_Type, _ManagedBufferType);
-    INIT_TYPE(_PyMethodWrapper_Type, _MethodWrapperType);
-    INIT_TYPE(_PyNamespace_Type, SimpleNamespace);
-    INIT_TYPE(_PyNone_Type, _NoneType);
-    INIT_TYPE(_PyNotImplemented_Type, _NotImplementedType);
-    INIT_TYPE(_PyUnion_Type, _UnionType);
-    INIT_TYPE(_PyWeakref_CallableProxyType, _WeakrefCallableProxyType);
-    INIT_TYPE(_PyWeakref_ProxyType, _WeakrefProxyType);
-    INIT_TYPE(_PyWeakref_RefType, _WeakrefRefType);
+    _INIT_TYPE(PyEllipsis_Type, EllipsisType);
+    _INIT_TYPE(PyEnum_Type, enumerate);
+    _INIT_TYPE(PyFloat_Type, float);
+    _INIT_TYPE(PyFrame_Type, FrameType);
+    _INIT_TYPE(PyFrozenSet_Type, frozenset);
+    _INIT_TYPE(PyFunction_Type, FunctionType);
+    _INIT_TYPE(PyGen_Type, GeneratorType);
+    _INIT_TYPE(PyGetSetDescr_Type, GetSetDescriptorType);
+    _INIT_TYPE(PyInstanceMethod_Type, InstanceMethodType);
+    _INIT_TYPE(PyList_Type, list);
+    _INIT_TYPE(PyLongRangeIter_Type, LongRangeIterType);
+    _INIT_TYPE(PyLong_Type, int);
+    _INIT_TYPE(PyMemberDescr_Type, MemberDescriptorType);
+    _INIT_TYPE(PyMemoryView_Type, memoryview);
+    _INIT_TYPE(PyMethodDescr_Type, MethodDescriptorType);
+    _INIT_TYPE(PyMethod_Type, MethodType);
+    _INIT_TYPE(PyModuleDef_Type, ModuleDefType);
+    _INIT_TYPE(PyModule_Type, ModuleType);
+    _INIT_TYPE(PyODict_Type, OrderedDict);
+    _INIT_TYPE(PyPickleBuffer_Type, PickleBufferType);
+    _INIT_TYPE(PyProperty_Type, property);
+    _INIT_TYPE(PyRange_Type, range);
+    _INIT_TYPE(PyReversed_Type, reversed);
+    _INIT_TYPE(PySTEntry_Type, STEntryType);
+    _INIT_TYPE(PySeqIter_Type, SeqIterType);
+    _INIT_TYPE(PySet_Type, set);
+    _INIT_TYPE(PySlice_Type, SliceType);
+    _INIT_TYPE(PyStaticMethod_Type, staticmethod);
+    _INIT_TYPE(PyStdPrinter_Type, StdPrinterType);
+    _INIT_TYPE(PySuper_Type, super);
+    _INIT_TYPE(PyTraceBack_Type, TracebackType);
+    _INIT_TYPE(PyTuple_Type, tuple);
+    _INIT_TYPE(PyUnicode_Type, str);
+    _INIT_TYPE(PyWrapperDescr_Type, WrapperDescriptorType);
+    _INIT_TYPE(Py_GenericAliasType, GenericAliasType);
+    _INIT_TYPE(_PyAnextAwaitable_Type, _AnextAwaitableType);
+    _INIT_TYPE(_PyAsyncGenASend_Type, _AsyncGenASendType);
+    _INIT_TYPE(_PyAsyncGenAThrow_Type, _AsyncGenAThrowType);
+    _INIT_TYPE(_PyAsyncGenWrappedValue_Type, _AsyncGenWrappedValueType);
+    _INIT_TYPE(_PyCoroWrapper_Type, _CoroutineWrapperType);
+    _INIT_TYPE(_PyInterpreterID_Type, _InterpreterIDType);
+    _INIT_TYPE(_PyManagedBuffer_Type, _ManagedBufferType);
+    _INIT_TYPE(_PyMethodWrapper_Type, _MethodWrapperType);
+    _INIT_TYPE(_PyNamespace_Type, SimpleNamespace);
+    _INIT_TYPE(_PyNone_Type, _NoneType);
+    _INIT_TYPE(_PyNotImplemented_Type, _NotImplementedType);
+    _INIT_TYPE(_PyUnion_Type, _UnionType);
+    _INIT_TYPE(_PyWeakref_CallableProxyType, _WeakrefCallableProxyType);
+    _INIT_TYPE(_PyWeakref_ProxyType, _WeakrefProxyType);
+    _INIT_TYPE(_PyWeakref_RefType, _WeakrefRefType);
 
 #define INIT_ADAPTER(NAME, KIND, TYPE) \
-    INIT_TYPE(TYPE, NAME ## _ ## KIND)
+    _INIT_TYPE(TYPE, NAME ## _ ## KIND)
 
     // Iterators, views, etc. (in alphabetical order):
     INIT_ADAPTER(OrderedDict, items, PyODictItems_Type);
@@ -1986,6 +2000,7 @@ _PyTypes_Init(PyInterpreterState *interp)
 
     return _PyStatus_OK();
 #undef INIT_ADAPTER
+#undef _INIT_TYPE
 #undef INIT_TYPE
 #undef READY_TYPE
 }

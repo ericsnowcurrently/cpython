@@ -228,6 +228,8 @@ equally good collision statistics, needed less code & used less memory.
 
 */
 
+#undef PyDict_Type
+
 static int dictresize(PyDictObject *mp, uint8_t log_newsize);
 
 static PyObject* dict_iter(PyDictObject *dict);
@@ -3513,6 +3515,7 @@ PyTypeObject PyDict_Type = {
     PyObject_GC_Del,                            /* tp_free */
     .tp_vectorcall = dict_vectorcall,
 };
+PyTypeObject *_PyInterpreterState_Object_dict = &PyDict_Type;
 
 /* For backward compatibility with old dictionary interface */
 
