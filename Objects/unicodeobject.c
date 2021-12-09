@@ -44,6 +44,7 @@ OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #include "pycore_atomic_funcs.h"  // _Py_atomic_size_get()
 #include "pycore_bytes_methods.h" // _Py_bytes_lower()
 #include "pycore_format.h"        // F_LJUST
+#include "pycore_global_objects.h"  // _Py_GET_GLOBAL_OBJECT()
 #include "pycore_initconfig.h"    // _PyStatus_OK()
 #include "pycore_interp.h"        // PyInterpreterState.fs_codec
 #include "pycore_long.h"          // _PyLong_FormatWriter()
@@ -241,14 +242,15 @@ get_unicode_state(void)
 }
 
 
+#define EMPTY _Py_SINGLETON(unicode_empty)
+
 // Return a borrowed reference to the empty string singleton.
 static inline PyObject* unicode_get_empty(void)
 {
-    struct _Py_unicode_state *state = get_unicode_state();
     // unicode_get_empty() must not be called before _PyUnicode_Init()
     // or after _PyUnicode_Fini()
-    assert(state->empty_string != NULL);
-    return state->empty_string;
+    assert(EMPTY != NULL);
+    return &EMPTY->ob_base;
 }
 
 
@@ -330,6 +332,9 @@ const unsigned char _Py_ascii_whitespace[] = {
     0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0
 };
+
+#define LATIN1 \
+    ((PyObject **)_Py_SINGLETON(unicode_latin1))
 
 /* forward */
 static PyUnicodeObject *_PyUnicode_New(Py_ssize_t length);
@@ -668,21 +673,14 @@ unicode_result_ready(PyObject *unicode)
         if (kind == PyUnicode_1BYTE_KIND) {
             const Py_UCS1 *data = PyUnicode_1BYTE_DATA(unicode);
             Py_UCS1 ch = data[0];
-            struct _Py_unicode_state *state = get_unicode_state();
-            PyObject *latin1_char = state->latin1[ch];
-            if (latin1_char != NULL) {
-                if (unicode != latin1_char) {
-                    Py_INCREF(latin1_char);
-                    Py_DECREF(unicode);
-                }
-                return latin1_char;
+            PyObject *latin1_char = LATIN1[ch];
+            assert(latin1_char != NULL);
+            if (unicode != latin1_char) {
+                // XXX Aren't we able to avoid this case?
+                Py_INCREF(latin1_char);
+                Py_DECREF(unicode);
             }
-            else {
-                assert(_PyUnicode_CheckConsistency(unicode, 1));
-                Py_INCREF(unicode);
-                state->latin1[ch] = unicode;
-                return unicode;
-            }
+            return latin1_char;
         }
         else {
             assert(PyUnicode_READ_CHAR(unicode, 0) >= 256);
@@ -1373,21 +1371,21 @@ _PyUnicode_Dump(PyObject *op)
 #endif
 
 static int
-unicode_create_empty_string_singleton(struct _Py_unicode_state *state)
+unicode_create_empty_string_singleton(void)
 {
     // Use size=1 rather than size=0, so PyUnicode_New(0, maxchar) can be
-    // optimized to always use state->empty_string without having to check if
+    // optimized to always use empty_string without having to check if
     // it is NULL or not.
-    PyObject *empty = PyUnicode_New(1, 0);
+    PyASCIIObject *empty = (PyASCIIObject *)PyUnicode_New(1, 0);
     if (empty == NULL) {
         return -1;
     }
     PyUnicode_1BYTE_DATA(empty)[0] = 0;
     _PyUnicode_LENGTH(empty) = 0;
-    assert(_PyUnicode_CheckConsistency(empty, 1));
+    assert(_PyUnicode_CheckConsistency(&empty->ob_base, 1));
 
-    assert(state->empty_string == NULL);
-    state->empty_string = empty;
+    assert(EMPTY == NULL);
+    EMPTY = empty;
     return 0;
 }
 
@@ -1992,14 +1990,13 @@ unicode_dealloc(PyObject *unicode)
 static int
 unicode_is_singleton(PyObject *unicode)
 {
-    struct _Py_unicode_state *state = get_unicode_state();
-    if (unicode == state->empty_string) {
+    if (unicode == unicode_get_empty()) {
         return 1;
     }
     PyASCIIObject *ascii = (PyASCIIObject *)unicode;
     if (ascii->state.kind != PyUnicode_WCHAR_KIND && ascii->length == 1) {
         Py_UCS4 ch = PyUnicode_READ_CHAR(unicode, 0);
-        if (ch < 256 && state->latin1[ch] == unicode) {
+        if (ch < 256 && LATIN1[ch] == unicode) {
             return 1;
         }
     }
@@ -2142,24 +2139,9 @@ unicode_write_cstr(PyObject *unicode, Py_ssize_t index,
 static PyObject*
 get_latin1_char(Py_UCS1 ch)
 {
-    struct _Py_unicode_state *state = get_unicode_state();
-
-    PyObject *unicode = state->latin1[ch];
-    if (unicode) {
-        Py_INCREF(unicode);
-        return unicode;
-    }
-
-    unicode = PyUnicode_New(1, ch);
-    if (!unicode) {
-        return NULL;
-    }
-
-    PyUnicode_1BYTE_DATA(unicode)[0] = ch;
-    assert(_PyUnicode_CheckConsistency(unicode, 1));
-
+    PyObject *unicode = LATIN1[ch];
+    assert(unicode != NULL);
     Py_INCREF(unicode);
-    state->latin1[ch] = unicode;
     return unicode;
 }
 
@@ -15532,9 +15514,25 @@ _PyUnicode_InitState(PyInterpreterState *interp)
 PyStatus
 _PyUnicode_InitGlobalObjects(PyInterpreterState *interp)
 {
-    struct _Py_unicode_state *state = &interp->unicode;
-    if (unicode_create_empty_string_singleton(state) < 0) {
+    if (!_Py_IsMainInterpreter(interp)) {
+        return _PyStatus_OK();
+    }
+
+    if (unicode_create_empty_string_singleton() < 0) {
         return _PyStatus_NO_MEMORY();
+    }
+
+    for (Py_ssize_t ch = 0; ch < 256; ch++) {
+        PyASCIIObject *op = (PyASCIIObject *)PyUnicode_New(1, ch);
+        if (op == NULL) {
+            return _PyStatus_NO_MEMORY();
+        }
+
+        PyUnicode_1BYTE_DATA(op)[0] = ch;
+        assert(_PyUnicode_CheckConsistency(&op->ob_base, 1));
+
+        Py_INCREF(op);
+        _Py_SINGLETON(unicode_latin1)[ch] = op;
     }
 
     return _PyStatus_OK();
@@ -16097,10 +16095,12 @@ _PyUnicode_Fini(PyInterpreterState *interp)
 
     unicode_clear_identifiers(state);
 
-    for (Py_ssize_t i = 0; i < 256; i++) {
-        Py_CLEAR(state->latin1[i]);
+    if (!_Py_IsMainInterpreter(interp)) {
+        for (Py_ssize_t i = 0; i < 256; i++) {
+            Py_CLEAR(LATIN1[i]);
+        }
+        Py_CLEAR(EMPTY);
     }
-    Py_CLEAR(state->empty_string);
 }
 
 

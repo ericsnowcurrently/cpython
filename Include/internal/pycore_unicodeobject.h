@@ -35,17 +35,13 @@ struct _Py_unicode_fs_codec {
     _Py_error_handler error_handler;
 };
 
+// XXX We'll move all the _Py_Identifier to _PyRuntime separately.'
 struct _Py_unicode_ids {
     Py_ssize_t size;
     PyObject **array;
 };
 
 struct _Py_unicode_state {
-    // The empty Unicode object is a singleton to improve performance.
-    PyObject *empty_string;
-    /* Single character Unicode strings in the Latin-1 range are being
-       shared as well. */
-    PyObject *latin1[256];
     struct _Py_unicode_fs_codec fs_codec;
 
     /* This dictionary holds all interned unicode strings.  Note that references

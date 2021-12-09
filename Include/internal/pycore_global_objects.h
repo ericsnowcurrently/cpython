@@ -54,6 +54,12 @@ struct _Py_global_objects {
          * -_PY_NSMALLNEGINTS (inclusive) to _PY_NSMALLPOSINTS (exclusive).
          */
         PyLongObject small_ints[_PY_NSMALLNEGINTS + _PY_NSMALLPOSINTS];
+
+        // The empty Unicode object is a singleton to improve performance.
+        PyASCIIObject *unicode_empty;
+        /* Single character Unicode strings in the Latin-1 range are being
+           shared as well. */
+        PyASCIIObject *unicode_latin1[256];
     } singletons;
 };
 
