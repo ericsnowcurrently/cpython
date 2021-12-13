@@ -34,6 +34,40 @@ extern "C" {
     }
 
 
+/* unicode objects */
+
+#define _PyASCII_INIT(len) \
+    { \
+        .ob_base = _PyObject_IMMORTAL_INIT(&PyUnicode_Type), \
+        .length = len, \
+        .hash = -1, \
+        .state = { \
+            .kind = PyUnicode_1BYTE_KIND, \
+            .compact = 1, \
+            .ascii = 1, \
+            .ready = 1, \
+        }, \
+    }
+
+#define _PyASCIIObject_FULL(len) \
+    struct _PyASCIIObject { \
+        PyASCIIObject ascii; \
+        uint8_t data[len + 1]; \
+    }
+#define _PyASCIIObject_FULL_INIT(LITERAL) \
+    { \
+        .ascii = _PyASCII_INIT(Py_ARRAY_LENGTH(LITERAL) - 1), \
+        .data = LITERAL, \
+    }
+
+static inline void
+_PyUnicode_reset(PyASCIIObject *op)
+{
+    // Force a new hash to be generated since the hash seed may have changed.
+    op->hash = -1;
+}
+
+
 /**********************
  * the global objects *
  **********************/
@@ -56,9 +90,7 @@ struct _Py_global_objects {
         PyLongObject small_ints[_PY_NSMALLNEGINTS + _PY_NSMALLPOSINTS];
 
         // The empty Unicode object is a singleton to improve performance.
-        PyASCIIObject *unicode_empty;
-        /* Single character Unicode strings in the Latin-1 range are being
-           shared as well. */
+        _PyASCIIObject_FULL(0) unicode_empty;
         PyASCIIObject *unicode_latin1[256];
     } singletons;
 };
@@ -329,12 +361,15 @@ struct _Py_global_objects {
             _PyLong_DIGIT_INIT(255), \
             _PyLong_DIGIT_INIT(256), \
         }, \
+        \
+        .unicode_empty = _PyASCIIObject_FULL_INIT(""), \
     }, \
 }
 
 static inline void
 _Py_global_objects_reset(struct _Py_global_objects *objects)
 {
+    _PyUnicode_reset(&objects->singletons.unicode_empty.ascii);
 }
 
 #ifdef __cplusplus

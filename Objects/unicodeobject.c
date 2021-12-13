@@ -242,14 +242,11 @@ get_unicode_state(void)
 }
 
 
-#define EMPTY _Py_SINGLETON(unicode_empty)
+#define EMPTY (&_Py_SINGLETON(unicode_empty).ascii)
 
 // Return a borrowed reference to the empty string singleton.
 static inline PyObject* unicode_get_empty(void)
 {
-    // unicode_get_empty() must not be called before _PyUnicode_Init()
-    // or after _PyUnicode_Fini()
-    assert(EMPTY != NULL);
     return &EMPTY->ob_base;
 }
 
@@ -1369,25 +1366,6 @@ _PyUnicode_Dump(PyObject *op)
     printf(", data=%p\n", data);
 }
 #endif
-
-static int
-unicode_create_empty_string_singleton(void)
-{
-    // Use size=1 rather than size=0, so PyUnicode_New(0, maxchar) can be
-    // optimized to always use empty_string without having to check if
-    // it is NULL or not.
-    PyASCIIObject *empty = (PyASCIIObject *)PyUnicode_New(1, 0);
-    if (empty == NULL) {
-        return -1;
-    }
-    PyUnicode_1BYTE_DATA(empty)[0] = 0;
-    _PyUnicode_LENGTH(empty) = 0;
-    assert(_PyUnicode_CheckConsistency(&empty->ob_base, 1));
-
-    assert(EMPTY == NULL);
-    EMPTY = empty;
-    return 0;
-}
 
 
 PyObject *
@@ -15518,10 +15496,6 @@ _PyUnicode_InitGlobalObjects(PyInterpreterState *interp)
         return _PyStatus_OK();
     }
 
-    if (unicode_create_empty_string_singleton() < 0) {
-        return _PyStatus_NO_MEMORY();
-    }
-
     for (Py_ssize_t ch = 0; ch < 256; ch++) {
         PyASCIIObject *op = (PyASCIIObject *)PyUnicode_New(1, ch);
         if (op == NULL) {
@@ -16099,7 +16073,6 @@ _PyUnicode_Fini(PyInterpreterState *interp)
         for (Py_ssize_t i = 0; i < 256; i++) {
             Py_CLEAR(LATIN1[i]);
         }
-        Py_CLEAR(EMPTY);
     }
 }
 
