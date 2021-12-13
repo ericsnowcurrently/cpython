@@ -683,11 +683,6 @@ pycore_init_global_objects(PyInterpreterState *interp)
         return status;
     }
 
-    status = _PyUnicode_InitGlobalObjects(interp);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
-
     _PyUnicode_InitState(interp);
 
     status = _PyTuple_InitGlobalObjects(interp);

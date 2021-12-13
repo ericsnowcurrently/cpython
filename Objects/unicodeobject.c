@@ -330,8 +330,10 @@ const unsigned char _Py_ascii_whitespace[] = {
     0, 0, 0, 0, 0, 0, 0, 0
 };
 
-#define LATIN1 \
-    ((PyObject **)_Py_SINGLETON(unicode_latin1))
+#define ASCII_CHARACTER(ch) \
+    (PyObject *)(&(_Py_SINGLETON(unicode_ascii)[ch].ascii))
+#define LATIN1_CHARACTER(ch) \
+    (PyObject *)(&(_Py_SINGLETON(unicode_latin1)[ch-128].compact._base))
 
 /* forward */
 static PyUnicodeObject *_PyUnicode_New(Py_ssize_t length);
@@ -670,8 +672,7 @@ unicode_result_ready(PyObject *unicode)
         if (kind == PyUnicode_1BYTE_KIND) {
             const Py_UCS1 *data = PyUnicode_1BYTE_DATA(unicode);
             Py_UCS1 ch = data[0];
-            PyObject *latin1_char = LATIN1[ch];
-            assert(latin1_char != NULL);
+            PyObject *latin1_char = get_latin1_char(ch);
             if (unicode != latin1_char) {
                 // XXX Aren't we able to avoid this case?
                 Py_INCREF(latin1_char);
@@ -1974,7 +1975,8 @@ unicode_is_singleton(PyObject *unicode)
     PyASCIIObject *ascii = (PyASCIIObject *)unicode;
     if (ascii->state.kind != PyUnicode_WCHAR_KIND && ascii->length == 1) {
         Py_UCS4 ch = PyUnicode_READ_CHAR(unicode, 0);
-        if (ch < 256 && LATIN1[ch] == unicode) {
+        if ((ch < 128 && ASCII_CHARACTER(ch) == unicode) ||
+            (ch < 256 && LATIN1_CHARACTER(ch) == unicode)) {
             return 1;
         }
     }
@@ -2117,8 +2119,7 @@ unicode_write_cstr(PyObject *unicode, Py_ssize_t index,
 static PyObject*
 get_latin1_char(Py_UCS1 ch)
 {
-    PyObject *unicode = LATIN1[ch];
-    assert(unicode != NULL);
+    PyObject *unicode = ch < 128 ? ASCII_CHARACTER(ch) : LATIN1_CHARACTER(ch);
     Py_INCREF(unicode);
     return unicode;
 }
@@ -15490,30 +15491,6 @@ _PyUnicode_InitState(PyInterpreterState *interp)
 
 
 PyStatus
-_PyUnicode_InitGlobalObjects(PyInterpreterState *interp)
-{
-    if (!_Py_IsMainInterpreter(interp)) {
-        return _PyStatus_OK();
-    }
-
-    for (Py_ssize_t ch = 0; ch < 256; ch++) {
-        PyASCIIObject *op = (PyASCIIObject *)PyUnicode_New(1, ch);
-        if (op == NULL) {
-            return _PyStatus_NO_MEMORY();
-        }
-
-        PyUnicode_1BYTE_DATA(op)[0] = ch;
-        assert(_PyUnicode_CheckConsistency(&op->ob_base, 1));
-
-        Py_INCREF(op);
-        _Py_SINGLETON(unicode_latin1)[ch] = op;
-    }
-
-    return _PyStatus_OK();
-}
-
-
-PyStatus
 _PyUnicode_InitTypes(PyInterpreterState *interp)
 {
     if (!_Py_IsMainInterpreter(interp)) {
@@ -16068,12 +16045,6 @@ _PyUnicode_Fini(PyInterpreterState *interp)
     _PyUnicode_FiniEncodings(&state->fs_codec);
 
     unicode_clear_identifiers(state);
-
-    if (!_Py_IsMainInterpreter(interp)) {
-        for (Py_ssize_t i = 0; i < 256; i++) {
-            Py_CLEAR(LATIN1[i]);
-        }
-    }
 }
 
 

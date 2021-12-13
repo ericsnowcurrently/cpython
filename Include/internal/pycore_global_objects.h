@@ -36,7 +36,7 @@ extern "C" {
 
 /* unicode objects */
 
-#define _PyASCII_INIT(len) \
+#define _PyASCII_BYTE_INIT(len, ASCII) \
     { \
         .ob_base = _PyObject_IMMORTAL_INIT(&PyUnicode_Type), \
         .length = len, \
@@ -44,19 +44,32 @@ extern "C" {
         .state = { \
             .kind = PyUnicode_1BYTE_KIND, \
             .compact = 1, \
-            .ascii = 1, \
+            .ascii = ASCII, \
             .ready = 1, \
         }, \
     }
 
 #define _PyASCIIObject_FULL(len) \
-    struct _PyASCIIObject { \
+    struct _PyASCIIObject_ ## len { \
         PyASCIIObject ascii; \
         uint8_t data[len + 1]; \
     }
 #define _PyASCIIObject_FULL_INIT(LITERAL) \
     { \
-        .ascii = _PyASCII_INIT(Py_ARRAY_LENGTH(LITERAL) - 1), \
+        .ascii = _PyASCII_BYTE_INIT(Py_ARRAY_LENGTH((LITERAL)) - 1, 1), \
+        .data = LITERAL, \
+    }
+
+#define _PyLatin1Object_FULL(len) \
+    struct _PyLatin1Object_ ## len { \
+        PyCompactUnicodeObject compact; \
+        uint8_t data[len + 1]; \
+    }
+#define _PyLatin1Object_FULL_INIT(LITERAL) \
+    { \
+        .compact = { \
+            ._base = _PyASCII_BYTE_INIT(Py_ARRAY_LENGTH((LITERAL)) - 1, 0), \
+        }, \
         .data = LITERAL, \
     }
 
@@ -91,7 +104,10 @@ struct _Py_global_objects {
 
         // The empty Unicode object is a singleton to improve performance.
         _PyASCIIObject_FULL(0) unicode_empty;
-        PyASCIIObject *unicode_latin1[256];
+        /* Single character Unicode strings in the Latin-1 range are being
+           shared as well. */
+        _PyASCIIObject_FULL(1) unicode_ascii[128];
+        _PyLatin1Object_FULL(1) unicode_latin1[128];
     } singletons;
 };
 
@@ -363,6 +379,266 @@ struct _Py_global_objects {
         }, \
         \
         .unicode_empty = _PyASCIIObject_FULL_INIT(""), \
+        .unicode_ascii = { \
+            _PyASCIIObject_FULL_INIT("\x00"), \
+            _PyASCIIObject_FULL_INIT("\x01"), \
+            _PyASCIIObject_FULL_INIT("\x02"), \
+            _PyASCIIObject_FULL_INIT("\x03"), \
+            _PyASCIIObject_FULL_INIT("\x04"), \
+            _PyASCIIObject_FULL_INIT("\x05"), \
+            _PyASCIIObject_FULL_INIT("\x06"), \
+            _PyASCIIObject_FULL_INIT("\x07"), \
+            _PyASCIIObject_FULL_INIT("\x08"), \
+            _PyASCIIObject_FULL_INIT("\x09"), \
+            _PyASCIIObject_FULL_INIT("\x0a"), \
+            _PyASCIIObject_FULL_INIT("\x0b"), \
+            _PyASCIIObject_FULL_INIT("\x0c"), \
+            _PyASCIIObject_FULL_INIT("\x0d"), \
+            _PyASCIIObject_FULL_INIT("\x0e"), \
+            _PyASCIIObject_FULL_INIT("\x0f"), \
+            _PyASCIIObject_FULL_INIT("\x10"), \
+            _PyASCIIObject_FULL_INIT("\x11"), \
+            _PyASCIIObject_FULL_INIT("\x12"), \
+            _PyASCIIObject_FULL_INIT("\x13"), \
+            _PyASCIIObject_FULL_INIT("\x14"), \
+            _PyASCIIObject_FULL_INIT("\x15"), \
+            _PyASCIIObject_FULL_INIT("\x16"), \
+            _PyASCIIObject_FULL_INIT("\x17"), \
+            _PyASCIIObject_FULL_INIT("\x18"), \
+            _PyASCIIObject_FULL_INIT("\x19"), \
+            _PyASCIIObject_FULL_INIT("\x1a"), \
+            _PyASCIIObject_FULL_INIT("\x1b"), \
+            _PyASCIIObject_FULL_INIT("\x1c"), \
+            _PyASCIIObject_FULL_INIT("\x1d"), \
+            _PyASCIIObject_FULL_INIT("\x1e"), \
+            _PyASCIIObject_FULL_INIT("\x1f"), \
+            _PyASCIIObject_FULL_INIT("\x20"), \
+            _PyASCIIObject_FULL_INIT("\x21"), \
+            _PyASCIIObject_FULL_INIT("\x22"), \
+            _PyASCIIObject_FULL_INIT("\x23"), \
+            _PyASCIIObject_FULL_INIT("\x24"), \
+            _PyASCIIObject_FULL_INIT("\x25"), \
+            _PyASCIIObject_FULL_INIT("\x26"), \
+            _PyASCIIObject_FULL_INIT("\x27"), \
+            _PyASCIIObject_FULL_INIT("\x28"), \
+            _PyASCIIObject_FULL_INIT("\x29"), \
+            _PyASCIIObject_FULL_INIT("\x2a"), \
+            _PyASCIIObject_FULL_INIT("\x2b"), \
+            _PyASCIIObject_FULL_INIT("\x2c"), \
+            _PyASCIIObject_FULL_INIT("\x2d"), \
+            _PyASCIIObject_FULL_INIT("\x2e"), \
+            _PyASCIIObject_FULL_INIT("\x2f"), \
+            _PyASCIIObject_FULL_INIT("\x30"), \
+            _PyASCIIObject_FULL_INIT("\x31"), \
+            _PyASCIIObject_FULL_INIT("\x32"), \
+            _PyASCIIObject_FULL_INIT("\x33"), \
+            _PyASCIIObject_FULL_INIT("\x34"), \
+            _PyASCIIObject_FULL_INIT("\x35"), \
+            _PyASCIIObject_FULL_INIT("\x36"), \
+            _PyASCIIObject_FULL_INIT("\x37"), \
+            _PyASCIIObject_FULL_INIT("\x38"), \
+            _PyASCIIObject_FULL_INIT("\x39"), \
+            _PyASCIIObject_FULL_INIT("\x3a"), \
+            _PyASCIIObject_FULL_INIT("\x3b"), \
+            _PyASCIIObject_FULL_INIT("\x3c"), \
+            _PyASCIIObject_FULL_INIT("\x3d"), \
+            _PyASCIIObject_FULL_INIT("\x3e"), \
+            _PyASCIIObject_FULL_INIT("\x3f"), \
+            _PyASCIIObject_FULL_INIT("\x40"), \
+            _PyASCIIObject_FULL_INIT("\x41"), \
+            _PyASCIIObject_FULL_INIT("\x42"), \
+            _PyASCIIObject_FULL_INIT("\x43"), \
+            _PyASCIIObject_FULL_INIT("\x44"), \
+            _PyASCIIObject_FULL_INIT("\x45"), \
+            _PyASCIIObject_FULL_INIT("\x46"), \
+            _PyASCIIObject_FULL_INIT("\x47"), \
+            _PyASCIIObject_FULL_INIT("\x48"), \
+            _PyASCIIObject_FULL_INIT("\x49"), \
+            _PyASCIIObject_FULL_INIT("\x4a"), \
+            _PyASCIIObject_FULL_INIT("\x4b"), \
+            _PyASCIIObject_FULL_INIT("\x4c"), \
+            _PyASCIIObject_FULL_INIT("\x4d"), \
+            _PyASCIIObject_FULL_INIT("\x4e"), \
+            _PyASCIIObject_FULL_INIT("\x4f"), \
+            _PyASCIIObject_FULL_INIT("\x50"), \
+            _PyASCIIObject_FULL_INIT("\x51"), \
+            _PyASCIIObject_FULL_INIT("\x52"), \
+            _PyASCIIObject_FULL_INIT("\x53"), \
+            _PyASCIIObject_FULL_INIT("\x54"), \
+            _PyASCIIObject_FULL_INIT("\x55"), \
+            _PyASCIIObject_FULL_INIT("\x56"), \
+            _PyASCIIObject_FULL_INIT("\x57"), \
+            _PyASCIIObject_FULL_INIT("\x58"), \
+            _PyASCIIObject_FULL_INIT("\x59"), \
+            _PyASCIIObject_FULL_INIT("\x5a"), \
+            _PyASCIIObject_FULL_INIT("\x5b"), \
+            _PyASCIIObject_FULL_INIT("\x5c"), \
+            _PyASCIIObject_FULL_INIT("\x5d"), \
+            _PyASCIIObject_FULL_INIT("\x5e"), \
+            _PyASCIIObject_FULL_INIT("\x5f"), \
+            _PyASCIIObject_FULL_INIT("\x60"), \
+            _PyASCIIObject_FULL_INIT("\x61"), \
+            _PyASCIIObject_FULL_INIT("\x62"), \
+            _PyASCIIObject_FULL_INIT("\x63"), \
+            _PyASCIIObject_FULL_INIT("\x64"), \
+            _PyASCIIObject_FULL_INIT("\x65"), \
+            _PyASCIIObject_FULL_INIT("\x66"), \
+            _PyASCIIObject_FULL_INIT("\x67"), \
+            _PyASCIIObject_FULL_INIT("\x68"), \
+            _PyASCIIObject_FULL_INIT("\x69"), \
+            _PyASCIIObject_FULL_INIT("\x6a"), \
+            _PyASCIIObject_FULL_INIT("\x6b"), \
+            _PyASCIIObject_FULL_INIT("\x6c"), \
+            _PyASCIIObject_FULL_INIT("\x6d"), \
+            _PyASCIIObject_FULL_INIT("\x6e"), \
+            _PyASCIIObject_FULL_INIT("\x6f"), \
+            _PyASCIIObject_FULL_INIT("\x70"), \
+            _PyASCIIObject_FULL_INIT("\x71"), \
+            _PyASCIIObject_FULL_INIT("\x72"), \
+            _PyASCIIObject_FULL_INIT("\x73"), \
+            _PyASCIIObject_FULL_INIT("\x74"), \
+            _PyASCIIObject_FULL_INIT("\x75"), \
+            _PyASCIIObject_FULL_INIT("\x76"), \
+            _PyASCIIObject_FULL_INIT("\x77"), \
+            _PyASCIIObject_FULL_INIT("\x78"), \
+            _PyASCIIObject_FULL_INIT("\x79"), \
+            _PyASCIIObject_FULL_INIT("\x7a"), \
+            _PyASCIIObject_FULL_INIT("\x7b"), \
+            _PyASCIIObject_FULL_INIT("\x7c"), \
+            _PyASCIIObject_FULL_INIT("\x7d"), \
+            _PyASCIIObject_FULL_INIT("\x7e"), \
+            _PyASCIIObject_FULL_INIT("\x7f"), \
+        }, \
+        .unicode_latin1 = { \
+            _PyLatin1Object_FULL_INIT("\x80"), \
+            _PyLatin1Object_FULL_INIT("\x81"), \
+            _PyLatin1Object_FULL_INIT("\x82"), \
+            _PyLatin1Object_FULL_INIT("\x83"), \
+            _PyLatin1Object_FULL_INIT("\x84"), \
+            _PyLatin1Object_FULL_INIT("\x85"), \
+            _PyLatin1Object_FULL_INIT("\x86"), \
+            _PyLatin1Object_FULL_INIT("\x87"), \
+            _PyLatin1Object_FULL_INIT("\x88"), \
+            _PyLatin1Object_FULL_INIT("\x89"), \
+            _PyLatin1Object_FULL_INIT("\x8a"), \
+            _PyLatin1Object_FULL_INIT("\x8b"), \
+            _PyLatin1Object_FULL_INIT("\x8c"), \
+            _PyLatin1Object_FULL_INIT("\x8d"), \
+            _PyLatin1Object_FULL_INIT("\x8e"), \
+            _PyLatin1Object_FULL_INIT("\x8f"), \
+            _PyLatin1Object_FULL_INIT("\x90"), \
+            _PyLatin1Object_FULL_INIT("\x91"), \
+            _PyLatin1Object_FULL_INIT("\x92"), \
+            _PyLatin1Object_FULL_INIT("\x93"), \
+            _PyLatin1Object_FULL_INIT("\x94"), \
+            _PyLatin1Object_FULL_INIT("\x95"), \
+            _PyLatin1Object_FULL_INIT("\x96"), \
+            _PyLatin1Object_FULL_INIT("\x97"), \
+            _PyLatin1Object_FULL_INIT("\x98"), \
+            _PyLatin1Object_FULL_INIT("\x99"), \
+            _PyLatin1Object_FULL_INIT("\x9a"), \
+            _PyLatin1Object_FULL_INIT("\x9b"), \
+            _PyLatin1Object_FULL_INIT("\x9c"), \
+            _PyLatin1Object_FULL_INIT("\x9d"), \
+            _PyLatin1Object_FULL_INIT("\x9e"), \
+            _PyLatin1Object_FULL_INIT("\x9f"), \
+            _PyLatin1Object_FULL_INIT("\xa0"), \
+            _PyLatin1Object_FULL_INIT("\xa1"), \
+            _PyLatin1Object_FULL_INIT("\xa2"), \
+            _PyLatin1Object_FULL_INIT("\xa3"), \
+            _PyLatin1Object_FULL_INIT("\xa4"), \
+            _PyLatin1Object_FULL_INIT("\xa5"), \
+            _PyLatin1Object_FULL_INIT("\xa6"), \
+            _PyLatin1Object_FULL_INIT("\xa7"), \
+            _PyLatin1Object_FULL_INIT("\xa8"), \
+            _PyLatin1Object_FULL_INIT("\xa9"), \
+            _PyLatin1Object_FULL_INIT("\xaa"), \
+            _PyLatin1Object_FULL_INIT("\xab"), \
+            _PyLatin1Object_FULL_INIT("\xac"), \
+            _PyLatin1Object_FULL_INIT("\xad"), \
+            _PyLatin1Object_FULL_INIT("\xae"), \
+            _PyLatin1Object_FULL_INIT("\xaf"), \
+            _PyLatin1Object_FULL_INIT("\xb0"), \
+            _PyLatin1Object_FULL_INIT("\xb1"), \
+            _PyLatin1Object_FULL_INIT("\xb2"), \
+            _PyLatin1Object_FULL_INIT("\xb3"), \
+            _PyLatin1Object_FULL_INIT("\xb4"), \
+            _PyLatin1Object_FULL_INIT("\xb5"), \
+            _PyLatin1Object_FULL_INIT("\xb6"), \
+            _PyLatin1Object_FULL_INIT("\xb7"), \
+            _PyLatin1Object_FULL_INIT("\xb8"), \
+            _PyLatin1Object_FULL_INIT("\xb9"), \
+            _PyLatin1Object_FULL_INIT("\xba"), \
+            _PyLatin1Object_FULL_INIT("\xbb"), \
+            _PyLatin1Object_FULL_INIT("\xbc"), \
+            _PyLatin1Object_FULL_INIT("\xbd"), \
+            _PyLatin1Object_FULL_INIT("\xbe"), \
+            _PyLatin1Object_FULL_INIT("\xbf"), \
+            _PyLatin1Object_FULL_INIT("\xc0"), \
+            _PyLatin1Object_FULL_INIT("\xc1"), \
+            _PyLatin1Object_FULL_INIT("\xc2"), \
+            _PyLatin1Object_FULL_INIT("\xc3"), \
+            _PyLatin1Object_FULL_INIT("\xc4"), \
+            _PyLatin1Object_FULL_INIT("\xc5"), \
+            _PyLatin1Object_FULL_INIT("\xc6"), \
+            _PyLatin1Object_FULL_INIT("\xc7"), \
+            _PyLatin1Object_FULL_INIT("\xc8"), \
+            _PyLatin1Object_FULL_INIT("\xc9"), \
+            _PyLatin1Object_FULL_INIT("\xca"), \
+            _PyLatin1Object_FULL_INIT("\xcb"), \
+            _PyLatin1Object_FULL_INIT("\xcc"), \
+            _PyLatin1Object_FULL_INIT("\xcd"), \
+            _PyLatin1Object_FULL_INIT("\xce"), \
+            _PyLatin1Object_FULL_INIT("\xcf"), \
+            _PyLatin1Object_FULL_INIT("\xd0"), \
+            _PyLatin1Object_FULL_INIT("\xd1"), \
+            _PyLatin1Object_FULL_INIT("\xd2"), \
+            _PyLatin1Object_FULL_INIT("\xd3"), \
+            _PyLatin1Object_FULL_INIT("\xd4"), \
+            _PyLatin1Object_FULL_INIT("\xd5"), \
+            _PyLatin1Object_FULL_INIT("\xd6"), \
+            _PyLatin1Object_FULL_INIT("\xd7"), \
+            _PyLatin1Object_FULL_INIT("\xd8"), \
+            _PyLatin1Object_FULL_INIT("\xd9"), \
+            _PyLatin1Object_FULL_INIT("\xda"), \
+            _PyLatin1Object_FULL_INIT("\xdb"), \
+            _PyLatin1Object_FULL_INIT("\xdc"), \
+            _PyLatin1Object_FULL_INIT("\xdd"), \
+            _PyLatin1Object_FULL_INIT("\xde"), \
+            _PyLatin1Object_FULL_INIT("\xdf"), \
+            _PyLatin1Object_FULL_INIT("\xe0"), \
+            _PyLatin1Object_FULL_INIT("\xe1"), \
+            _PyLatin1Object_FULL_INIT("\xe2"), \
+            _PyLatin1Object_FULL_INIT("\xe3"), \
+            _PyLatin1Object_FULL_INIT("\xe4"), \
+            _PyLatin1Object_FULL_INIT("\xe5"), \
+            _PyLatin1Object_FULL_INIT("\xe6"), \
+            _PyLatin1Object_FULL_INIT("\xe7"), \
+            _PyLatin1Object_FULL_INIT("\xe8"), \
+            _PyLatin1Object_FULL_INIT("\xe9"), \
+            _PyLatin1Object_FULL_INIT("\xea"), \
+            _PyLatin1Object_FULL_INIT("\xeb"), \
+            _PyLatin1Object_FULL_INIT("\xec"), \
+            _PyLatin1Object_FULL_INIT("\xed"), \
+            _PyLatin1Object_FULL_INIT("\xee"), \
+            _PyLatin1Object_FULL_INIT("\xef"), \
+            _PyLatin1Object_FULL_INIT("\xf0"), \
+            _PyLatin1Object_FULL_INIT("\xf1"), \
+            _PyLatin1Object_FULL_INIT("\xf2"), \
+            _PyLatin1Object_FULL_INIT("\xf3"), \
+            _PyLatin1Object_FULL_INIT("\xf4"), \
+            _PyLatin1Object_FULL_INIT("\xf5"), \
+            _PyLatin1Object_FULL_INIT("\xf6"), \
+            _PyLatin1Object_FULL_INIT("\xf7"), \
+            _PyLatin1Object_FULL_INIT("\xf8"), \
+            _PyLatin1Object_FULL_INIT("\xf9"), \
+            _PyLatin1Object_FULL_INIT("\xfa"), \
+            _PyLatin1Object_FULL_INIT("\xfb"), \
+            _PyLatin1Object_FULL_INIT("\xfc"), \
+            _PyLatin1Object_FULL_INIT("\xfd"), \
+            _PyLatin1Object_FULL_INIT("\xfe"), \
+            _PyLatin1Object_FULL_INIT("\xff"), \
+        }, \
     }, \
 }
 
@@ -370,6 +646,12 @@ static inline void
 _Py_global_objects_reset(struct _Py_global_objects *objects)
 {
     _PyUnicode_reset(&objects->singletons.unicode_empty.ascii);
+    for (int i = 0; i < 128 + 1; i++) {
+        _PyUnicode_reset(&objects->singletons.unicode_ascii[i].ascii);
+    }
+    for (int i = 128; i < 256; i++) {
+        _PyUnicode_reset(&objects->singletons.unicode_latin1[i].compact._base);
+    }
 }
 
 #ifdef __cplusplus
