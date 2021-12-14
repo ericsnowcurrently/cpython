@@ -73,13 +73,6 @@ extern "C" {
         .data = LITERAL, \
     }
 
-static inline void
-_PyUnicode_reset(PyASCIIObject *op)
-{
-    // Force a new hash to be generated since the hash seed may have changed.
-    op->hash = -1;
-}
-
 
 /**********************
  * the global objects *
@@ -645,13 +638,6 @@ struct _Py_global_objects {
 static inline void
 _Py_global_objects_reset(struct _Py_global_objects *objects)
 {
-    _PyUnicode_reset(&objects->singletons.unicode_empty.ascii);
-    for (int i = 0; i < 128 + 1; i++) {
-        _PyUnicode_reset(&objects->singletons.unicode_ascii[i].ascii);
-    }
-    for (int i = 128; i < 256; i++) {
-        _PyUnicode_reset(&objects->singletons.unicode_latin1[i].compact._base);
-    }
 }
 
 #ifdef __cplusplus
