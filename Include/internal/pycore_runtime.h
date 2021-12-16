@@ -125,8 +125,6 @@ typedef struct pyruntimestate {
     void *open_code_userdata;
     _Py_AuditHookEntry *audit_hook_head;
 
-    struct _Py_unicode_runtime_ids unicode_ids;
-
     /* All the objects that are shared by the runtime's interpreters. */
     struct _Py_global_objects global_objects;
 
