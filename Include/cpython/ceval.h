@@ -14,8 +14,6 @@ PyAPI_FUNC(PyObject *) _PyEval_GetAsyncGenFirstiter(void);
 PyAPI_FUNC(int) _PyEval_SetAsyncGenFinalizer(PyObject *);
 PyAPI_FUNC(PyObject *) _PyEval_GetAsyncGenFinalizer(void);
 
-/* Helper to look up a builtin object */
-PyAPI_FUNC(PyObject *) _PyEval_GetBuiltinId(_Py_Identifier *);
 /* Look at the current frame's (if any) code's co_flags, and turn on
    the corresponding compiler flags in cf->cf_flags.  Return 1 if any
    flag was set, else return 0. */

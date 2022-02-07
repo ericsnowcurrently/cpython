@@ -4,10 +4,6 @@
 
 /* === Object Protocol ================================================== */
 
-#ifdef PY_SSIZE_T_CLEAN
-#  define _PyObject_CallMethodId _PyObject_CallMethodId_SizeT
-#endif
-
 /* Convert keyword arguments from the FASTCALL (stack: C array, kwnames: tuple)
    format to a Python dictionary ("kwargs" dict).
 
@@ -113,51 +109,6 @@ PyObject_CallMethodOneArg(PyObject *self, PyObject *name, PyObject *arg)
 
     assert(arg != NULL);
     return PyObject_VectorcallMethod(name, args,
-           2 | PY_VECTORCALL_ARGUMENTS_OFFSET, NULL);
-}
-
-/* Like PyObject_CallMethod(), but expect a _Py_Identifier*
-   as the method name. */
-PyAPI_FUNC(PyObject *) _PyObject_CallMethodId(PyObject *obj,
-                                              _Py_Identifier *name,
-                                              const char *format, ...);
-
-PyAPI_FUNC(PyObject *) _PyObject_CallMethodId_SizeT(PyObject *obj,
-                                                    _Py_Identifier *name,
-                                                    const char *format,
-                                                    ...);
-
-PyAPI_FUNC(PyObject *) _PyObject_CallMethodIdObjArgs(
-    PyObject *obj,
-    struct _Py_Identifier *name,
-    ...);
-
-static inline PyObject *
-_PyObject_VectorcallMethodId(
-    _Py_Identifier *name, PyObject *const *args,
-    size_t nargsf, PyObject *kwnames)
-{
-    PyObject *oname = _PyUnicode_FromId(name); /* borrowed */
-    if (!oname) {
-        return NULL;
-    }
-    return PyObject_VectorcallMethod(oname, args, nargsf, kwnames);
-}
-
-static inline PyObject *
-_PyObject_CallMethodIdNoArgs(PyObject *self, _Py_Identifier *name)
-{
-    return _PyObject_VectorcallMethodId(name, &self,
-           1 | PY_VECTORCALL_ARGUMENTS_OFFSET, NULL);
-}
-
-static inline PyObject *
-_PyObject_CallMethodIdOneArg(PyObject *self, _Py_Identifier *name, PyObject *arg)
-{
-    PyObject *args[2] = {self, arg};
-
-    assert(arg != NULL);
-    return _PyObject_VectorcallMethodId(name, args,
            2 | PY_VECTORCALL_ARGUMENTS_OFFSET, NULL);
 }
 
