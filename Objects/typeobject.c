@@ -4558,7 +4558,7 @@ object_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
         PyObject *sorted_methods;
         PyObject *joined;
         PyObject *comma;
-        _Py_static_string(comma_id, ", ");
+        _Py_static_string(PyId_comma_id, ", ");
         Py_ssize_t method_count;
 
         /* Compute ", ".join(sorted(type.__abstractmethods__))
@@ -4574,7 +4574,7 @@ object_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
             Py_DECREF(sorted_methods);
             return NULL;
         }
-        comma = _PyUnicode_FromId(&comma_id);
+        comma = _PyUnicode_FromId(&PyId_comma_id);
         if (comma == NULL) {
             Py_DECREF(sorted_methods);
             return NULL;
@@ -7198,8 +7198,8 @@ static PyObject * \
 FUNCNAME(PyObject *self) \
 { \
     PyObject* stack[1] = {self}; \
-    _Py_static_string(id, OPSTR); \
-    return vectorcall_method(&id, stack, 1); \
+    _Py_static_string(PyId_id, OPSTR); \
+    return vectorcall_method(&PyId_id, stack, 1); \
 }
 
 #define SLOT1(FUNCNAME, OPSTR, ARG1TYPE) \
@@ -7207,8 +7207,8 @@ static PyObject * \
 FUNCNAME(PyObject *self, ARG1TYPE arg1) \
 { \
     PyObject* stack[2] = {self, arg1}; \
-    _Py_static_string(id, OPSTR); \
-    return vectorcall_method(&id, stack, 2); \
+    _Py_static_string(PyId_id, OPSTR); \
+    return vectorcall_method(&PyId_id, stack, 2); \
 }
 
 /* Boolean helper for SLOT1BINFULL().
@@ -7250,8 +7250,8 @@ FUNCNAME(PyObject *self, PyObject *other) \
 { \
     PyObject* stack[2]; \
     PyThreadState *tstate = _PyThreadState_GET(); \
-    _Py_static_string(op_id, OPSTR); \
-    _Py_static_string(rop_id, ROPSTR); \
+    _Py_static_string(PyId_op, OPSTR); \
+    _Py_static_string(PyId_rop, ROPSTR); \
     int do_other = !Py_IS_TYPE(self, Py_TYPE(other)) && \
         Py_TYPE(other)->tp_as_number != NULL && \
         Py_TYPE(other)->tp_as_number->SLOTNAME == TESTFUNC; \
@@ -7259,14 +7259,14 @@ FUNCNAME(PyObject *self, PyObject *other) \
         Py_TYPE(self)->tp_as_number->SLOTNAME == TESTFUNC) { \
         PyObject *r; \
         if (do_other && PyType_IsSubtype(Py_TYPE(other), Py_TYPE(self))) { \
-            int ok = method_is_overloaded(self, other, &rop_id); \
+            int ok = method_is_overloaded(self, other, &PyId_rop); \
             if (ok < 0) { \
                 return NULL; \
             } \
             if (ok) { \
                 stack[0] = other; \
                 stack[1] = self; \
-                r = vectorcall_maybe(tstate, &rop_id, stack, 2); \
+                r = vectorcall_maybe(tstate, &PyId_rop, stack, 2); \
                 if (r != Py_NotImplemented) \
                     return r; \
                 Py_DECREF(r); \
@@ -7275,7 +7275,7 @@ FUNCNAME(PyObject *self, PyObject *other) \
         } \
         stack[0] = self; \
         stack[1] = other; \
-        r = vectorcall_maybe(tstate, &op_id, stack, 2); \
+        r = vectorcall_maybe(tstate, &PyId_op, stack, 2); \
         if (r != Py_NotImplemented || \
             Py_IS_TYPE(other, Py_TYPE(self))) \
             return r; \
@@ -7284,7 +7284,7 @@ FUNCNAME(PyObject *self, PyObject *other) \
     if (do_other) { \
         stack[0] = other; \
         stack[1] = self; \
-        return vectorcall_maybe(tstate, &rop_id, stack, 2); \
+        return vectorcall_maybe(tstate, &PyId_rop, stack, 2); \
     } \
     Py_RETURN_NOTIMPLEMENTED; \
 }
