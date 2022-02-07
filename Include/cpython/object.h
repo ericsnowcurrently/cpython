@@ -4,6 +4,19 @@
 
 #include "buffer.h" // for Py_buffer, included after PyObject has been defined
 
+
+#define _PyObject_IMMORTAL_INIT(type) \
+    { \
+        .ob_refcnt = 999999999, \
+        .ob_type = type, \
+    }
+#define _PyVarObject_IMMORTAL_INIT(type, size) \
+    { \
+        .ob_base = _PyObject_IMMORTAL_INIT(type), \
+        .ob_size = size, \
+    }
+
+
 PyAPI_FUNC(void) _Py_NewReference(PyObject *op);
 
 #ifdef Py_TRACE_REFS
