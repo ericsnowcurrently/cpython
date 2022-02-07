@@ -604,7 +604,7 @@ specialize_module_load_attr(
         SPECIALIZATION_FAIL(opcode, SPEC_FAIL_NON_STRING_OR_SPLIT);
         return -1;
     }
-    getattr = _PyUnicode_FromId(&PyId___getattr__); /* borrowed */
+    getattr = _PyUnicode_FromId(&_Py_ID(__getattr__)); /* borrowed */
     if (getattr == NULL) {
         SPECIALIZATION_FAIL(opcode, SPEC_FAIL_OVERRIDDEN);
         PyErr_Clear();
@@ -1254,7 +1254,7 @@ _Py_Specialize_BinarySubscr(
         goto success;
     }
     PyTypeObject *cls = Py_TYPE(container);
-    PyObject *descriptor = _PyType_LookupId(cls, &PyId___getitem__);
+    PyObject *descriptor = _PyType_LookupId(cls, &_Py_ID(__getitem__));
     if (descriptor && Py_TYPE(descriptor) == &PyFunction_Type) {
         PyFunctionObject *func = (PyFunctionObject *)descriptor;
         PyCodeObject *code = (PyCodeObject *)func->func_code;
@@ -1372,7 +1372,7 @@ _Py_Specialize_StoreSubscr(PyObject *container, PyObject *sub, _Py_CODEUNIT *ins
         goto fail;
     }
     _Py_IDENTIFIER(__setitem__);
-    PyObject *descriptor = _PyType_LookupId(container_type, &PyId___setitem__);
+    PyObject *descriptor = _PyType_LookupId(container_type, &_Py_ID(__setitem__));
     if (descriptor && Py_TYPE(descriptor) == &PyFunction_Type) {
         PyFunctionObject *func = (PyFunctionObject *)descriptor;
         PyCodeObject *code = (PyCodeObject *)func->func_code;
@@ -1472,7 +1472,7 @@ specialize_method_descriptor(
         return -1;
     }
     if (_list_append == NULL) {
-        _list_append = (PyMethodDescrObject *)_PyType_LookupId(&PyList_Type, &PyId_append);
+        _list_append = (PyMethodDescrObject *)_PyType_LookupId(&PyList_Type, &_Py_ID(append));
     }
     assert(_list_append != NULL);
     if (nargs == 2 && descr == _list_append) {

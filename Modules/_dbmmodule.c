@@ -396,7 +396,7 @@ static PyObject *
 dbm__exit__(PyObject *self, PyObject *args)
 {
     _Py_IDENTIFIER(close);
-    return _PyObject_CallMethodIdNoArgs(self, &PyId_close);
+    return _PyObject_CallMethodIdNoArgs(self, &_Py_ID(close));
 }
 
 static PyMethodDef dbm_methods[] = {

@@ -1826,7 +1826,7 @@ static int test_unicode_id_init(void)
 
         PyObject *str1, *str2;
 
-        str1 = _PyUnicode_FromId(&PyId_test_unicode_id_init);
+        str1 = _PyUnicode_FromId(&_Py_ID(test_unicode_id_init));
         assert(str1 != NULL);
         assert(Py_REFCNT(str1) == 1);
 

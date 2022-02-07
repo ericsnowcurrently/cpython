@@ -799,7 +799,7 @@ final_callback(sqlite3_context *context)
     /* Keep the exception (if any) of the last call to step() */
     PyErr_Fetch(&exception, &value, &tb);
 
-    function_result = _PyObject_CallMethodIdNoArgs(*aggregate_instance, &PyId_finalize);
+    function_result = _PyObject_CallMethodIdNoArgs(*aggregate_instance, &_Py_ID(finalize));
 
     Py_DECREF(*aggregate_instance);
 
@@ -1434,12 +1434,12 @@ pysqlite_connection_execute_impl(pysqlite_Connection *self, PyObject *sql,
     PyObject* cursor = 0;
     PyObject* result = 0;
 
-    cursor = _PyObject_CallMethodIdNoArgs((PyObject*)self, &PyId_cursor);
+    cursor = _PyObject_CallMethodIdNoArgs((PyObject*)self, &_Py_ID(cursor));
     if (!cursor) {
         goto error;
     }
 
-    result = _PyObject_CallMethodIdObjArgs(cursor, &PyId_execute, sql, parameters, NULL);
+    result = _PyObject_CallMethodIdObjArgs(cursor, &_Py_ID(execute), sql, parameters, NULL);
     if (!result) {
         Py_CLEAR(cursor);
     }
@@ -1469,12 +1469,12 @@ pysqlite_connection_executemany_impl(pysqlite_Connection *self,
     PyObject* cursor = 0;
     PyObject* result = 0;
 
-    cursor = _PyObject_CallMethodIdNoArgs((PyObject*)self, &PyId_cursor);
+    cursor = _PyObject_CallMethodIdNoArgs((PyObject*)self, &_Py_ID(cursor));
     if (!cursor) {
         goto error;
     }
 
-    result = _PyObject_CallMethodIdObjArgs(cursor, &PyId_executemany, sql,
+    result = _PyObject_CallMethodIdObjArgs(cursor, &_Py_ID(executemany), sql,
                                            parameters, NULL);
     if (!result) {
         Py_CLEAR(cursor);
@@ -1504,12 +1504,12 @@ pysqlite_connection_executescript(pysqlite_Connection *self,
     PyObject* cursor = 0;
     PyObject* result = 0;
 
-    cursor = _PyObject_CallMethodIdNoArgs((PyObject*)self, &PyId_cursor);
+    cursor = _PyObject_CallMethodIdNoArgs((PyObject*)self, &_Py_ID(cursor));
     if (!cursor) {
         goto error;
     }
 
-    result = _PyObject_CallMethodIdObjArgs(cursor, &PyId_executescript,
+    result = _PyObject_CallMethodIdObjArgs(cursor, &_Py_ID(executescript),
                                            script_obj, NULL);
     if (!result) {
         Py_CLEAR(cursor);
@@ -1638,7 +1638,7 @@ pysqlite_connection_iterdump_impl(pysqlite_Connection *self)
         goto finally;
     }
 
-    pyfn_iterdump = _PyDict_GetItemIdWithError(module_dict, &PyId__iterdump);
+    pyfn_iterdump = _PyDict_GetItemIdWithError(module_dict, &_Py_ID(_iterdump));
     if (!pyfn_iterdump) {
         if (!PyErr_Occurred()) {
             PyErr_SetString(self->OperationalError,

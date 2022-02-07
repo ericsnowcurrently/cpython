@@ -260,7 +260,7 @@ sys_audit_tstate(PyThreadState *ts, const char *event,
         while ((hook = PyIter_Next(hooks)) != NULL) {
             _Py_IDENTIFIER(__cantrace__);
             PyObject *o;
-            int canTrace = _PyObject_LookupAttrId(hook, &PyId___cantrace__, &o);
+            int canTrace = _PyObject_LookupAttrId(hook, &_Py_ID(__cantrace__), &o);
             if (o) {
                 canTrace = PyObject_IsTrue(o);
                 Py_DECREF(o);
@@ -631,7 +631,7 @@ sys_displayhook_unencodable(PyObject *outf, PyObject *o)
     const char *stdout_encoding_str;
     int ret;
 
-    stdout_encoding = _PyObject_GetAttrId(outf, &PyId_encoding);
+    stdout_encoding = _PyObject_GetAttrId(outf, &_Py_ID(encoding));
     if (stdout_encoding == NULL)
         goto error;
     stdout_encoding_str = PyUnicode_AsUTF8(stdout_encoding);
@@ -648,12 +648,12 @@ sys_displayhook_unencodable(PyObject *outf, PyObject *o)
     if (encoded == NULL)
         goto error;
 
-    if (_PyObject_LookupAttrId(outf, &PyId_buffer, &buffer) < 0) {
+    if (_PyObject_LookupAttrId(outf, &_Py_ID(buffer), &buffer) < 0) {
         Py_DECREF(encoded);
         goto error;
     }
     if (buffer) {
-        result = _PyObject_CallMethodIdOneArg(buffer, &PyId_write, encoded);
+        result = _PyObject_CallMethodIdOneArg(buffer, &_Py_ID(write), encoded);
         Py_DECREF(buffer);
         Py_DECREF(encoded);
         if (result == NULL)
@@ -699,7 +699,7 @@ sys_displayhook(PyObject *module, PyObject *o)
     static PyObject *newline = NULL;
     PyThreadState *tstate = _PyThreadState_GET();
 
-    builtins = _PyImport_GetModuleId(&PyId_builtins);
+    builtins = _PyImport_GetModuleId(&_Py_ID(builtins));
     if (builtins == NULL) {
         if (!_PyErr_Occurred(tstate)) {
             _PyErr_SetString(tstate, PyExc_RuntimeError,
@@ -715,9 +715,9 @@ sys_displayhook(PyObject *module, PyObject *o)
     if (o == Py_None) {
         Py_RETURN_NONE;
     }
-    if (_PyObject_SetAttrId(builtins, &PyId__, Py_None) != 0)
+    if (_PyObject_SetAttrId(builtins, &_Py_ID(_), Py_None) != 0)
         return NULL;
-    outf = sys_get_object_id(tstate, &PyId_stdout);
+    outf = sys_get_object_id(tstate, &_Py_ID(stdout));
     if (outf == NULL || outf == Py_None) {
         _PyErr_SetString(tstate, PyExc_RuntimeError, "lost sys.stdout");
         return NULL;
@@ -744,7 +744,7 @@ sys_displayhook(PyObject *module, PyObject *o)
     }
     if (PyFile_WriteObject(newline, outf, Py_PRINT_RAW) != 0)
         return NULL;
-    if (_PyObject_SetAttrId(builtins, &PyId__, o) != 0)
+    if (_PyObject_SetAttrId(builtins, &_Py_ID(_), o) != 0)
         return NULL;
     Py_RETURN_NONE;
 }
@@ -1676,7 +1676,7 @@ _PySys_GetSizeOf(PyObject *o)
         return (size_t)-1;
     }
 
-    method = _PyObject_LookupSpecial(o, &PyId___sizeof__);
+    method = _PyObject_LookupSpecial(o, &_Py_ID(__sizeof__));
     if (method == NULL) {
         if (!_PyErr_Occurred(tstate)) {
             _PyErr_Format(tstate, PyExc_TypeError,
@@ -2218,7 +2218,7 @@ _PySys_ReadPreinitXOptions(PyConfig *config)
 static PyObject *
 get_warnoptions(PyThreadState *tstate)
 {
-    PyObject *warnoptions = sys_get_object_id(tstate, &PyId_warnoptions);
+    PyObject *warnoptions = sys_get_object_id(tstate, &_Py_ID(warnoptions));
     if (warnoptions == NULL || !PyList_Check(warnoptions)) {
         /* PEP432 TODO: we can reach this if warnoptions is NULL in the main
         *  interpreter config. When that happens, we need to properly set
@@ -2234,7 +2234,7 @@ get_warnoptions(PyThreadState *tstate)
         if (warnoptions == NULL) {
             return NULL;
         }
-        if (sys_set_object_id(tstate->interp, &PyId_warnoptions, warnoptions)) {
+        if (sys_set_object_id(tstate->interp, &_Py_ID(warnoptions), warnoptions)) {
             Py_DECREF(warnoptions);
             return NULL;
         }
@@ -2252,7 +2252,7 @@ PySys_ResetWarnOptions(void)
         return;
     }
 
-    PyObject *warnoptions = sys_get_object_id(tstate, &PyId_warnoptions);
+    PyObject *warnoptions = sys_get_object_id(tstate, &_Py_ID(warnoptions));
     if (warnoptions == NULL || !PyList_Check(warnoptions))
         return;
     PyList_SetSlice(warnoptions, 0, PyList_GET_SIZE(warnoptions), NULL);
@@ -2306,7 +2306,7 @@ int
 PySys_HasWarnOptions(void)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    PyObject *warnoptions = sys_get_object_id(tstate, &PyId_warnoptions);
+    PyObject *warnoptions = sys_get_object_id(tstate, &_Py_ID(warnoptions));
     return (warnoptions != NULL && PyList_Check(warnoptions)
             && PyList_GET_SIZE(warnoptions) > 0);
 }
@@ -2314,7 +2314,7 @@ PySys_HasWarnOptions(void)
 static PyObject *
 get_xoptions(PyThreadState *tstate)
 {
-    PyObject *xoptions = sys_get_object_id(tstate, &PyId__xoptions);
+    PyObject *xoptions = sys_get_object_id(tstate, &_Py_ID(_xoptions));
     if (xoptions == NULL || !PyDict_Check(xoptions)) {
         /* PEP432 TODO: we can reach this if xoptions is NULL in the main
         *  interpreter config. When that happens, we need to properly set
@@ -2330,7 +2330,7 @@ get_xoptions(PyThreadState *tstate)
         if (xoptions == NULL) {
             return NULL;
         }
-        if (sys_set_object_id(tstate->interp, &PyId__xoptions, xoptions)) {
+        if (sys_set_object_id(tstate->interp, &_Py_ID(_xoptions), xoptions)) {
             Py_DECREF(xoptions);
             return NULL;
         }
@@ -3032,7 +3032,7 @@ _PySys_SetPreliminaryStderr(PyObject *sysdict)
     if (pstderr == NULL) {
         goto error;
     }
-    if (_PyDict_SetItemId(sysdict, &PyId_stderr, pstderr) < 0) {
+    if (_PyDict_SetItemId(sysdict, &_Py_ID(stderr), pstderr) < 0) {
         goto error;
     }
     if (PyDict_SetItemString(sysdict, "__stderr__", pstderr) < 0) {
@@ -3157,7 +3157,7 @@ PySys_SetPath(const wchar_t *path)
     if ((v = makepathobject(path, DELIM)) == NULL)
         Py_FatalError("can't create sys.path");
     PyInterpreterState *interp = _PyInterpreterState_GET();
-    if (sys_set_object_id(interp, &PyId_path, v) != 0) {
+    if (sys_set_object_id(interp, &_Py_ID(path), v) != 0) {
         Py_FatalError("can't assign sys.path");
     }
     Py_DECREF(v);
@@ -3214,7 +3214,7 @@ PySys_SetArgvEx(int argc, wchar_t **argv, int updatepath)
                 Py_FatalError("can't compute path0 from argv");
             }
 
-            PyObject *sys_path = sys_get_object_id(tstate, &PyId_path);
+            PyObject *sys_path = sys_get_object_id(tstate, &_Py_ID(path));
             if (sys_path != NULL) {
                 if (PyList_Insert(sys_path, 0, path0) < 0) {
                     Py_DECREF(path0);
@@ -3241,7 +3241,7 @@ sys_pyfile_write_unicode(PyObject *unicode, PyObject *file)
     if (file == NULL)
         return -1;
     assert(unicode != NULL);
-    PyObject *result = _PyObject_CallMethodIdOneArg(file, &PyId_write, unicode);
+    PyObject *result = _PyObject_CallMethodIdOneArg(file, &_Py_ID(write), unicode);
     if (result == NULL) {
         return -1;
     }
@@ -3325,7 +3325,7 @@ PySys_WriteStdout(const char *format, ...)
     va_list va;
 
     va_start(va, format);
-    sys_write(&PyId_stdout, stdout, format, va);
+    sys_write(&_Py_ID(stdout), stdout, format, va);
     va_end(va);
 }
 
@@ -3335,7 +3335,7 @@ PySys_WriteStderr(const char *format, ...)
     va_list va;
 
     va_start(va, format);
-    sys_write(&PyId_stderr, stderr, format, va);
+    sys_write(&_Py_ID(stderr), stderr, format, va);
     va_end(va);
 }
 
@@ -3368,7 +3368,7 @@ PySys_FormatStdout(const char *format, ...)
     va_list va;
 
     va_start(va, format);
-    sys_format(&PyId_stdout, stdout, format, va);
+    sys_format(&_Py_ID(stdout), stdout, format, va);
     va_end(va);
 }
 
@@ -3378,6 +3378,6 @@ PySys_FormatStderr(const char *format, ...)
     va_list va;
 
     va_start(va, format);
-    sys_format(&PyId_stderr, stderr, format, va);
+    sys_format(&_Py_ID(stderr), stderr, format, va);
     va_end(va);
 }

@@ -333,7 +333,7 @@ _Py_FindSourceFile(PyObject *filename, char* namebuf, size_t namelen, PyObject *
         tail++;
     taillen = strlen(tail);
 
-    syspath = _PySys_GetObjectId(&PyId_path);
+    syspath = _PySys_GetObjectId(&_Py_ID(path));
     if (syspath == NULL || !PyList_Check(syspath))
         goto error;
     npath = PyList_Size(syspath);
@@ -364,7 +364,7 @@ _Py_FindSourceFile(PyObject *filename, char* namebuf, size_t namelen, PyObject *
             namebuf[len++] = SEP;
         strcpy(namebuf+len, tail);
 
-        binary = _PyObject_CallMethodId(io, &PyId_open, "ss", namebuf, "rb");
+        binary = _PyObject_CallMethodId(io, &_Py_ID(open), "ss", namebuf, "rb");
         if (binary != NULL) {
             result = binary;
             goto finally;
@@ -450,7 +450,7 @@ display_source_line_with_margin(PyObject *f, PyObject *filename, int lineno, int
     io = PyImport_ImportModule("io");
     if (io == NULL)
         return -1;
-    binary = _PyObject_CallMethodId(io, &PyId_open, "Os", filename, "rb");
+    binary = _PyObject_CallMethodId(io, &_Py_ID(open), "Os", filename, "rb");
 
     if (binary == NULL) {
         PyErr_Clear();
@@ -480,14 +480,14 @@ display_source_line_with_margin(PyObject *f, PyObject *filename, int lineno, int
         PyMem_Free(found_encoding);
         return 0;
     }
-    fob = _PyObject_CallMethodId(io, &PyId_TextIOWrapper, "Os", binary, encoding);
+    fob = _PyObject_CallMethodId(io, &_Py_ID(TextIOWrapper), "Os", binary, encoding);
     Py_DECREF(io);
     PyMem_Free(found_encoding);
 
     if (fob == NULL) {
         PyErr_Clear();
 
-        res = _PyObject_CallMethodIdNoArgs(binary, &PyId_close);
+        res = _PyObject_CallMethodIdNoArgs(binary, &_Py_ID(close));
         Py_DECREF(binary);
         if (res)
             Py_DECREF(res);
@@ -506,7 +506,7 @@ display_source_line_with_margin(PyObject *f, PyObject *filename, int lineno, int
             break;
         }
     }
-    res = _PyObject_CallMethodIdNoArgs(fob, &PyId_close);
+    res = _PyObject_CallMethodIdNoArgs(fob, &_Py_ID(close));
     if (res) {
         Py_DECREF(res);
     }

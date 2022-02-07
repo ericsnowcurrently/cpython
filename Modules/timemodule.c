@@ -916,7 +916,7 @@ time_strptime(PyObject *self, PyObject *args)
     if (!module)
         return NULL;
 
-    func = _PyObject_GetAttrId(module, &PyId__strptime_time);
+    func = _PyObject_GetAttrId(module, &_Py_ID(_strptime_time));
     Py_DECREF(module);
     if (!func) {
         return NULL;

@@ -268,10 +268,10 @@ parse_literal(PyObject *fmt, Py_ssize_t *ppos, PyArena *arena)
     PyObject *str = PyUnicode_Substring(fmt, start, pos);
     /* str = str.replace('%%', '%') */
     if (str && has_percents) {
-        _Py_static_string(PyId_double_percent, "%%");
-        _Py_static_string(PyId_percent, "%");
-        PyObject *double_percent = _PyUnicode_FromId(&PyId_double_percent);
-        PyObject *percent = _PyUnicode_FromId(&PyId_percent);
+        _Py_static_string(double_percent, "%%");
+        _Py_static_string(percent, "%");
+        PyObject *double_percent = _PyUnicode_FromId(&_Py_ID(double_percent));
+        PyObject *percent = _PyUnicode_FromId(&_Py_ID(percent));
         if (!double_percent || !percent) {
             Py_DECREF(str);
             return NULL;

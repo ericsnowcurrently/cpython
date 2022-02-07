@@ -633,8 +633,8 @@ compiler_unit_free(struct compiler_unit *u)
 static int
 compiler_set_qualname(struct compiler *c)
 {
-    _Py_static_string(PyId_dot, ".");
-    _Py_static_string(PyId_dot_locals, ".<locals>");
+    _Py_static_string(dot, ".");
+    _Py_static_string(dot_locals, ".<locals>");
     Py_ssize_t stack_size;
     struct compiler_unit *u = c->u;
     PyObject *name, *base, *dot_str, *dot_locals_str;
@@ -669,7 +669,7 @@ compiler_set_qualname(struct compiler *c)
             if (parent->u_scope_type == COMPILER_SCOPE_FUNCTION
                 || parent->u_scope_type == COMPILER_SCOPE_ASYNC_FUNCTION
                 || parent->u_scope_type == COMPILER_SCOPE_LAMBDA) {
-                dot_locals_str = _PyUnicode_FromId(&PyId_dot_locals);
+                dot_locals_str = _PyUnicode_FromId(&_Py_ID(dot_locals));
                 if (dot_locals_str == NULL)
                     return 0;
                 base = PyUnicode_Concat(parent->u_qualname, dot_locals_str);
@@ -684,7 +684,7 @@ compiler_set_qualname(struct compiler *c)
     }
 
     if (base != NULL) {
-        dot_str = _PyUnicode_FromId(&PyId_dot);
+        dot_str = _PyUnicode_FromId(&_Py_ID(dot));
         if (dot_str == NULL) {
             Py_DECREF(base);
             return 0;
@@ -1621,7 +1621,7 @@ compiler_enter_scope(struct compiler *c, identifier name,
         int res;
         assert(u->u_scope_type == COMPILER_SCOPE_CLASS);
         assert(PyDict_GET_SIZE(u->u_cellvars) == 0);
-        name = _PyUnicode_FromId(&PyId___class__);
+        name = _PyUnicode_FromId(&_Py_ID(__class__));
         if (!name) {
             compiler_unit_free(u);
             return 0;
@@ -2012,7 +2012,7 @@ compiler_body(struct compiler *c, asdl_stmt_seq *stmts)
     stmt_ty st;
     PyObject *docstring;
     _Py_IDENTIFIER(__doc__);
-    PyObject *__doc__ = _PyUnicode_FromId(&PyId___doc__);  /* borrowed ref*/
+    PyObject *__doc__ = _PyUnicode_FromId(&_Py_ID(__doc__));  /* borrowed ref*/
     if (__doc__ == NULL) {
         return 0;
     }
@@ -2054,8 +2054,8 @@ compiler_mod(struct compiler *c, mod_ty mod)
 {
     PyCodeObject *co;
     int addNone = 1;
-    _Py_static_string(PyId__module, "<module>");
-    PyObject *module = _PyUnicode_FromId(&PyId__module); /* borrowed ref */
+    _Py_static_string(_module, "<module>");
+    PyObject *module = _PyUnicode_FromId(&_Py_ID(_module)); /* borrowed ref */
     if (module == NULL) {
         return 0;
     }
@@ -2355,7 +2355,7 @@ compiler_visit_annotations(struct compiler *c, arguments_ty args,
                                      args->kwarg->annotation, &annotations_len))
         return 0;
 
-    identifier return_str = _PyUnicode_FromId(&PyId_return); /* borrowed ref */
+    identifier return_str = _PyUnicode_FromId(&_Py_ID(return)); /* borrowed ref */
     if (return_str == NULL) {
         return 0;
     }
@@ -2912,8 +2912,8 @@ compiler_lambda(struct compiler *c, expr_ty e)
     if (!compiler_check_debug_args(c, args))
         return 0;
 
-    _Py_static_string(PyId_lambda, "<lambda>");
-    name = _PyUnicode_FromId(&PyId_lambda); /* borrowed ref */
+    _Py_static_string(lambda, "<lambda>");
+    name = _PyUnicode_FromId(&_Py_ID(lambda)); /* borrowed ref */
     if (name == NULL) {
         return 0;
     }
@@ -3822,8 +3822,8 @@ compiler_from_import(struct compiler *c, stmt_ty s)
 {
     Py_ssize_t i, n = asdl_seq_LEN(s->v.ImportFrom.names);
     PyObject *names;
-    _Py_static_string(PyId_empty_string, "");
-    PyObject *empty_string = _PyUnicode_FromId(&PyId_empty_string); /* borrowed ref */
+    _Py_static_string(empty_string, "");
+    PyObject *empty_string = _PyUnicode_FromId(&_Py_ID(empty_string)); /* borrowed ref */
 
     if (empty_string == NULL) {
         return 0;
@@ -5402,8 +5402,8 @@ error:
 static int
 compiler_genexp(struct compiler *c, expr_ty e)
 {
-    _Py_static_string(PyId_genexpr, "<genexpr>");
-    identifier name = _PyUnicode_FromId(&PyId_genexpr); /* borrowed ref */
+    _Py_static_string(genexpr, "<genexpr>");
+    identifier name = _PyUnicode_FromId(&_Py_ID(genexpr)); /* borrowed ref */
     if (name == NULL) {
         return 0;
     }
@@ -5416,8 +5416,8 @@ compiler_genexp(struct compiler *c, expr_ty e)
 static int
 compiler_listcomp(struct compiler *c, expr_ty e)
 {
-    _Py_static_string(PyId_listcomp, "<listcomp>");
-    identifier name = _PyUnicode_FromId(&PyId_listcomp); /* borrowed ref */
+    _Py_static_string(listcomp, "<listcomp>");
+    identifier name = _PyUnicode_FromId(&_Py_ID(listcomp)); /* borrowed ref */
     if (name == NULL) {
         return 0;
     }
@@ -5430,8 +5430,8 @@ compiler_listcomp(struct compiler *c, expr_ty e)
 static int
 compiler_setcomp(struct compiler *c, expr_ty e)
 {
-    _Py_static_string(PyId_setcomp, "<setcomp>");
-    identifier name = _PyUnicode_FromId(&PyId_setcomp); /* borrowed ref */
+    _Py_static_string(setcomp, "<setcomp>");
+    identifier name = _PyUnicode_FromId(&_Py_ID(setcomp)); /* borrowed ref */
     if (name == NULL) {
         return 0;
     }
@@ -5445,8 +5445,8 @@ compiler_setcomp(struct compiler *c, expr_ty e)
 static int
 compiler_dictcomp(struct compiler *c, expr_ty e)
 {
-    _Py_static_string(PyId_dictcomp, "<dictcomp>");
-    identifier name = _PyUnicode_FromId(&PyId_dictcomp); /* borrowed ref */
+    _Py_static_string(dictcomp, "<dictcomp>");
+    identifier name = _PyUnicode_FromId(&_Py_ID(dictcomp)); /* borrowed ref */
     if (name == NULL) {
         return 0;
     }
@@ -5975,7 +5975,7 @@ compiler_annassign(struct compiler *c, stmt_ty s)
     PyObject* mangled;
     _Py_IDENTIFIER(__annotations__);
     /* borrowed ref*/
-    PyObject *__annotations__ = _PyUnicode_FromId(&PyId___annotations__);
+    PyObject *__annotations__ = _PyUnicode_FromId(&_Py_ID(__annotations__));
     if (__annotations__ == NULL) {
         return 0;
     }

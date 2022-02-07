@@ -781,7 +781,7 @@ setiter_reduce(setiterobject *si, PyObject *Py_UNUSED(ignored))
     if (list == NULL) {
         return NULL;
     }
-    return Py_BuildValue("N(N)", _PyEval_GetBuiltinId(&PyId_iter), list);
+    return Py_BuildValue("N(N)", _PyEval_GetBuiltinId(&_Py_ID(iter)), list);
 }
 
 PyDoc_STRVAR(reduce_doc, "Return state information for pickling.");
@@ -1914,7 +1914,7 @@ set_reduce(PySetObject *so, PyObject *Py_UNUSED(ignored))
     args = PyTuple_Pack(1, keys);
     if (args == NULL)
         goto done;
-    if (_PyObject_LookupAttrId((PyObject *)so, &PyId___dict__, &dict) < 0) {
+    if (_PyObject_LookupAttrId((PyObject *)so, &_Py_ID(__dict__), &dict) < 0) {
         goto done;
     }
     if (dict == NULL) {

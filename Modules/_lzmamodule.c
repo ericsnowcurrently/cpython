@@ -458,7 +458,7 @@ build_filter_spec(const lzma_filter *f)
 #define ADD_FIELD(SOURCE, FIELD) \
     do { \
         _Py_IDENTIFIER(FIELD); \
-        if (spec_add_field(spec, &PyId_##FIELD, SOURCE->FIELD) == -1) \
+        if (spec_add_field(spec, &_Py_ID(FIELD), SOURCE->FIELD) == -1) \
             goto error;\
     } while (0)
 

@@ -1233,7 +1233,7 @@ _elementtree_Element_find_impl(ElementObject *self, PyObject *path,
     if (checkpath(path) || namespaces != Py_None) {
         _Py_IDENTIFIER(find);
         return _PyObject_CallMethodIdObjArgs(
-            st->elementpath_obj, &PyId_find, self, path, namespaces, NULL
+            st->elementpath_obj, &_Py_ID(find), self, path, namespaces, NULL
             );
     }
 
@@ -1277,7 +1277,7 @@ _elementtree_Element_findtext_impl(ElementObject *self, PyObject *path,
 
     if (checkpath(path) || namespaces != Py_None)
         return _PyObject_CallMethodIdObjArgs(
-            st->elementpath_obj, &PyId_findtext,
+            st->elementpath_obj, &_Py_ID(findtext),
             self, path, default_value, namespaces, NULL
             );
 
@@ -1331,7 +1331,7 @@ _elementtree_Element_findall_impl(ElementObject *self, PyObject *path,
     if (checkpath(path) || namespaces != Py_None) {
         _Py_IDENTIFIER(findall);
         return _PyObject_CallMethodIdObjArgs(
-            st->elementpath_obj, &PyId_findall, self, path, namespaces, NULL
+            st->elementpath_obj, &_Py_ID(findall), self, path, namespaces, NULL
             );
     }
 
@@ -1377,7 +1377,7 @@ _elementtree_Element_iterfind_impl(ElementObject *self, PyObject *path,
     elementtreestate *st = ET_STATE_GLOBAL;
 
     return _PyObject_CallMethodIdObjArgs(
-        st->elementpath_obj, &PyId_iterfind, self, tag, namespaces, NULL);
+        st->elementpath_obj, &_Py_ID(iterfind), self, tag, namespaces, NULL);
 }
 
 /*[clinic input]
@@ -2621,14 +2621,14 @@ treebuilder_flush_data(TreeBuilderObject* self)
         _Py_IDENTIFIER(text);
         return treebuilder_extend_element_text_or_tail(
                 element, &self->data,
-                &((ElementObject *) element)->text, &PyId_text);
+                &((ElementObject *) element)->text, &_Py_ID(text));
     }
     else {
         PyObject *element = self->last_for_tail;
         _Py_IDENTIFIER(tail);
         return treebuilder_extend_element_text_or_tail(
                 element, &self->data,
-                &((ElementObject *) element)->tail, &PyId_tail);
+                &((ElementObject *) element)->tail, &_Py_ID(tail));
     }
 }
 
@@ -2642,7 +2642,7 @@ treebuilder_add_subelement(PyObject *element, PyObject *child)
     }
     else {
         PyObject *res;
-        res = _PyObject_CallMethodIdOneArg(element, &PyId_append, child);
+        res = _PyObject_CallMethodIdOneArg(element, &_Py_ID(append), child);
         if (res == NULL)
             return -1;
         Py_DECREF(res);
@@ -3539,7 +3539,7 @@ expat_start_doctype_handler(XMLParserObject *self,
                                            sysid_obj, NULL);
         Py_XDECREF(res);
     }
-    else if (_PyObject_LookupAttrId((PyObject *)self, &PyId_doctype, &res) > 0) {
+    else if (_PyObject_LookupAttrId((PyObject *)self, &_Py_ID(doctype), &res) > 0) {
         (void)PyErr_WarnEx(PyExc_RuntimeWarning,
                 "The doctype() method of XMLParser is ignored.  "
                 "Define doctype() method on the TreeBuilder target.",

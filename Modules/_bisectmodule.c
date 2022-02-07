@@ -131,7 +131,7 @@ _bisect_insort_right_impl(PyObject *module, PyObject *a, PyObject *x,
             return NULL;
     }
     else {
-        result = _PyObject_CallMethodId(a, &PyId_insert, "nO", index, x);
+        result = _PyObject_CallMethodId(a, &_Py_ID(insert), "nO", index, x);
         if (result == NULL)
             return NULL;
         Py_DECREF(result);
@@ -257,7 +257,7 @@ _bisect_insort_left_impl(PyObject *module, PyObject *a, PyObject *x,
         if (PyList_Insert(a, index, x) < 0)
             return NULL;
     } else {
-        result = _PyObject_CallMethodId(a, &PyId_insert, "nO", index, x);
+        result = _PyObject_CallMethodId(a, &_Py_ID(insert), "nO", index, x);
         if (result == NULL)
             return NULL;
         Py_DECREF(result);

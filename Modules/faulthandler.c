@@ -155,7 +155,7 @@ faulthandler_get_fileno(PyObject **file_ptr)
     PyObject *file = *file_ptr;
 
     if (file == NULL || file == Py_None) {
-        file = _PySys_GetObjectId(&PyId_stderr);
+        file = _PySys_GetObjectId(&_Py_ID(stderr));
         if (file == NULL) {
             PyErr_SetString(PyExc_RuntimeError, "unable to get sys.stderr");
             return -1;
@@ -178,7 +178,7 @@ faulthandler_get_fileno(PyObject **file_ptr)
         return fd;
     }
 
-    result = _PyObject_CallMethodIdNoArgs(file, &PyId_fileno);
+    result = _PyObject_CallMethodIdNoArgs(file, &_Py_ID(fileno));
     if (result == NULL)
         return -1;
 
@@ -196,7 +196,7 @@ faulthandler_get_fileno(PyObject **file_ptr)
         return -1;
     }
 
-    result = _PyObject_CallMethodIdNoArgs(file, &PyId_flush);
+    result = _PyObject_CallMethodIdNoArgs(file, &_Py_ID(flush));
     if (result != NULL)
         Py_DECREF(result);
     else {
@@ -1336,7 +1336,7 @@ faulthandler_init_enable(void)
         return -1;
     }
 
-    PyObject *res = _PyObject_CallMethodIdNoArgs(module, &PyId_enable);
+    PyObject *res = _PyObject_CallMethodIdNoArgs(module, &_Py_ID(enable));
     Py_DECREF(module);
     if (res == NULL) {
         return -1;

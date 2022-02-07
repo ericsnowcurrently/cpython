@@ -44,8 +44,11 @@ typedef struct _Py_Identifier {
 } _Py_Identifier;
 
 #define _Py_static_string_init(value) { .string = value, .index = -1 }
-#define _Py_static_string(varname, value)  static _Py_Identifier varname = _Py_static_string_init(value)
-#define _Py_IDENTIFIER(varname) _Py_static_string(PyId_##varname, #varname)
+#define _Py_static_string(varname, value) \
+    static _Py_Identifier PyId_##varname = _Py_static_string_init(value)
+#define _Py_IDENTIFIER(varname) _Py_static_string(varname, #varname)
+
+#define _Py_ID(varname) PyId_##varname
 
 typedef int (*getbufferproc)(PyObject *, Py_buffer *, int);
 typedef void (*releasebufferproc)(PyObject *, Py_buffer *);
