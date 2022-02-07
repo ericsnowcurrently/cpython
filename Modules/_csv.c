@@ -1447,7 +1447,7 @@ csv_writer(PyObject *module, PyObject *args, PyObject *keyword_args)
         Py_DECREF(self);
         return NULL;
     }
-    if (_PyObject_LookupAttrId(output_file, &_Py_ID(write), &self->write) < 0) {
+    if (_PyObject_LookupAttrId(output_file, (_Py_Identifier *)&_Py_ID(write), &self->write) < 0) {
         Py_DECREF(self);
         return NULL;
     }

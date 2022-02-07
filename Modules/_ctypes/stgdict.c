@@ -295,7 +295,7 @@ MakeAnonFields(PyObject *type)
     PyObject *anon_names;
     Py_ssize_t i;
 
-    if (_PyObject_LookupAttrId(type, &_Py_ID(_anonymous_), &anon) < 0) {
+    if (_PyObject_LookupAttrId(type, (_Py_Identifier *)&_Py_ID(_anonymous_), &anon) < 0) {
         return -1;
     }
     if (anon == NULL) {
@@ -372,7 +372,7 @@ PyCStructUnionType_update_stgdict(PyObject *type, PyObject *fields, int isStruct
     if (fields == NULL)
         return 0;
 
-    if (_PyObject_LookupAttrId(type, &_Py_ID(_swappedbytes_), &tmp) < 0) {
+    if (_PyObject_LookupAttrId(type, (_Py_Identifier *)&_Py_ID(_swappedbytes_), &tmp) < 0) {
         return -1;
     }
     if (tmp) {
@@ -384,7 +384,7 @@ PyCStructUnionType_update_stgdict(PyObject *type, PyObject *fields, int isStruct
     }
 
     if (_PyObject_LookupAttrId(type,
-                &_Py_ID(_use_broken_old_ctypes_structure_semantics_), &tmp) < 0)
+                (_Py_Identifier *)&_Py_ID(_use_broken_old_ctypes_structure_semantics_), &tmp) < 0)
     {
         return -1;
     }
@@ -396,7 +396,7 @@ PyCStructUnionType_update_stgdict(PyObject *type, PyObject *fields, int isStruct
         use_broken_old_ctypes_semantics = 0;
     }
 
-    if (_PyObject_LookupAttrId(type, &_Py_ID(_pack_), &tmp) < 0) {
+    if (_PyObject_LookupAttrId(type, (_Py_Identifier *)&_Py_ID(_pack_), &tmp) < 0) {
         return -1;
     }
     if (tmp) {

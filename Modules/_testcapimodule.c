@@ -3865,7 +3865,7 @@ slot_tp_del(PyObject *self)
     PyErr_Fetch(&error_type, &error_value, &error_traceback);
 
     /* Execute __del__ method, if any. */
-    del = _PyObject_LookupSpecial(self, &_Py_ID(__tp_del__));
+    del = _PyObject_LookupSpecial(self, (_Py_Identifier *)&_Py_ID(__tp_del__));
     if (del != NULL) {
         res = PyObject_CallNoArgs(del);
         if (res == NULL)
@@ -5168,7 +5168,7 @@ raise_SIGINT_then_send_None(PyObject *self, PyObject *args)
          because we check for signals before every bytecode operation.
      */
     raise(SIGINT);
-    return _PyObject_CallMethodIdOneArg((PyObject *)gen, &_Py_ID(send), Py_None);
+    return _PyObject_CallMethodIdOneArg((PyObject *)gen, (_Py_Identifier *)&_Py_ID(send), Py_None);
 }
 
 

@@ -227,7 +227,7 @@ _Pickle_InitState(PickleState *st)
     PyObject *functools = NULL;
     _Py_IDENTIFIER(getattr);
 
-    st->getattr = _PyEval_GetBuiltinId(&_Py_ID(getattr));
+    st->getattr = _PyEval_GetBuiltinId((_Py_Identifier *)&_Py_ID(getattr));
     if (st->getattr == NULL)
         goto error;
 
@@ -1177,7 +1177,7 @@ _Pickler_SetOutputStream(PicklerObject *self, PyObject *file)
 {
     _Py_IDENTIFIER(write);
     assert(file != NULL);
-    if (_PyObject_LookupAttrId(file, &_Py_ID(write), &self->write) < 0) {
+    if (_PyObject_LookupAttrId(file, (_Py_Identifier *)&_Py_ID(write), &self->write) < 0) {
         return -1;
     }
     if (self->write == NULL) {
@@ -1642,14 +1642,14 @@ _Unpickler_SetInputStream(UnpicklerObject *self, PyObject *file)
     _Py_IDENTIFIER(readline);
 
     /* Optional file methods */
-    if (_PyObject_LookupAttrId(file, &_Py_ID(peek), &self->peek) < 0) {
+    if (_PyObject_LookupAttrId(file, (_Py_Identifier *)&_Py_ID(peek), &self->peek) < 0) {
         return -1;
     }
-    if (_PyObject_LookupAttrId(file, &_Py_ID(readinto), &self->readinto) < 0) {
+    if (_PyObject_LookupAttrId(file, (_Py_Identifier *)&_Py_ID(readinto), &self->readinto) < 0) {
         return -1;
     }
-    (void)_PyObject_LookupAttrId(file, &_Py_ID(read), &self->read);
-    (void)_PyObject_LookupAttrId(file, &_Py_ID(readline), &self->readline);
+    (void)_PyObject_LookupAttrId(file, (_Py_Identifier *)&_Py_ID(read), &self->read);
+    (void)_PyObject_LookupAttrId(file, (_Py_Identifier *)&_Py_ID(readline), &self->readline);
     if (!self->readline || !self->read) {
         if (!PyErr_Occurred()) {
             PyErr_SetString(PyExc_TypeError,
@@ -1813,7 +1813,7 @@ get_dotted_path(PyObject *obj, PyObject *name)
     PyObject *dotted_path;
     Py_ssize_t i, n;
 
-    dotted_path = PyUnicode_Split(name, _PyUnicode_FromId(&_Py_ID(dot)), -1);
+    dotted_path = PyUnicode_Split(name, _PyUnicode_FromId((_Py_Identifier *)&_Py_ID(dot)), -1);
     if (dotted_path == NULL)
         return NULL;
     n = PyList_GET_SIZE(dotted_path);
@@ -1918,7 +1918,7 @@ whichmodule(PyObject *global, PyObject *dotted_path)
     _Py_IDENTIFIER(modules);
     _Py_IDENTIFIER(__main__);
 
-    if (_PyObject_LookupAttrId(global, &_Py_ID(__module__), &module_name) < 0) {
+    if (_PyObject_LookupAttrId(global, (_Py_Identifier *)&_Py_ID(__module__), &module_name) < 0) {
         return NULL;
     }
     if (module_name) {
@@ -1932,7 +1932,7 @@ whichmodule(PyObject *global, PyObject *dotted_path)
     assert(module_name == NULL);
 
     /* Fallback on walking sys.modules */
-    modules = _PySys_GetObjectId(&_Py_ID(modules));
+    modules = _PySys_GetObjectId((_Py_Identifier *)&_Py_ID(modules));
     if (modules == NULL) {
         PyErr_SetString(PyExc_RuntimeError, "unable to get sys.modules");
         return NULL;
@@ -1977,7 +1977,7 @@ whichmodule(PyObject *global, PyObject *dotted_path)
     }
 
     /* If no module is found, use __main__. */
-    module_name = _PyUnicode_FromId(&_Py_ID(__main__));
+    module_name = _PyUnicode_FromId((_Py_Identifier *)&_Py_ID(__main__));
     Py_XINCREF(module_name);
     return module_name;
 }
@@ -2433,7 +2433,7 @@ save_bytes(PicklerObject *self, PyObject *obj)
                 return -1;
             reduce_value = Py_BuildValue("(O(OO))",
                                          st->codecs_encode, unicode_str,
-                                         _PyUnicode_FromId(&_Py_ID(latin1)));
+                                         _PyUnicode_FromId((_Py_Identifier *)&_Py_ID(latin1)));
             Py_DECREF(unicode_str);
         }
 
@@ -3337,7 +3337,7 @@ save_dict(PicklerObject *self, PyObject *obj)
         } else {
             _Py_IDENTIFIER(items);
 
-            items = _PyObject_CallMethodIdNoArgs(obj, &_Py_ID(items));
+            items = _PyObject_CallMethodIdNoArgs(obj, (_Py_Identifier *)&_Py_ID(items));
             if (items == NULL)
                 goto error;
             iter = PyObject_GetIter(items);
@@ -3599,10 +3599,10 @@ save_global(PicklerObject *self, PyObject *obj, PyObject *name)
         global_name = name;
     }
     else {
-        if (_PyObject_LookupAttrId(obj, &_Py_ID(__qualname__), &global_name) < 0)
+        if (_PyObject_LookupAttrId(obj, (_Py_Identifier *)&_Py_ID(__qualname__), &global_name) < 0)
             goto error;
         if (global_name == NULL) {
-            global_name = _PyObject_GetAttrId(obj, &_Py_ID(__name__));
+            global_name = _PyObject_GetAttrId(obj, (_Py_Identifier *)&_Py_ID(__name__));
             if (global_name == NULL)
                 goto error;
         }
@@ -3925,7 +3925,7 @@ get_class(PyObject *obj)
     PyObject *cls;
     _Py_IDENTIFIER(__class__);
 
-    if (_PyObject_LookupAttrId(obj, &_Py_ID(__class__), &cls) == 0) {
+    if (_PyObject_LookupAttrId(obj, (_Py_Identifier *)&_Py_ID(__class__), &cls) == 0) {
         cls = (PyObject *) Py_TYPE(obj);
         Py_INCREF(cls);
     }
@@ -4010,16 +4010,16 @@ save_reduce(PicklerObject *self, PyObject *args, PyObject *obj)
         PyObject *name;
         _Py_IDENTIFIER(__name__);
 
-        if (_PyObject_LookupAttrId(callable, &_Py_ID(__name__), &name) < 0) {
+        if (_PyObject_LookupAttrId(callable, (_Py_Identifier *)&_Py_ID(__name__), &name) < 0) {
             return -1;
         }
         if (name != NULL && PyUnicode_Check(name)) {
             _Py_IDENTIFIER(__newobj_ex__);
             use_newobj_ex = _PyUnicode_EqualToASCIIId(
-                    name, &_Py_ID(__newobj_ex__));
+                    name, (_Py_Identifier *)&_Py_ID(__newobj_ex__));
             if (!use_newobj_ex) {
                 _Py_IDENTIFIER(__newobj__);
-                use_newobj = _PyUnicode_EqualToASCIIId(name, &_Py_ID(__newobj__));
+                use_newobj = _PyUnicode_EqualToASCIIId(name, (_Py_Identifier *)&_Py_ID(__newobj__));
             }
         }
         Py_XDECREF(name);
@@ -4077,7 +4077,7 @@ save_reduce(PicklerObject *self, PyObject *args, PyObject *obj)
             if (newargs == NULL)
                 return -1;
 
-            cls_new = _PyObject_GetAttrId(cls, &_Py_ID(__new__));
+            cls_new = _PyObject_GetAttrId(cls, (_Py_Identifier *)&_Py_ID(__new__));
             if (cls_new == NULL) {
                 Py_DECREF(newargs);
                 return -1;
@@ -4424,7 +4424,7 @@ save(PicklerObject *self, PyObject *obj, int pers_save)
            don't actually have to check for a __reduce__ method. */
 
         /* Check for a __reduce_ex__ method. */
-        if (_PyObject_LookupAttrId(obj, &_Py_ID(__reduce_ex__), &reduce_func) < 0) {
+        if (_PyObject_LookupAttrId(obj, (_Py_Identifier *)&_Py_ID(__reduce_ex__), &reduce_func) < 0) {
             goto error;
         }
         if (reduce_func != NULL) {
@@ -4436,7 +4436,7 @@ save(PicklerObject *self, PyObject *obj, int pers_save)
         }
         else {
             /* Check for a __reduce__ method. */
-            if (_PyObject_LookupAttrId(obj, &_Py_ID(__reduce__), &reduce_func) < 0) {
+            if (_PyObject_LookupAttrId(obj, (_Py_Identifier *)&_Py_ID(__reduce__), &reduce_func) < 0) {
                 goto error;
             }
             if (reduce_func != NULL) {
@@ -4491,7 +4491,7 @@ dump(PicklerObject *self, PyObject *obj)
     PyObject *tmp;
     _Py_IDENTIFIER(reducer_override);
 
-    if (_PyObject_LookupAttrId((PyObject *)self, &_Py_ID(reducer_override),
+    if (_PyObject_LookupAttrId((PyObject *)self, (_Py_Identifier *)&_Py_ID(reducer_override),
                                &tmp) < 0) {
       goto error;
     }
@@ -4762,14 +4762,14 @@ _pickle_Pickler___init___impl(PicklerObject *self, PyObject *file,
     self->fast_nesting = 0;
     self->fast_memo = NULL;
 
-    if (init_method_ref((PyObject *)self, &_Py_ID(persistent_id),
+    if (init_method_ref((PyObject *)self, (_Py_Identifier *)&_Py_ID(persistent_id),
                         &self->pers_func, &self->pers_func_self) < 0)
     {
         return -1;
     }
 
     if (_PyObject_LookupAttrId((PyObject *)self,
-                                    &_Py_ID(dispatch_table), &self->dispatch_table) < 0) {
+                                    (_Py_Identifier *)&_Py_ID(dispatch_table), &self->dispatch_table) < 0) {
         return -1;
     }
 
@@ -5125,7 +5125,7 @@ find_class(UnpicklerObject *self, PyObject *module_name, PyObject *global_name)
 {
     _Py_IDENTIFIER(find_class);
 
-    return _PyObject_CallMethodIdObjArgs((PyObject *)self, &_Py_ID(find_class),
+    return _PyObject_CallMethodIdObjArgs((PyObject *)self, (_Py_Identifier *)&_Py_ID(find_class),
                                          module_name, global_name, NULL);
 }
 
@@ -5816,11 +5816,11 @@ instantiate(PyObject *cls, PyObject *args)
         _Py_IDENTIFIER(__getinitargs__);
         _Py_IDENTIFIER(__new__);
         PyObject *func;
-        if (_PyObject_LookupAttrId(cls, &_Py_ID(__getinitargs__), &func) < 0) {
+        if (_PyObject_LookupAttrId(cls, (_Py_Identifier *)&_Py_ID(__getinitargs__), &func) < 0) {
             return NULL;
         }
         if (func == NULL) {
-            return _PyObject_CallMethodIdOneArg(cls, &_Py_ID(__new__), cls);
+            return _PyObject_CallMethodIdOneArg(cls, (_Py_Identifier *)&_Py_ID(__new__), cls);
         }
         Py_DECREF(func);
     }
@@ -6467,7 +6467,7 @@ do_append(UnpicklerObject *self, Py_ssize_t x)
         PyObject *extend_func;
         _Py_IDENTIFIER(extend);
 
-        if (_PyObject_LookupAttrId(list, &_Py_ID(extend), &extend_func) < 0) {
+        if (_PyObject_LookupAttrId(list, (_Py_Identifier *)&_Py_ID(extend), &extend_func) < 0) {
             return -1;
         }
         if (extend_func != NULL) {
@@ -6489,7 +6489,7 @@ do_append(UnpicklerObject *self, Py_ssize_t x)
             /* Even if the PEP 307 requires extend() and append() methods,
                fall back on append() if the object has no extend() method
                for backward compatibility. */
-            append_func = _PyObject_GetAttrId(list, &_Py_ID(append));
+            append_func = _PyObject_GetAttrId(list, (_Py_Identifier *)&_Py_ID(append));
             if (append_func == NULL)
                 return -1;
             for (i = x; i < len; i++) {
@@ -6614,7 +6614,7 @@ load_additems(UnpicklerObject *self)
         PyObject *add_func;
         _Py_IDENTIFIER(add);
 
-        add_func = _PyObject_GetAttrId(set, &_Py_ID(add));
+        add_func = _PyObject_GetAttrId(set, (_Py_Identifier *)&_Py_ID(add));
         if (add_func == NULL)
             return -1;
         for (i = mark; i < len; i++) {
@@ -6656,7 +6656,7 @@ load_build(UnpicklerObject *self)
 
     inst = self->stack->data[Py_SIZE(self->stack) - 1];
 
-    if (_PyObject_LookupAttrId(inst, &_Py_ID(__setstate__), &setstate) < 0) {
+    if (_PyObject_LookupAttrId(inst, (_Py_Identifier *)&_Py_ID(__setstate__), &setstate) < 0) {
         Py_DECREF(state);
         return -1;
     }
@@ -6699,7 +6699,7 @@ load_build(UnpicklerObject *self)
             PyErr_SetString(st->UnpicklingError, "state is not a dictionary");
             goto error;
         }
-        dict = _PyObject_GetAttrId(inst, &_Py_ID(__dict__));
+        dict = _PyObject_GetAttrId(inst, (_Py_Identifier *)&_Py_ID(__dict__));
         if (dict == NULL)
             goto error;
 
@@ -7268,7 +7268,7 @@ _pickle_Unpickler___init___impl(UnpicklerObject *self, PyObject *file,
 
     self->fix_imports = fix_imports;
 
-    if (init_method_ref((PyObject *)self, &_Py_ID(persistent_load),
+    if (init_method_ref((PyObject *)self, (_Py_Identifier *)&_Py_ID(persistent_load),
                         &self->pers_func, &self->pers_func_self) < 0)
     {
         return -1;

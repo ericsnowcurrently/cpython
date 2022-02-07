@@ -716,7 +716,7 @@ static int ConvParam(PyObject *obj, Py_ssize_t index, struct argument *pa)
     {
         _Py_IDENTIFIER(_as_parameter_);
         PyObject *arg;
-        if (_PyObject_LookupAttrId(obj, &_Py_ID(_as_parameter_), &arg) < 0) {
+        if (_PyObject_LookupAttrId(obj, (_Py_Identifier *)&_Py_ID(_as_parameter_), &arg) < 0) {
             return -1;
         }
         /* Which types should we exactly allow here?
@@ -1855,11 +1855,11 @@ unpickle(PyObject *self, PyObject *args)
 
     if (!PyArg_ParseTuple(args, "OO!", &typ, &PyTuple_Type, &state))
         return NULL;
-    obj = _PyObject_CallMethodIdOneArg(typ, &_Py_ID(__new__), typ);
+    obj = _PyObject_CallMethodIdOneArg(typ, (_Py_Identifier *)&_Py_ID(__new__), typ);
     if (obj == NULL)
         return NULL;
 
-    meth = _PyObject_GetAttrId(obj, &_Py_ID(__setstate__));
+    meth = _PyObject_GetAttrId(obj, (_Py_Identifier *)&_Py_ID(__setstate__));
     if (meth == NULL) {
         goto error;
     }

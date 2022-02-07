@@ -184,7 +184,7 @@ meth_reduce(PyCFunctionObject *m, PyObject *Py_UNUSED(ignored))
     if (m->m_self == NULL || PyModule_Check(m->m_self))
         return PyUnicode_FromString(m->m_ml->ml_name);
 
-    return Py_BuildValue("N(Os)", _PyEval_GetBuiltinId(&_Py_ID(getattr)),
+    return Py_BuildValue("N(Os)", _PyEval_GetBuiltinId((_Py_Identifier *)&_Py_ID(getattr)),
                          m->m_self, m->m_ml->ml_name);
 }
 
@@ -230,7 +230,7 @@ meth_get__qualname__(PyCFunctionObject *m, void *closure)
 
     type = PyType_Check(m->m_self) ? m->m_self : (PyObject*)Py_TYPE(m->m_self);
 
-    type_qualname = _PyObject_GetAttrId(type, &_Py_ID(__qualname__));
+    type_qualname = _PyObject_GetAttrId(type, (_Py_Identifier *)&_Py_ID(__qualname__));
     if (type_qualname == NULL)
         return NULL;
 

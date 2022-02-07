@@ -44,11 +44,11 @@ get_type_attr_as_size(PyTypeObject *tp, _Py_Identifier *id)
 }
 
 #define VISIBLE_SIZE(op) Py_SIZE(op)
-#define VISIBLE_SIZE_TP(tp) get_type_attr_as_size(tp, &_Py_ID(n_sequence_fields))
-#define REAL_SIZE_TP(tp) get_type_attr_as_size(tp, &_Py_ID(n_fields))
+#define VISIBLE_SIZE_TP(tp) get_type_attr_as_size(tp, (_Py_Identifier *)&_Py_ID(n_sequence_fields))
+#define REAL_SIZE_TP(tp) get_type_attr_as_size(tp, (_Py_Identifier *)&_Py_ID(n_fields))
 #define REAL_SIZE(op) REAL_SIZE_TP(Py_TYPE(op))
 
-#define UNNAMED_FIELDS_TP(tp) get_type_attr_as_size(tp, &_Py_ID(n_unnamed_fields))
+#define UNNAMED_FIELDS_TP(tp) get_type_attr_as_size(tp, (_Py_Identifier *)&_Py_ID(n_unnamed_fields))
 #define UNNAMED_FIELDS(op) UNNAMED_FIELDS_TP(Py_TYPE(op))
 
 
@@ -632,9 +632,9 @@ PyStatus _PyStructSequence_InitState(PyInterpreterState *interp)
         return _PyStatus_OK();
     }
 
-    if (_PyUnicode_FromId(&_Py_ID(n_sequence_fields)) == NULL
-        || _PyUnicode_FromId(&_Py_ID(n_fields)) == NULL
-        || _PyUnicode_FromId(&_Py_ID(n_unnamed_fields)) == NULL)
+    if (_PyUnicode_FromId((_Py_Identifier *)&_Py_ID(n_sequence_fields)) == NULL
+        || _PyUnicode_FromId((_Py_Identifier *)&_Py_ID(n_fields)) == NULL
+        || _PyUnicode_FromId((_Py_Identifier *)&_Py_ID(n_unnamed_fields)) == NULL)
     {
         return _PyStatus_ERR("can't initialize structseq state");
     }

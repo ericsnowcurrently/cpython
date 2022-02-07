@@ -465,13 +465,13 @@ fp_setreadl(struct tok_state *tok, const char* enc)
     if (io == NULL)
         return 0;
 
-    stream = _PyObject_CallMethodId(io, &_Py_ID(open), "isisOOO",
+    stream = _PyObject_CallMethodId(io, (_Py_Identifier *)&_Py_ID(open), "isisOOO",
                     fd, "r", -1, enc, Py_None, Py_None, Py_False);
     Py_DECREF(io);
     if (stream == NULL)
         return 0;
 
-    readline = _PyObject_GetAttrId(stream, &_Py_ID(readline));
+    readline = _PyObject_GetAttrId(stream, (_Py_Identifier *)&_Py_ID(readline));
     Py_DECREF(stream);
     if (readline == NULL)
         return 0;

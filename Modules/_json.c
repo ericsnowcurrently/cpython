@@ -317,13 +317,13 @@ raise_errmsg(const char *msg, PyObject *s, Py_ssize_t end)
 {
     /* Use JSONDecodeError exception to raise a nice looking ValueError subclass */
     _Py_static_string(decoder, "json.decoder");
-    PyObject *decoder = _PyImport_GetModuleId(&_Py_ID(decoder));
+    PyObject *decoder = _PyImport_GetModuleId((_Py_Identifier *)&_Py_ID(decoder));
     if (decoder == NULL) {
         return;
     }
 
     _Py_IDENTIFIER(JSONDecodeError);
-    PyObject *JSONDecodeError = _PyObject_GetAttrId(decoder, &_Py_ID(JSONDecodeError));
+    PyObject *JSONDecodeError = _PyObject_GetAttrId(decoder, (_Py_Identifier *)&_Py_ID(JSONDecodeError));
     Py_DECREF(decoder);
     if (JSONDecodeError == NULL) {
         return;
@@ -1311,24 +1311,24 @@ _encoded_const(PyObject *obj)
 {
     /* Return the JSON string representation of None, True, False */
     if (obj == Py_None) {
-        _Py_static_string(null, "null");
-        PyObject *s_null = _PyUnicode_FromId(&_Py_ID(null));
+        _Py_static_string(_null, "null");
+        PyObject *s_null = _PyUnicode_FromId((_Py_Identifier *)&_Py_ID(_null));
         if (s_null == NULL) {
             return NULL;
         }
         return Py_NewRef(s_null);
     }
     else if (obj == Py_True) {
-        _Py_static_string(true, "true");
-        PyObject *s_true = _PyUnicode_FromId(&_Py_ID(true));
+        _Py_static_string(_true, "true");
+        PyObject *s_true = _PyUnicode_FromId((_Py_Identifier *)&_Py_ID(_true));
         if (s_true == NULL) {
             return NULL;
         }
         return Py_NewRef(s_true);
     }
     else if (obj == Py_False) {
-        _Py_static_string(false, "false");
-        PyObject *s_false = _PyUnicode_FromId(&_Py_ID(false));
+        _Py_static_string(_false, "false");
+        PyObject *s_false = _PyUnicode_FromId((_Py_Identifier *)&_Py_ID(_false));
         if (s_false == NULL) {
             return NULL;
         }
@@ -1499,9 +1499,9 @@ encoder_listencode_dict(PyEncoderObject *s, _PyAccu *acc,
     _Py_static_string(open_dict, "{");
     _Py_static_string(close_dict, "}");
     _Py_static_string(empty_dict, "{}");
-    PyObject *open_dict = _PyUnicode_FromId(&_Py_ID(open_dict));    // borrowed ref
-    PyObject *close_dict = _PyUnicode_FromId(&_Py_ID(close_dict));  // borrowed ref
-    PyObject *empty_dict = _PyUnicode_FromId(&_Py_ID(empty_dict));  // borrowed ref
+    PyObject *open_dict = _PyUnicode_FromId((_Py_Identifier *)&_Py_ID(open_dict));    // borrowed ref
+    PyObject *close_dict = _PyUnicode_FromId((_Py_Identifier *)&_Py_ID(close_dict));  // borrowed ref
+    PyObject *empty_dict = _PyUnicode_FromId((_Py_Identifier *)&_Py_ID(empty_dict));  // borrowed ref
     PyObject *kstr = NULL;
     PyObject *ident = NULL;
     PyObject *it = NULL;
@@ -1655,9 +1655,9 @@ encoder_listencode_list(PyEncoderObject *s, _PyAccu *acc,
     _Py_static_string(open_array, "[");
     _Py_static_string(close_array, "]");
     _Py_static_string(empty_array, "[]");
-    PyObject *open_array = _PyUnicode_FromId(&_Py_ID(open_array));   // borrowed ref
-    PyObject *close_array = _PyUnicode_FromId(&_Py_ID(close_array)); // borrowed ref
-    PyObject *empty_array = _PyUnicode_FromId(&_Py_ID(empty_array)); // borrowed ref
+    PyObject *open_array = _PyUnicode_FromId((_Py_Identifier *)&_Py_ID(open_array));   // borrowed ref
+    PyObject *close_array = _PyUnicode_FromId((_Py_Identifier *)&_Py_ID(close_array)); // borrowed ref
+    PyObject *empty_array = _PyUnicode_FromId((_Py_Identifier *)&_Py_ID(empty_array)); // borrowed ref
     PyObject *ident = NULL;
     PyObject *s_fast = NULL;
     Py_ssize_t i;

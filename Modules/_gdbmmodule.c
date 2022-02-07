@@ -545,7 +545,7 @@ static PyObject *
 gdbm__exit__(PyObject *self, PyObject *args)
 {
     _Py_IDENTIFIER(close);
-    return _PyObject_CallMethodIdNoArgs(self, &_Py_ID(close));
+    return _PyObject_CallMethodIdNoArgs(self, (_Py_Identifier *)&_Py_ID(close));
 }
 
 static PyMethodDef gdbm_methods[] = {

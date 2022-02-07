@@ -27,15 +27,32 @@ extern "C" {
    _PyObject_{Get,Set,Has}AttrId are __getattr__ versions using _Py_Identifier*.
 */
 typedef struct _Py_Identifier {
-    const char* string;
-    // Index in PyInterpreterState.unicode.ids.array. It is process-wide
-    // unique and must be initialized to -1.
-    Py_ssize_t index;
+    PyASCIIObject _ascii;
+    const uint8_t string[256];  // an arbitrary size; must be big enough
 } _Py_Identifier;
+#define _Py_static_string_decl(varname, value) \
+    struct _Py_Identifier_##varname { \
+        PyASCIIObject _ascii; \
+        const uint8_t string[sizeof(value)]; \
+    } PyId_##varname
 
-#define _Py_static_string_init(value) { .string = value, .index = -1 }
+#define _Py_static_string_init(value) \
+    { \
+        ._ascii = { \
+            .ob_base = _PyObject_IMMORTAL_INIT(&PyUnicode_Type), \
+            .length = sizeof(value) - 1, \
+            .hash = -1, \
+            .state = { \
+                .kind = 1, \
+                .compact = 1, \
+                .ascii = 1, \
+                .ready = 1, \
+            }, \
+        }, \
+        .string = value, \
+    }
 #define _Py_static_string(varname, value) \
-    static _Py_Identifier PyId_##varname = _Py_static_string_init(value)
+    static _Py_static_string_decl(varname, value) = _Py_static_string_init(value)
 #define _Py_IDENTIFIER(varname) _Py_static_string(varname, #varname)
 
 #define _Py_ID(varname) PyId_##varname

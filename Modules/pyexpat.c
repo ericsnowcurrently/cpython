@@ -826,7 +826,7 @@ pyexpat_xmlparser_ParseFile_impl(xmlparseobject *self, PyTypeObject *cls,
 
     pyexpat_state *state = PyType_GetModuleState(cls);
 
-    if (_PyObject_LookupAttrId(file, &_Py_ID(read), &readmethod) < 0) {
+    if (_PyObject_LookupAttrId(file, (_Py_Identifier *)&_Py_ID(read), &readmethod) < 0) {
         return NULL;
     }
     if (readmethod == NULL) {

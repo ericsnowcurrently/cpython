@@ -562,7 +562,7 @@ PyObject_Bytes(PyObject *v)
         return v;
     }
 
-    func = _PyObject_LookupSpecial(v, &_Py_ID(__bytes__));
+    func = _PyObject_LookupSpecial(v, (_Py_Identifier *)&_Py_ID(__bytes__));
     if (func != NULL) {
         result = _PyObject_CallNoArgs(func);
         Py_DECREF(func);
@@ -605,7 +605,7 @@ _PyObject_FunctionStr(PyObject *x)
     _Py_IDENTIFIER(builtins);
     assert(!PyErr_Occurred());
     PyObject *qualname;
-    int ret = _PyObject_LookupAttrId(x, &_Py_ID(__qualname__), &qualname);
+    int ret = _PyObject_LookupAttrId(x, (_Py_Identifier *)&_Py_ID(__qualname__), &qualname);
     if (qualname == NULL) {
         if (ret < 0) {
             return NULL;
@@ -614,9 +614,9 @@ _PyObject_FunctionStr(PyObject *x)
     }
     PyObject *module;
     PyObject *result = NULL;
-    ret = _PyObject_LookupAttrId(x, &_Py_ID(__module__), &module);
+    ret = _PyObject_LookupAttrId(x, (_Py_Identifier *)&_Py_ID(__module__), &module);
     if (module != NULL && module != Py_None) {
-        PyObject *builtinsname = _PyUnicode_FromId(&_Py_ID(builtins));
+        PyObject *builtinsname = _PyUnicode_FromId((_Py_Identifier *)&_Py_ID(builtins));
         if (builtinsname == NULL) {
             goto done;
         }
@@ -858,7 +858,7 @@ _PyObject_IsAbstract(PyObject *obj)
     if (obj == NULL)
         return 0;
 
-    res = _PyObject_LookupAttrId(obj, &_Py_ID(__isabstractmethod__), &isabstract);
+    res = _PyObject_LookupAttrId(obj, (_Py_Identifier *)&_Py_ID(__isabstractmethod__), &isabstract);
     if (res > 0) {
         res = PyObject_IsTrue(isabstract);
         Py_DECREF(isabstract);
@@ -901,8 +901,8 @@ set_attribute_error_context(PyObject* v, PyObject* name)
         PyErr_Fetch(&type, &value, &traceback);
         PyErr_NormalizeException(&type, &value, &traceback);
         if (PyErr_GivenExceptionMatches(value, PyExc_AttributeError) &&
-            (_PyObject_SetAttrId(value, &_Py_ID(name), name) ||
-             _PyObject_SetAttrId(value, &_Py_ID(obj), v))) {
+            (_PyObject_SetAttrId(value, (_Py_Identifier *)&_Py_ID(name), name) ||
+             _PyObject_SetAttrId(value, (_Py_Identifier *)&_Py_ID(obj), v))) {
             return 1;
         }
         PyErr_Restore(type, value, traceback);
@@ -1569,7 +1569,7 @@ static PyObject *
 _dir_object(PyObject *obj)
 {
     PyObject *result, *sorted;
-    PyObject *dirfunc = _PyObject_LookupSpecial(obj, &_Py_ID(__dir__));
+    PyObject *dirfunc = _PyObject_LookupSpecial(obj, (_Py_Identifier *)&_Py_ID(__dir__));
 
     assert(obj != NULL);
     if (dirfunc == NULL) {
@@ -2148,7 +2148,7 @@ Py_ReprEnter(PyObject *obj)
        early on startup. */
     if (dict == NULL)
         return 0;
-    list = _PyDict_GetItemIdWithError(dict, &_Py_ID(Py_Repr));
+    list = _PyDict_GetItemIdWithError(dict, (_Py_Identifier *)&_Py_ID(Py_Repr));
     if (list == NULL) {
         if (PyErr_Occurred()) {
             return -1;
@@ -2156,7 +2156,7 @@ Py_ReprEnter(PyObject *obj)
         list = PyList_New(0);
         if (list == NULL)
             return -1;
-        if (_PyDict_SetItemId(dict, &_Py_ID(Py_Repr), list) < 0)
+        if (_PyDict_SetItemId(dict, (_Py_Identifier *)&_Py_ID(Py_Repr), list) < 0)
             return -1;
         Py_DECREF(list);
     }
@@ -2184,7 +2184,7 @@ Py_ReprLeave(PyObject *obj)
     if (dict == NULL)
         goto finally;
 
-    list = _PyDict_GetItemIdWithError(dict, &_Py_ID(Py_Repr));
+    list = _PyDict_GetItemIdWithError(dict, (_Py_Identifier *)&_Py_ID(Py_Repr));
     if (list == NULL || !PyList_Check(list))
         goto finally;
 

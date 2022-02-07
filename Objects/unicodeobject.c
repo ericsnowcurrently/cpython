@@ -2348,60 +2348,8 @@ PyUnicode_FromString(const char *u)
 PyObject *
 _PyUnicode_FromId(_Py_Identifier *id)
 {
-    PyInterpreterState *interp = _PyInterpreterState_GET();
-    struct _Py_unicode_ids *ids = &interp->unicode.ids;
-
-    Py_ssize_t index = _Py_atomic_size_get(&id->index);
-    if (index < 0) {
-        struct _Py_unicode_runtime_ids *rt_ids = &interp->runtime->unicode_ids;
-
-        PyThread_acquire_lock(rt_ids->lock, WAIT_LOCK);
-        // Check again to detect concurrent access. Another thread can have
-        // initialized the index while this thread waited for the lock.
-        index = _Py_atomic_size_get(&id->index);
-        if (index < 0) {
-            assert(rt_ids->next_index < PY_SSIZE_T_MAX);
-            index = rt_ids->next_index;
-            rt_ids->next_index++;
-            _Py_atomic_size_set(&id->index, index);
-        }
-        PyThread_release_lock(rt_ids->lock);
-    }
-    assert(index >= 0);
-
-    PyObject *obj;
-    if (index < ids->size) {
-        obj = ids->array[index];
-        if (obj) {
-            // Return a borrowed reference
-            return obj;
-        }
-    }
-
-    obj = PyUnicode_DecodeUTF8Stateful(id->string, strlen(id->string),
-                                       NULL, NULL);
-    if (!obj) {
-        return NULL;
-    }
+    PyObject *obj = &id->_ascii.ob_base;
     PyUnicode_InternInPlace(&obj);
-
-    if (index >= ids->size) {
-        // Overallocate to reduce the number of realloc
-        Py_ssize_t new_size = Py_MAX(index * 2, 16);
-        Py_ssize_t item_size = sizeof(ids->array[0]);
-        PyObject **new_array = PyMem_Realloc(ids->array, new_size * item_size);
-        if (new_array == NULL) {
-            PyErr_NoMemory();
-            return NULL;
-        }
-        memset(&new_array[ids->size], 0, (new_size - ids->size) * item_size);
-        ids->array = new_array;
-        ids->size = new_size;
-    }
-
-    // The array stores a strong reference
-    ids->array[index] = obj;
-
     // Return a borrowed reference
     return obj;
 }
@@ -11327,12 +11275,13 @@ _PyUnicode_EqualToASCIIString(PyObject *unicode, const char *str)
 int
 _PyUnicode_EqualToASCIIId(PyObject *left, _Py_Identifier *right)
 {
+    const char *right_str = (const char *)right->string;
     PyObject *right_uni;
 
     assert(_PyUnicode_CHECK(left));
-    assert(right->string);
+    assert(right_str);
 #ifndef NDEBUG
-    for (const char *p = right->string; *p; p++) {
+    for (const char *p = right_str; *p; p++) {
         assert((unsigned char)*p < 128);
     }
 #endif
@@ -11340,7 +11289,7 @@ _PyUnicode_EqualToASCIIId(PyObject *left, _Py_Identifier *right)
     if (PyUnicode_READY(left) == -1) {
         /* memory error or bad data */
         PyErr_Clear();
-        return non_ready_unicode_equal_to_ascii_string(left, right->string);
+        return non_ready_unicode_equal_to_ascii_string(left, right_str);
     }
 
     if (!PyUnicode_IS_ASCII(left))
@@ -11350,7 +11299,7 @@ _PyUnicode_EqualToASCIIId(PyObject *left, _Py_Identifier *right)
     if (right_uni == NULL) {
         /* memory error or bad data */
         PyErr_Clear();
-        return _PyUnicode_EqualToASCIIString(left, right->string);
+        return _PyUnicode_EqualToASCIIString(left, right_str);
     }
 
     if (left == right_uni)
@@ -15800,13 +15749,16 @@ unicodeiter_reduce(unicodeiterobject *it, PyObject *Py_UNUSED(ignored))
 {
     _Py_IDENTIFIER(iter);
     if (it->it_seq != NULL) {
-        return Py_BuildValue("N(O)n", _PyEval_GetBuiltinId(&_Py_ID(iter)),
+        return Py_BuildValue("N(O)n", _PyEval_GetBuiltinId(
+                                        (_Py_Identifier *)&_Py_ID(iter)),
                              it->it_seq, it->it_index);
     } else {
         PyObject *u = (PyObject *)_PyUnicode_New(0);
         if (u == NULL)
             return NULL;
-        return Py_BuildValue("N(N)", _PyEval_GetBuiltinId(&_Py_ID(iter)), u);
+        return Py_BuildValue("N(N)", _PyEval_GetBuiltinId(
+                                        (_Py_Identifier *)&_Py_ID(iter)),
+                             u);
     }
 }
 

@@ -148,7 +148,7 @@ _io_FileIO_close_impl(fileio *self)
     int rc;
     _Py_IDENTIFIER(close);
     res = _PyObject_CallMethodIdOneArg((PyObject*)&PyRawIOBase_Type,
-                                       &_Py_ID(close), (PyObject *)self);
+                                       (_Py_Identifier *)&_Py_ID(close), (PyObject *)self);
     if (!self->closefd) {
         self->fd = -1;
         return res;
@@ -476,7 +476,7 @@ _Py_COMP_DIAG_POP
     _setmode(self->fd, O_BINARY);
 #endif
 
-    if (_PyObject_SetAttrId((PyObject *)self, &_Py_ID(name), nameobj) < 0)
+    if (_PyObject_SetAttrId((PyObject *)self, (_Py_Identifier *)&_Py_ID(name), nameobj) < 0)
         goto error;
 
     if (self->appending) {
@@ -1085,7 +1085,7 @@ fileio_repr(fileio *self)
     if (self->fd < 0)
         return PyUnicode_FromFormat("<_io.FileIO [closed]>");
 
-    if (_PyObject_LookupAttrId((PyObject *) self, &_Py_ID(name), &nameobj) < 0) {
+    if (_PyObject_LookupAttrId((PyObject *) self, (_Py_Identifier *)&_Py_ID(name), &nameobj) < 0) {
         return NULL;
     }
     if (nameobj == NULL) {

@@ -186,7 +186,7 @@ pysqlite_register_converter_impl(PyObject *module, PyObject *orig_name,
     _Py_IDENTIFIER(upper);
 
     /* convert the name to upper case */
-    name = _PyObject_CallMethodIdNoArgs(orig_name, &_Py_ID(upper));
+    name = _PyObject_CallMethodIdNoArgs(orig_name, (_Py_Identifier *)&_Py_ID(upper));
     if (!name) {
         goto error;
     }

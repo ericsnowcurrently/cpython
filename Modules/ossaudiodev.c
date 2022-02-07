@@ -543,7 +543,7 @@ oss_exit(PyObject *self, PyObject *unused)
 {
     _Py_IDENTIFIER(close);
 
-    PyObject *ret = _PyObject_CallMethodIdNoArgs(self, &_Py_ID(close));
+    PyObject *ret = _PyObject_CallMethodIdNoArgs(self, (_Py_Identifier *)&_Py_ID(close));
     if (!ret)
         return NULL;
     Py_DECREF(ret);

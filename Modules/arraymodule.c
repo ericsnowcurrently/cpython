@@ -1490,7 +1490,7 @@ array_array_fromfile_impl(arrayobject *self, PyObject *f, Py_ssize_t n)
     }
     nbytes = n * itemsize;
 
-    b = _PyObject_CallMethodId(f, &_Py_ID(read), "n", nbytes);
+    b = _PyObject_CallMethodId(f, (_Py_Identifier *)&_Py_ID(read), "n", nbytes);
     if (b == NULL)
         return NULL;
 
@@ -1552,7 +1552,7 @@ array_array_tofile(arrayobject *self, PyObject *f)
         bytes = PyBytes_FromStringAndSize(ptr, size);
         if (bytes == NULL)
             return NULL;
-        res = _PyObject_CallMethodIdOneArg(f, &_Py_ID(write), bytes);
+        res = _PyObject_CallMethodIdOneArg(f, (_Py_Identifier *)&_Py_ID(write), bytes);
         Py_DECREF(bytes);
         if (res == NULL)
             return NULL;
@@ -2201,7 +2201,7 @@ array_array___reduce_ex__(arrayobject *self, PyObject *value)
             return NULL;
         array_reconstructor = _PyObject_GetAttrId(
             array_module,
-            &_Py_ID(_array_reconstructor));
+            (_Py_Identifier *)&_Py_ID(_array_reconstructor));
         Py_DECREF(array_module);
         if (array_reconstructor == NULL)
             return NULL;
@@ -2216,7 +2216,7 @@ array_array___reduce_ex__(arrayobject *self, PyObject *value)
     if (protocol == -1 && PyErr_Occurred())
         return NULL;
 
-    if (_PyObject_LookupAttrId((PyObject *)self, &_Py_ID(__dict__), &dict) < 0) {
+    if (_PyObject_LookupAttrId((PyObject *)self, (_Py_Identifier *)&_Py_ID(__dict__), &dict) < 0) {
         return NULL;
     }
     if (dict == NULL) {
@@ -2946,7 +2946,7 @@ array_arrayiterator___reduce___impl(arrayiterobject *self)
 /*[clinic end generated code: output=7898a52e8e66e016 input=a062ea1e9951417a]*/
 {
     _Py_IDENTIFIER(iter);
-    PyObject *func = _PyEval_GetBuiltinId(&_Py_ID(iter));
+    PyObject *func = _PyEval_GetBuiltinId((_Py_Identifier *)&_Py_ID(iter));
     if (self->ao == NULL) {
         return Py_BuildValue("N(())", func);
     }

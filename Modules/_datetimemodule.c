@@ -1239,7 +1239,7 @@ call_tzname(PyObject *tzinfo, PyObject *tzinfoarg)
     if (tzinfo == Py_None)
         Py_RETURN_NONE;
 
-    result = _PyObject_CallMethodIdOneArg(tzinfo, &_Py_ID(tzname), tzinfoarg);
+    result = _PyObject_CallMethodIdOneArg(tzinfo, (_Py_Identifier *)&_Py_ID(tzname), tzinfoarg);
 
     if (result == NULL || result == Py_None)
         return result;
@@ -1441,7 +1441,7 @@ make_Zreplacement(PyObject *object, PyObject *tzinfoarg)
      * strftime doesn't treat them as format codes.
      */
     Py_DECREF(Zreplacement);
-    Zreplacement = _PyObject_CallMethodId(temp, &_Py_ID(replace), "ss", "%", "%%");
+    Zreplacement = _PyObject_CallMethodId(temp, (_Py_Identifier *)&_Py_ID(replace), "ss", "%", "%%");
     Py_DECREF(temp);
     if (Zreplacement == NULL)
         return NULL;
@@ -1631,7 +1631,7 @@ wrap_strftime(PyObject *object, PyObject *format, PyObject *timetuple,
             goto Done;
         format = PyUnicode_FromString(PyBytes_AS_STRING(newfmt));
         if (format != NULL) {
-            result = _PyObject_CallMethodIdObjArgs(time, &_Py_ID(strftime),
+            result = _PyObject_CallMethodIdObjArgs(time, (_Py_Identifier *)&_Py_ID(strftime),
                                                    format, timetuple, NULL);
             Py_DECREF(format);
         }
@@ -1660,7 +1660,7 @@ time_time(void)
     if (time != NULL) {
         _Py_IDENTIFIER(time);
 
-        result = _PyObject_CallMethodIdNoArgs(time, &_Py_ID(time));
+        result = _PyObject_CallMethodIdNoArgs(time, (_Py_Identifier *)&_Py_ID(time));
         Py_DECREF(time);
     }
     return result;
@@ -1694,7 +1694,7 @@ build_struct_time(int y, int m, int d, int hh, int mm, int ss, int dstflag)
         return NULL;
     }
 
-    result = _PyObject_CallMethodIdOneArg(time, &_Py_ID(struct_time), args);
+    result = _PyObject_CallMethodIdOneArg(time, (_Py_Identifier *)&_Py_ID(struct_time), args);
     Py_DECREF(time);
     Py_DECREF(args);
     return result;
@@ -1918,7 +1918,7 @@ get_float_as_integer_ratio(PyObject *floatobj)
     PyObject *ratio;
 
     assert(floatobj && PyFloat_Check(floatobj));
-    ratio = _PyObject_CallMethodIdNoArgs(floatobj, &_Py_ID(as_integer_ratio));
+    ratio = _PyObject_CallMethodIdNoArgs(floatobj, (_Py_Identifier *)&_Py_ID(as_integer_ratio));
     if (ratio == NULL) {
         return NULL;
     }
@@ -2893,7 +2893,7 @@ date_today(PyObject *cls, PyObject *dummy)
      * time.time() delivers; if someone were gonzo about optimization,
      * date.today() could get away with plain C time().
      */
-    result = _PyObject_CallMethodIdOneArg(cls, &_Py_ID(fromtimestamp), time);
+    result = _PyObject_CallMethodIdOneArg(cls, (_Py_Identifier *)&_Py_ID(fromtimestamp), time);
     Py_DECREF(time);
     return result;
 }
@@ -3160,7 +3160,7 @@ date_isoformat(PyDateTime_Date *self, PyObject *Py_UNUSED(ignored))
 static PyObject *
 date_str(PyDateTime_Date *self)
 {
-    return _PyObject_CallMethodIdNoArgs((PyObject *)self, &_Py_ID(isoformat));
+    return _PyObject_CallMethodIdNoArgs((PyObject *)self, (_Py_Identifier *)&_Py_ID(isoformat));
 }
 
 
@@ -3186,7 +3186,7 @@ date_strftime(PyDateTime_Date *self, PyObject *args, PyObject *kw)
                                       &format))
         return NULL;
 
-    tuple = _PyObject_CallMethodIdNoArgs((PyObject *)self, &_Py_ID(timetuple));
+    tuple = _PyObject_CallMethodIdNoArgs((PyObject *)self, (_Py_Identifier *)&_Py_ID(timetuple));
     if (tuple == NULL)
         return NULL;
     result = wrap_strftime((PyObject *)self, format, tuple,
@@ -3207,7 +3207,7 @@ date_format(PyDateTime_Date *self, PyObject *args)
     if (PyUnicode_GetLength(format) == 0)
         return PyObject_Str((PyObject *)self);
 
-    return _PyObject_CallMethodIdOneArg((PyObject *)self, &_Py_ID(strftime),
+    return _PyObject_CallMethodIdOneArg((PyObject *)self, (_Py_Identifier *)&_Py_ID(strftime),
                                         format);
 }
 
@@ -3739,7 +3739,7 @@ tzinfo_reduce(PyObject *self, PyObject *Py_UNUSED(ignored))
     _Py_IDENTIFIER(__getinitargs__);
     _Py_IDENTIFIER(__getstate__);
 
-    if (_PyObject_LookupAttrId(self, &_Py_ID(__getinitargs__), &getinitargs) < 0) {
+    if (_PyObject_LookupAttrId(self, (_Py_Identifier *)&_Py_ID(__getinitargs__), &getinitargs) < 0) {
         return NULL;
     }
     if (getinitargs != NULL) {
@@ -3753,7 +3753,7 @@ tzinfo_reduce(PyObject *self, PyObject *Py_UNUSED(ignored))
         return NULL;
     }
 
-    if (_PyObject_LookupAttrId(self, &_Py_ID(__getstate__), &getstate) < 0) {
+    if (_PyObject_LookupAttrId(self, (_Py_Identifier *)&_Py_ID(__getstate__), &getstate) < 0) {
         Py_DECREF(args);
         return NULL;
     }
@@ -4305,7 +4305,7 @@ time_repr(PyDateTime_Time *self)
 static PyObject *
 time_str(PyDateTime_Time *self)
 {
-    return _PyObject_CallMethodIdNoArgs((PyObject *)self, &_Py_ID(isoformat));
+    return _PyObject_CallMethodIdNoArgs((PyObject *)self, (_Py_Identifier *)&_Py_ID(isoformat));
 }
 
 static PyObject *
@@ -5095,7 +5095,7 @@ datetime_datetime_now_impl(PyTypeObject *type, PyObject *tz)
                                   tz);
     if (self != NULL && tz != Py_None) {
         /* Convert UTC to tzinfo's zone. */
-        self = _PyObject_CallMethodId(tz, &_Py_ID(fromutc), "N", self);
+        self = _PyObject_CallMethodId(tz, (_Py_Identifier *)&_Py_ID(fromutc), "N", self);
     }
     return self;
 }
@@ -5131,7 +5131,7 @@ datetime_fromtimestamp(PyObject *cls, PyObject *args, PyObject *kw)
                                    tzinfo);
     if (self != NULL && tzinfo != Py_None) {
         /* Convert UTC to tzinfo's zone. */
-        self = _PyObject_CallMethodId(tzinfo, &_Py_ID(fromutc), "N", self);
+        self = _PyObject_CallMethodId(tzinfo, (_Py_Identifier *)&_Py_ID(fromutc), "N", self);
     }
     return self;
 }
@@ -5165,7 +5165,7 @@ datetime_strptime(PyObject *cls, PyObject *args)
         if (module == NULL)
             return NULL;
     }
-    return _PyObject_CallMethodIdObjArgs(module, &_Py_ID(_strptime_datetime),
+    return _PyObject_CallMethodIdObjArgs(module, (_Py_Identifier *)&_Py_ID(_strptime_datetime),
                                          cls, string, format, NULL);
 }
 
@@ -5539,7 +5539,7 @@ datetime_repr(PyDateTime_DateTime *self)
 static PyObject *
 datetime_str(PyDateTime_DateTime *self)
 {
-    return _PyObject_CallMethodId((PyObject *)self, &_Py_ID(isoformat), "s", " ");
+    return _PyObject_CallMethodId((PyObject *)self, (_Py_Identifier *)&_Py_ID(isoformat), "s", " ");
 }
 
 static PyObject *
@@ -6093,7 +6093,7 @@ datetime_astimezone(PyDateTime_DateTime *self, PyObject *args, PyObject *kw)
 
     temp = (PyObject *)result;
     result = (PyDateTime_DateTime *)
-        _PyObject_CallMethodIdOneArg(tzinfo, &_Py_ID(fromutc), temp);
+        _PyObject_CallMethodIdOneArg(tzinfo, (_Py_Identifier *)&_Py_ID(fromutc), temp);
     Py_DECREF(temp);
 
     return result;

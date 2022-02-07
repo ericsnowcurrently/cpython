@@ -57,12 +57,12 @@ ga_repr_item(_PyUnicodeWriter *writer, PyObject *p)
         goto done;
     }
 
-    if (_PyObject_LookupAttrId(p, &_Py_ID(__origin__), &tmp) < 0) {
+    if (_PyObject_LookupAttrId(p, (_Py_Identifier *)&_Py_ID(__origin__), &tmp) < 0) {
         goto done;
     }
     if (tmp != NULL) {
         Py_DECREF(tmp);
-        if (_PyObject_LookupAttrId(p, &_Py_ID(__args__), &tmp) < 0) {
+        if (_PyObject_LookupAttrId(p, (_Py_Identifier *)&_Py_ID(__args__), &tmp) < 0) {
             goto done;
         }
         if (tmp != NULL) {
@@ -72,13 +72,13 @@ ga_repr_item(_PyUnicodeWriter *writer, PyObject *p)
         }
     }
 
-    if (_PyObject_LookupAttrId(p, &_Py_ID(__qualname__), &qualname) < 0) {
+    if (_PyObject_LookupAttrId(p, (_Py_Identifier *)&_Py_ID(__qualname__), &qualname) < 0) {
         goto done;
     }
     if (qualname == NULL) {
         goto use_repr;
     }
-    if (_PyObject_LookupAttrId(p, &_Py_ID(__module__), &module) < 0) {
+    if (_PyObject_LookupAttrId(p, (_Py_Identifier *)&_Py_ID(__module__), &module) < 0) {
         goto done;
     }
     if (module == NULL || module == Py_None) {
@@ -220,7 +220,7 @@ _Py_make_parameters(PyObject *args)
         else {
             _Py_IDENTIFIER(__parameters__);
             PyObject *subparams;
-            if (_PyObject_LookupAttrId(t, &_Py_ID(__parameters__), &subparams) < 0) {
+            if (_PyObject_LookupAttrId(t, (_Py_Identifier *)&_Py_ID(__parameters__), &subparams) < 0) {
                 Py_DECREF(parameters);
                 return NULL;
             }
@@ -262,7 +262,7 @@ subs_tvars(PyObject *obj, PyObject *params, PyObject **argitems)
 {
     _Py_IDENTIFIER(__parameters__);
     PyObject *subparams;
-    if (_PyObject_LookupAttrId(obj, &_Py_ID(__parameters__), &subparams) < 0) {
+    if (_PyObject_LookupAttrId(obj, (_Py_Identifier *)&_Py_ID(__parameters__), &subparams) < 0) {
         return NULL;
     }
     if (subparams && PyTuple_Check(subparams) && PyTuple_GET_SIZE(subparams)) {
