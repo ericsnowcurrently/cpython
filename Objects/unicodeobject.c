@@ -14576,6 +14576,12 @@ _PyUnicode_InitGlobalObjects(PyInterpreterState *interp)
         return _PyStatus_OK();
     }
 
+    assert(interned == NULL);
+    interned = PyDict_New();
+    if (interned == NULL) {
+        return _PyStatus_ERR("Can't initialize interned strings dict");
+    }
+
 #ifdef Py_DEBUG
     assert(_PyUnicode_CheckConsistency(&_Py_STR(empty), 1));
 
@@ -14623,6 +14629,7 @@ PyUnicode_InternInPlace(PyObject **p)
         return;
     }
 #endif
+    assert(interned != NULL);
 
     /* If it's a subclass, we don't really know what putting
        it in the interned dict might do. */
@@ -14632,14 +14639,6 @@ PyUnicode_InternInPlace(PyObject **p)
 
     if (PyUnicode_CHECK_INTERNED(s)) {
         return;
-    }
-
-    if (interned == NULL) {
-        interned = PyDict_New();
-        if (interned == NULL) {
-            PyErr_Clear(); /* Don't leave an exception */
-            return;
-        }
     }
 
     PyObject *t = PyDict_SetDefault(interned, s, s);
