@@ -45,6 +45,7 @@ struct _Py_global_objects {
         _PyGC_Head_UNUSED _tuple_empty_gc_not_used;
         PyTupleObject tuple_empty;
     } singletons;
+    PyDictObject *interned_strings;  // XXX Statically allocate?
 };
 
 

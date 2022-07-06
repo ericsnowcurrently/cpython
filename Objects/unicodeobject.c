@@ -198,7 +198,8 @@ extern "C" {
    Another way to look at this is that to say that the actual reference
    count of a string is:  s->ob_refcnt + (s->state ? 2 : 0)
 */
-static PyObject *interned = NULL;
+#define _INTERNED _Py_GLOBAL_OBJECT(interned_strings)
+#define INTERNED ((PyObject *)_INTERNED)
 
 /* Forward declaration */
 static inline int
@@ -1531,7 +1532,7 @@ unicode_dealloc(PyObject *unicode)
            PyDict_DelItem(). */
         assert(Py_REFCNT(unicode) == 0);
         Py_SET_REFCNT(unicode, 3);
-        if (PyDict_DelItem(interned, unicode) != 0) {
+        if (PyDict_DelItem(INTERNED, unicode) != 0) {
             _PyErr_WriteUnraisableMsg("deletion of interned string failed",
                                       NULL);
         }
@@ -14576,9 +14577,9 @@ _PyUnicode_InitGlobalObjects(PyInterpreterState *interp)
         return _PyStatus_OK();
     }
 
-    assert(interned == NULL);
-    interned = PyDict_New();
-    if (interned == NULL) {
+    assert(_INTERNED == NULL);
+    _INTERNED = (PyDictObject *)PyDict_New();
+    if (_INTERNED == NULL) {
         return _PyStatus_ERR("Can't initialize interned strings dict");
     }
 
@@ -14629,7 +14630,7 @@ PyUnicode_InternInPlace(PyObject **p)
         return;
     }
 #endif
-    assert(interned != NULL);
+    assert(INTERNED != NULL);
 
     /* If it's a subclass, we don't really know what putting
        it in the interned dict might do. */
@@ -14641,7 +14642,7 @@ PyUnicode_InternInPlace(PyObject **p)
         return;
     }
 
-    PyObject *t = PyDict_SetDefault(interned, s, s);
+    PyObject *t = PyDict_SetDefault(INTERNED, s, s);
     if (t == NULL) {
         PyErr_Clear();
         return;
@@ -14689,10 +14690,10 @@ _PyUnicode_ClearInterned(PyInterpreterState *interp)
         return;
     }
 
-    if (interned == NULL) {
+    if (INTERNED == NULL) {
         return;
     }
-    assert(PyDict_CheckExact(interned));
+    assert(PyDict_CheckExact(INTERNED));
 
     /* Interned unicode strings are not forcibly deallocated; rather, we give
        them their stolen references back, and then clear and DECREF the
@@ -14700,13 +14701,13 @@ _PyUnicode_ClearInterned(PyInterpreterState *interp)
 
 #ifdef INTERNED_STATS
     fprintf(stderr, "releasing %zd interned strings\n",
-            PyDict_GET_SIZE(interned));
+            PyDict_GET_SIZE(INTERNED));
 
     Py_ssize_t total_length = 0;
 #endif
     Py_ssize_t pos = 0;
     PyObject *s, *ignored_value;
-    while (PyDict_Next(interned, &pos, &s, &ignored_value)) {
+    while (PyDict_Next(INTERNED, &pos, &s, &ignored_value)) {
         assert(PyUnicode_CHECK_INTERNED(s));
         // Restore the two references (key and value) ignored
         // by PyUnicode_InternInPlace().
@@ -14723,8 +14724,8 @@ _PyUnicode_ClearInterned(PyInterpreterState *interp)
             total_length);
 #endif
 
-    PyDict_Clear(interned);
-    Py_CLEAR(interned);
+    PyDict_Clear(INTERNED);
+    Py_CLEAR(_INTERNED);
 }
 
 
@@ -15131,7 +15132,7 @@ _PyUnicode_EnableLegacyWindowsFSEncoding(void)
 static inline int
 unicode_is_finalizing(void)
 {
-    return (interned == NULL);
+    return (INTERNED == NULL);
 }
 #endif
 
@@ -15173,7 +15174,7 @@ _PyUnicode_Fini(PyInterpreterState *interp)
 
     if (_Py_IsMainInterpreter(interp)) {
         // _PyUnicode_ClearInterned() must be called before _PyUnicode_Fini()
-        assert(interned == NULL);
+        assert(INTERNED == NULL);
         // bpo-47182: force a unicodedata CAPI capsule re-import on
         // subsequent initialization of main interpreter.
         ucnhash_capi = NULL;
