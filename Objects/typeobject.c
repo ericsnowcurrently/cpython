@@ -4215,16 +4215,20 @@ type_dealloc_common(PyTypeObject *type)
 void
 _PyStaticType_Dealloc(PyTypeObject *type)
 {
+    // Always reset tp_static_builtin_index after each finalization.
+    // At this point tp_subclasses only contains static types so it
+    // can be invalidated as long as modules call PyType_Ready() on
+    // static types when imported in new interpreter.
+    static_builtin_type_state *state = _PyStaticType_GetState(type);
+    if (state != NULL) {
+        state->type = NULL;
+    }
+    type->tp_static_builtin_index = 0;
     // If a type still has subtypes, it cannot be deallocated.
     // A subtype can inherit attributes and methods of its parent type,
     // and a type must no longer be used once it's deallocated.
     if (type->tp_subclasses != NULL) {
         return;
-    }
-
-    static_builtin_type_state *state = _PyStaticType_GetState(type);
-    if (state != NULL) {
-        state->type = NULL;
     }
 
     type_dealloc_common(type);
@@ -4241,8 +4245,7 @@ _PyStaticType_Dealloc(PyTypeObject *type)
     }
 
     type->tp_flags &= ~Py_TPFLAGS_READY;
-    // Reset tp_static_builtin_index after each finalization.
-    type->tp_static_builtin_index = 0;
+
 }
 
 
