@@ -4231,6 +4231,11 @@ _PyStaticType_Dealloc(PyTypeObject *type)
         return;
     }
 
+    static_builtin_type_state *state = _PyStaticType_GetState(type);
+    if (state != NULL) {
+        state->type = NULL;
+    }
+
     type_dealloc_common(type);
 
     Py_CLEAR(type->tp_dict);
@@ -4245,7 +4250,6 @@ _PyStaticType_Dealloc(PyTypeObject *type)
     }
 
     type->tp_flags &= ~Py_TPFLAGS_READY;
-
 }
 
 
