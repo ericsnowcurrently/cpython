@@ -70,27 +70,35 @@ new_weakref(PyObject *ob, PyObject *callback)
     return result;
 }
 
+static void
+remove_weakref_from_referent(PyWeakReference *self)
+{
+    if (self->wr_object == Py_None) {
+        assert(self->wr_prev == NULL);
+        assert(self->wr_next == NULL);
+        return;
+    }
+    PyWeakReference **list = GET_WEAKREFS_LISTPTR(self->wr_object);
+    weaklist_remove(list, self);
+}
 
-/* This function clears the passed-in reference and removes it from the
- * list of weak references for the referent.  This is the only code that
- * removes an item from the doubly-linked list of weak references for an
- * object; it is also responsible for clearing the callback slot.
+/* This function clears the passed-in reference, including the referent
+ * and the callback slot.  The reference must have been removed from
+ * the list of weak references for the referent (see weaklist_remove()).
  */
 static void
 clear_weakref(PyWeakReference *self)
 {
+    self->wr_object = Py_None;  // borrowed
+
     PyObject *callback = self->wr_callback;
-
-    if (self->wr_object != Py_None) {
-        PyWeakReference **list = GET_WEAKREFS_LISTPTR(self->wr_object);
-        self->wr_object = Py_None;  // borrowed
-        weaklist_remove(list, self);
-    }
-
     if (callback != NULL) {
         Py_DECREF(callback);
         self->wr_callback = NULL;
     }
+
+    assert(self->wr_prev == NULL);
+    assert(self->wr_next == NULL);
 }
 
 /* Cyclic gc uses this to *just* clear the passed-in reference, leaving
@@ -114,6 +122,7 @@ _PyWeakref_ClearRef(PyWeakReference *self)
     /* Preserve and restore the callback around clear_weakref. */
     callback = self->wr_callback;
     self->wr_callback = NULL;
+    remove_weakref_from_referent(self);
     clear_weakref(self);
     self->wr_callback = callback;
 }
@@ -122,6 +131,7 @@ static void
 weakref_dealloc(PyObject *self)
 {
     PyObject_GC_UnTrack(self);
+    remove_weakref_from_referent((PyWeakReference *) self);
     clear_weakref((PyWeakReference *) self);
     Py_TYPE(self)->tp_free(self);
 }
@@ -138,6 +148,7 @@ gc_traverse(PyWeakReference *self, visitproc visit, void *arg)
 static int
 gc_clear(PyWeakReference *self)
 {
+    remove_weakref_from_referent(self);
     clear_weakref(self);
     return 0;
 }
@@ -575,6 +586,7 @@ proxy_dealloc(PyWeakReference *self)
 {
     if (self->wr_callback != NULL)
         PyObject_GC_UnTrack((PyObject *)self);
+    remove_weakref_from_referent(self);
     clear_weakref(self);
     PyObject_GC_Del(self);
 }
@@ -960,6 +972,7 @@ void
 PyObject_ClearWeakRefs(PyObject *object)
 {
     PyWeakReference **list;
+    PyWeakReference *current;
 
     if (object == NULL
         || !_PyType_SUPPORTS_WEAKREFS(Py_TYPE(object))
@@ -970,13 +983,18 @@ PyObject_ClearWeakRefs(PyObject *object)
     }
     list = GET_WEAKREFS_LISTPTR(object);
     /* Remove the callback-less basic and proxy references */
-    if (*list != NULL && (*list)->wr_callback == NULL) {
-        clear_weakref(*list);
-        if (*list != NULL && (*list)->wr_callback == NULL)
-            clear_weakref(*list);
+    current = *list;
+    if (current != NULL && current->wr_callback == NULL) {
+        remove_weakref_from_referent(current);
+        clear_weakref(current);
+        current = *list;
+        if (current != NULL && current->wr_callback == NULL) {
+            remove_weakref_from_referent(current);
+            clear_weakref(current);
+        }
     }
     if (*list != NULL) {
-        PyWeakReference *current = *list;
+        current = *list;
         Py_ssize_t count = _PyWeakref_GetWeakrefCount(current);
         PyObject *err_type, *err_value, *err_tb;
 
@@ -985,6 +1003,7 @@ PyObject_ClearWeakRefs(PyObject *object)
             PyObject *callback = current->wr_callback;
 
             current->wr_callback = NULL;
+            remove_weakref_from_referent(current);
             clear_weakref(current);
             if (callback != NULL) {
                 if (Py_REFCNT((PyObject *)current) > 0) {
@@ -1015,6 +1034,7 @@ PyObject_ClearWeakRefs(PyObject *object)
                     Py_DECREF(current->wr_callback);
                 }
                 current->wr_callback = NULL;
+                remove_weakref_from_referent(current);
                 clear_weakref(current);
                 current = next;
             }
