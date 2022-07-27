@@ -19,21 +19,42 @@ _PyWeakref_GetWeakrefCount(PyWeakReference *head)
     return count;
 }
 
+/* This function removes the head of the given list of weak references
+ * and returns it.
+ */
+static PyWeakReference *
+weaklist_pop_head(PyWeakReference **list)
+{
+    PyWeakReference *head = *list;
+    if (head == NULL) {
+        return NULL;
+    }
+
+    assert(head->wr_prev == NULL);
+    /* If 'head' is the end of the list (and thus head->wr_next == NULL)
+       then the weakref list itself (and thus the value of *list) will
+       end up being set to NULL. */
+    *list = head->wr_next;
+    if (head->wr_next != NULL) {
+        head->wr_next->wr_prev = NULL;
+    }
+    head->wr_next = NULL;
+
+    return head;
+}
+
 /* This function removes the passed-in reference from the given list
- * of weak references.  This is the only code that removes an item
- * from the doubly-linked list of weak references for an object.
+ * of weak references.
  */
 static void
 weaklist_remove(PyWeakReference **list, PyWeakReference *wr)
 {
     if (*list == wr) {
-        assert(wr->wr_prev == NULL);
-        /* If 'head' is the end of the list (and thus head->wr_next == NULL)
-           then the weakref list itself (and thus the value of *list) will
-           end up being set to NULL. */
-        *list = wr->wr_next;
+        (void)weaklist_pop_head(list);
+        return;
     }
-    else if (wr->wr_prev != NULL) {
+
+    if (wr->wr_prev != NULL) {
         wr->wr_prev->wr_next = wr->wr_next;
     }
     if (wr->wr_next != NULL) {
@@ -983,19 +1004,17 @@ PyObject_ClearWeakRefs(PyObject *object)
     }
     list = GET_WEAKREFS_LISTPTR(object);
     /* Remove the callback-less basic and proxy references */
-    current = *list;
+    current = weaklist_pop_head(list);
     if (current != NULL && current->wr_callback == NULL) {
-        remove_weakref_from_referent(current);
         clear_weakref(current);
-        current = *list;
+        current = weaklist_pop_head(list);
         if (current != NULL && current->wr_callback == NULL) {
-            remove_weakref_from_referent(current);
             clear_weakref(current);
+            current = weaklist_pop_head(list);
         }
     }
-    if (*list != NULL) {
-        current = *list;
-        Py_ssize_t count = _PyWeakref_GetWeakrefCount(current);
+    if (current != NULL) {
+        Py_ssize_t count = _PyWeakref_GetWeakrefCount(*list) + 1;
         PyObject *err_type, *err_value, *err_tb;
 
         PyErr_Fetch(&err_type, &err_value, &err_tb);
@@ -1003,7 +1022,6 @@ PyObject_ClearWeakRefs(PyObject *object)
             PyObject *callback = current->wr_callback;
 
             current->wr_callback = NULL;
-            remove_weakref_from_referent(current);
             clear_weakref(current);
             if (callback != NULL) {
                 if (Py_REFCNT((PyObject *)current) > 0) {
@@ -1023,8 +1041,6 @@ PyObject_ClearWeakRefs(PyObject *object)
             }
 
             for (i = 0; i < count; ++i) {
-                PyWeakReference *next = current->wr_next;
-
                 if (Py_REFCNT((PyObject *)current) > 0) {
                     Py_INCREF(current);
                     PyTuple_SET_ITEM(tuple, i * 2, (PyObject *) current);
@@ -1034,10 +1050,10 @@ PyObject_ClearWeakRefs(PyObject *object)
                     Py_DECREF(current->wr_callback);
                 }
                 current->wr_callback = NULL;
-                remove_weakref_from_referent(current);
                 clear_weakref(current);
-                current = next;
+                current = weaklist_pop_head(list);
             }
+            assert(current == NULL);
             for (i = 0; i < count; ++i) {
                 PyObject *callback = PyTuple_GET_ITEM(tuple, i * 2 + 1);
 
