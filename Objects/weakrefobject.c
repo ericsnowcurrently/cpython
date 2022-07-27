@@ -19,6 +19,31 @@ _PyWeakref_GetWeakrefCount(PyWeakReference *head)
     return count;
 }
 
+/* This function removes the passed-in reference from the given list
+ * of weak references.  This is the only code that removes an item
+ * from the doubly-linked list of weak references for an object.
+ */
+static void
+weaklist_remove(PyWeakReference **list, PyWeakReference *wr)
+{
+    if (*list == wr) {
+        assert(wr->wr_prev == NULL);
+        /* If 'head' is the end of the list (and thus head->wr_next == NULL)
+           then the weakref list itself (and thus the value of *list) will
+           end up being set to NULL. */
+        *list = wr->wr_next;
+    }
+    else if (wr->wr_prev != NULL) {
+        wr->wr_prev->wr_next = wr->wr_next;
+    }
+    if (wr->wr_next != NULL) {
+        wr->wr_next->wr_prev = wr->wr_prev;
+    }
+    wr->wr_prev = NULL;
+    wr->wr_next = NULL;
+}
+
+
 static PyObject *weakref_vectorcall(PyWeakReference *self, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 
 static void
@@ -58,20 +83,10 @@ clear_weakref(PyWeakReference *self)
 
     if (self->wr_object != Py_None) {
         PyWeakReference **list = GET_WEAKREFS_LISTPTR(self->wr_object);
-
-        if (*list == self)
-            /* If 'self' is the end of the list (and thus self->wr_next == NULL)
-               then the weakref list itself (and thus the value of *list) will
-               end up being set to NULL. */
-            *list = self->wr_next;
-        self->wr_object = Py_None;
-        if (self->wr_prev != NULL)
-            self->wr_prev->wr_next = self->wr_next;
-        if (self->wr_next != NULL)
-            self->wr_next->wr_prev = self->wr_prev;
-        self->wr_prev = NULL;
-        self->wr_next = NULL;
+        self->wr_object = Py_None;  // borrowed
+        weaklist_remove(list, self);
     }
+
     if (callback != NULL) {
         Py_DECREF(callback);
         self->wr_callback = NULL;
