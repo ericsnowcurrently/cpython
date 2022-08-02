@@ -422,6 +422,9 @@ PyAPI_FUNC(int) _PyObject_CheckConsistency(
     int check_content);
 
 
+Py_ssize_t _PyObject_GetWeakRefCount(PyObject *op);
+
+
 /* Trashcan mechanism, thanks to Christian Tismer.
 
 When deallocating a container object, it's possible to trigger an unbounded

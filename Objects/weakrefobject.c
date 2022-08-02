@@ -947,6 +947,16 @@ PyObject_GET_WEAKREFS_LISTPTR(PyObject *op)
     return _PyObject_GET_WEAKREFS_LISTPTR(op);
 }
 
+Py_ssize_t
+_PyObject_GetWeakRefCount(PyObject *op)
+{
+    if (!_PyType_SUPPORTS_WEAKREFS(Py_TYPE(op))) {
+        return 0;
+    }
+    PyWeakReference **wrlist = GET_WEAKREFS_LISTPTR(op);
+    return _PyWeakref_GetWeakrefCount(*wrlist);
+}
+
 void
 _PyObject_ClearWeakRefsFast(PyObject *op)
 {
