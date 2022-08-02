@@ -1,10 +1,9 @@
 #include "Python.h"
-#include "pycore_object.h"        // _PyObject_GET_WEAKREFS_LISTPTR()
+#include "pycore_object.h"        // _PyType_SUPPORTS_WEAKREFS
 #include "structmember.h"         // PyMemberDef
 
 
-#define GET_WEAKREFS_LISTPTR(o) \
-        ((PyWeakReference **) _PyObject_GET_WEAKREFS_LISTPTR(o))
+static inline PyWeakReference ** get_weakrefs_listptr(PyObject *op);
 
 
 /***** weakref objects *****/
@@ -59,7 +58,7 @@ clear_weakref(PyWeakReference *self)
     PyObject *callback = self->wr_callback;
 
     if (self->wr_object != Py_None) {
-        PyWeakReference **list = GET_WEAKREFS_LISTPTR(self->wr_object);
+        PyWeakReference **list = get_weakrefs_listptr(self->wr_object);
 
         if (*list == self)
             /* If 'self' is the end of the list (and thus self->wr_next == NULL)
@@ -308,7 +307,7 @@ weakref___new__(PyTypeObject *type, PyObject *args, PyObject *kwargs)
         }
         if (callback == Py_None)
             callback = NULL;
-        list = GET_WEAKREFS_LISTPTR(ob);
+        list = get_weakrefs_listptr(ob);
         get_basic_refs(*list, &ref, &proxy);
         if (callback == NULL && type == &_PyWeakref_RefType) {
             if (ref != NULL) {
@@ -801,7 +800,7 @@ PyWeakref_NewRef(PyObject *ob, PyObject *callback)
                      Py_TYPE(ob)->tp_name);
         return NULL;
     }
-    list = GET_WEAKREFS_LISTPTR(ob);
+    list = get_weakrefs_listptr(ob);
     get_basic_refs(*list, &ref, &proxy);
     if (callback == Py_None)
         callback = NULL;
@@ -860,7 +859,7 @@ PyWeakref_NewProxy(PyObject *ob, PyObject *callback)
                      Py_TYPE(ob)->tp_name);
         return NULL;
     }
-    list = GET_WEAKREFS_LISTPTR(ob);
+    list = get_weakrefs_listptr(ob);
     get_basic_refs(*list, &ref, &proxy);
     if (callback == Py_None)
         callback = NULL;
@@ -941,16 +940,30 @@ handle_callback(PyWeakReference *ref, PyObject *callback)
 
 /***** object weakrefs *****/
 
+/* Return the *address* of the object's weaklist. */
+static inline PyWeakReference **
+get_weakrefs_listptr(PyObject *op)
+{
+    if (PyType_Check(op) &&
+            ((PyTypeObject *)op)->tp_flags & _Py_TPFLAGS_STATIC_BUILTIN) {
+        static_builtin_state *state = _PyStaticType_GetState(
+                                                        (PyTypeObject *)op);
+        return _PyStaticType_GET_WEAKREFS_LISTPTR(state);
+    }
+    Py_ssize_t offset = Py_TYPE(op)->tp_weaklistoffset;
+    return (PyWeakReference **)((char *)op + offset);
+}
+
 PyObject **
 PyObject_GET_WEAKREFS_LISTPTR(PyObject *op)
 {
-    return _PyObject_GET_WEAKREFS_LISTPTR(op);
+    return (PyObject **)get_weakrefs_listptr(op);
 }
 
 PyWeakReference *
 _PyObject_GetWeakRefsHead(PyObject *op)
 {
-    return (PyWeakReference *)(*_PyObject_GET_WEAKREFS_LISTPTR(op));
+    return (PyWeakReference *)(*get_weakrefs_listptr(op));
 }
 
 Py_ssize_t
@@ -959,7 +972,7 @@ _PyObject_GetWeakRefCount(PyObject *op)
     if (!_PyType_SUPPORTS_WEAKREFS(Py_TYPE(op))) {
         return 0;
     }
-    PyWeakReference **wrlist = GET_WEAKREFS_LISTPTR(op);
+    PyWeakReference **wrlist = get_weakrefs_listptr(op);
     return _PyWeakref_GetWeakrefCount(*wrlist);
 }
 
@@ -995,7 +1008,7 @@ PyObject_ClearWeakRefs(PyObject *object)
         PyErr_BadInternalCall();
         return;
     }
-    list = GET_WEAKREFS_LISTPTR(object);
+    list = get_weakrefs_listptr(object);
     /* Remove the callback-less basic and proxy references */
     if (*list != NULL && (*list)->wr_callback == NULL) {
         clear_weakref(*list);
@@ -1071,11 +1084,11 @@ void
 _PyStaticType_ClearWeakRefs(PyTypeObject *type)
 {
     static_builtin_state *state = _PyStaticType_GetState(type);
-    PyObject **list = _PyStaticType_GET_WEAKREFS_LISTPTR(state);
+    PyWeakReference **list = _PyStaticType_GET_WEAKREFS_LISTPTR(state);
     while (*list != NULL) {
         /* Note that clear_weakref() pops the first ref off the type's
            weaklist before clearing its wr_object and wr_callback.
            That is how we're able to loop over the list. */
-        clear_weakref((PyWeakReference *)*list);
+        clear_weakref(*list);
     }
 }

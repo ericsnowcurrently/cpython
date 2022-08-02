@@ -241,19 +241,6 @@ _PyObject_GET_BASIC_WEAKREFS_LISTPTR(PyObject *op)
     return (PyObject **)((char *)op + offset);
 }
 
-/* Return the *address* of the object's weaklist. */
-static inline PyObject **
-_PyObject_GET_WEAKREFS_LISTPTR(PyObject *op)
-{
-    if (PyType_Check(op) &&
-            ((PyTypeObject *)op)->tp_flags & _Py_TPFLAGS_STATIC_BUILTIN) {
-        static_builtin_state *state = _PyStaticType_GetState(
-                                                        (PyTypeObject *)op);
-        return _PyStaticType_GET_WEAKREFS_LISTPTR(state);
-    }
-    return _PyObject_GET_BASIC_WEAKREFS_LISTPTR(op);
-}
-
 
 // Fast inlined version of PyObject_IS_GC()
 static inline int
