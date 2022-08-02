@@ -2406,13 +2406,6 @@ _Py_Dealloc(PyObject *op)
 }
 
 
-PyObject **
-PyObject_GET_WEAKREFS_LISTPTR(PyObject *op)
-{
-    return _PyObject_GET_WEAKREFS_LISTPTR(op);
-}
-
-
 #undef Py_NewRef
 #undef Py_XNewRef
 

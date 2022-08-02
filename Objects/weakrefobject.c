@@ -7,6 +7,8 @@
         ((PyWeakReference **) _PyObject_GET_WEAKREFS_LISTPTR(o))
 
 
+/***** weakref objects *****/
+
 Py_ssize_t
 _PyWeakref_GetWeakrefCount(PyWeakReference *head)
 {
@@ -934,6 +936,15 @@ handle_callback(PyWeakReference *ref, PyObject *callback)
         PyErr_WriteUnraisable(callback);
     else
         Py_DECREF(cbresult);
+}
+
+
+/***** object weakrefs *****/
+
+PyObject **
+PyObject_GET_WEAKREFS_LISTPTR(PyObject *op)
+{
+    return _PyObject_GET_WEAKREFS_LISTPTR(op);
 }
 
 void
