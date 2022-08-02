@@ -54,3 +54,7 @@ static inline PyObject* PyWeakref_GET_OBJECT(PyObject *ref_obj) {
     return Py_None;
 }
 #define PyWeakref_GET_OBJECT(ref) PyWeakref_GET_OBJECT(_PyObject_CAST(ref))
+
+
+PyWeakReference * _PyObject_GetWeakRefsHead(PyObject *op);
+Py_ssize_t _PyObject_GetWeakRefCount(PyObject *op);

@@ -1,9 +1,5 @@
 #include "Python.h"
-#include "pycore_object.h"   // _PyObject_GET_WEAKREFS_LISTPTR
 
-
-#define GET_WEAKREFS_LISTPTR(o) \
-        ((PyWeakReference **) _PyObject_GET_WEAKREFS_LISTPTR(o))
 
 /*[clinic input]
 module _weakref
@@ -86,11 +82,9 @@ _weakref_getweakrefs(PyObject *module, PyObject *object)
 
     Py_ssize_t count = _PyObject_GetWeakRefCount(object);
     if (count > 0) {
-        PyWeakReference **list = GET_WEAKREFS_LISTPTR(object);
-
         result = PyList_New(count);
         if (result != NULL) {
-            PyWeakReference *current = *list;
+            PyWeakReference *current = _PyObject_GetWeakRefsHead(object);
             Py_ssize_t i;
             for (i = 0; i < count; ++i) {
                 PyList_SET_ITEM(result, i, (PyObject *) current);
