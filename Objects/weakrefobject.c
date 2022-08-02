@@ -940,6 +940,13 @@ handle_callback(PyWeakReference *ref, PyObject *callback)
 
 /***** object weakrefs *****/
 
+static inline PyWeakReference **
+get_basic_weakrefs_listptr(PyObject *op)
+{
+    Py_ssize_t offset = Py_TYPE(op)->tp_weaklistoffset;
+    return (PyWeakReference **)((char *)op + offset);
+}
+
 /* Return the *address* of the object's weaklist. */
 static inline PyWeakReference **
 get_weakrefs_listptr(PyObject *op)
@@ -950,8 +957,7 @@ get_weakrefs_listptr(PyObject *op)
                                                         (PyTypeObject *)op);
         return _PyStaticType_GET_WEAKREFS_LISTPTR(state);
     }
-    Py_ssize_t offset = Py_TYPE(op)->tp_weaklistoffset;
-    return (PyWeakReference **)((char *)op + offset);
+    return get_basic_weakrefs_listptr(op);
 }
 
 PyObject **
@@ -982,12 +988,24 @@ _PyObject_ClearWeakRefsFast(PyObject *op)
     assert(_PyType_SUPPORTS_WEAKREFS(Py_TYPE(op)));
     assert(!PyType_Check(op) ||
             ((PyTypeObject *)op)->tp_flags & Py_TPFLAGS_HEAPTYPE);
-    Py_ssize_t offset = Py_TYPE(op)->tp_weaklistoffset;
-    PyWeakReference **wrlist = (PyWeakReference **)((char *)op + offset);
+    PyWeakReference **wrlist = get_basic_weakrefs_listptr(op);
     while (*wrlist) {
         clear_weakref(*wrlist);
     }
     // XXX Free the weakref?
+}
+
+void
+_PyObject_ClearWeakRefs(PyObject *op, refhandler handle_ref, void *context)
+{
+    assert(_PyType_SUPPORTS_WEAKREFS(Py_TYPE(op)));
+    PyWeakReference **wrlist = get_basic_weakrefs_listptr(op);
+    for (PyWeakReference *wr = *wrlist; wr != NULL; wr = *wrlist) {
+        _PyObject_ASSERT((PyObject *)wr, wr->wr_object == op);
+        _PyWeakref_ClearRef(wr);
+        _PyObject_ASSERT((PyObject *)wr, wr->wr_object == Py_None);
+        handle_ref(wr, context);
+    }
 }
 
 /* This function is called by the tp_dealloc handler to clear weak references.

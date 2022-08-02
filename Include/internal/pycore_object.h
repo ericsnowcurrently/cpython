@@ -224,22 +224,8 @@ extern void _Py_PrintReferenceAddresses(FILE *);
  */
 void _PyObject_ClearWeakRefsFast(PyObject *op);
 
-/* Return the *address* of the object's weaklist.
- *
- * For static builtin types this will always point to a NULL tp_weaklist.
- * This is fine for any deallocation cases, since static types are never
- * deallocated and static builtin types are only finalized at the end of
- * runtime finalization.
- *
- * If the weaklist for such types is actually needed then use
- * _PyObject_GET_WEAKREFS_LISTPTR().
- */
-static inline PyObject **
-_PyObject_GET_BASIC_WEAKREFS_LISTPTR(PyObject *op)
-{
-    Py_ssize_t offset = Py_TYPE(op)->tp_weaklistoffset;
-    return (PyObject **)((char *)op + offset);
-}
+typedef void (*refhandler)(PyWeakReference *wr, void *context);
+void _PyObject_ClearWeakRefs(PyObject *op, refhandler h, void *context);
 
 
 // Fast inlined version of PyObject_IS_GC()

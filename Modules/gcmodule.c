@@ -739,6 +739,68 @@ move_legacy_finalizer_reachable(PyGC_Head *finalizers)
     }
 }
 
+struct weakref_context {
+    PyGC_Head *wrcb_to_call;
+    PyGC_Head *next;
+};
+
+static void
+handle_weakref(PyWeakReference *wr, void *context)
+{
+    PyGC_Head *wrasgc;                  /* AS_GC(wr) */
+
+    /* _PyWeakref_ClearRef was just called on the weakref. */
+    if (wr->wr_callback == NULL) {
+        /* no callback */
+        return;
+    }
+
+    /* Headache time.  `op` is going away, and is weakly referenced by
+     * `wr`, which has a callback.  Should the callback be invoked?  If wr
+     * is also trash, no:
+     *
+     * 1. There's no need to call it.  The object and the weakref are
+     *    both going away, so it's legitimate to pretend the weakref is
+     *    going away first.  The user has to ensure a weakref outlives its
+     *    referent if they want a guarantee that the wr callback will get
+     *    invoked.
+     *
+     * 2. It may be catastrophic to call it.  If the callback is also in
+     *    cyclic trash (CT), then although the CT is unreachable from
+     *    outside the current generation, CT may be reachable from the
+     *    callback.  Then the callback could resurrect insane objects.
+     *
+     * Since the callback is never needed and may be unsafe in this case,
+     * wr is simply left in the unreachable set.  Note that because we
+     * already called _PyWeakref_ClearRef(wr), its callback will never
+     * trigger.
+     *
+     * OTOH, if wr isn't part of CT, we should invoke the callback:  the
+     * weakref outlived the trash.  Note that since wr isn't CT in this
+     * case, its callback can't be CT either -- wr acted as an external
+     * root to this generation, and therefore its callback did too.  So
+     * nothing in CT is reachable from the callback either, so it's hard
+     * to imagine how calling it later could create a problem for us.  wr
+     * is moved to wrcb_to_call in this case.
+     */
+    if (gc_is_collecting(AS_GC(wr))) {
+        /* it should already have been cleared above */
+        assert(wr->wr_object == Py_None);
+        return;
+    }
+
+    /* Create a new reference so that wr can't go away
+     * before we can process it again.
+     */
+    Py_INCREF(wr);
+
+    /* Move wr to wrcb_to_call, for the next pass. */
+    wrasgc = AS_GC(wr);
+    /* wrasgc is reachable, but next isn't, so they can't be the same. */
+    assert(wrasgc != ((struct weakref_context *)context)->next);
+    gc_list_move(wrasgc, ((struct weakref_context *)context)->wrcb_to_call);
+}
+
 /* Clear all weakrefs to unreachable objects, and if such a weakref has a
  * callback, invoke it if necessary.  Note that it's possible for such
  * weakrefs to be outside the unreachable set -- indeed, those are precisely
@@ -771,8 +833,6 @@ handle_weakrefs(PyGC_Head *unreachable, PyGC_Head *old)
      * pass completes.
      */
     for (gc = GC_NEXT(unreachable); gc != unreachable; gc = next) {
-        PyWeakReference **wrlist;
-
         op = FROM_GC(gc);
         next = GC_NEXT(gc);
 
@@ -791,80 +851,16 @@ handle_weakrefs(PyGC_Head *unreachable, PyGC_Head *old)
             _PyWeakref_ClearRef((PyWeakReference *)op);
         }
 
-        if (! _PyType_SUPPORTS_WEAKREFS(Py_TYPE(op)))
-            continue;
-
-        /* It supports weakrefs.  Does it have any?
-         *
-         * This is never triggered for static types so we can avoid the
-         * (slightly) more costly _PyObject_GET_WEAKREFS_LISTPTR().
-         */
-        wrlist = (PyWeakReference **)_PyObject_GET_BASIC_WEAKREFS_LISTPTR(op);
-
-        /* `op` may have some weakrefs.  March over the list, clear
-         * all the weakrefs, and move the weakrefs with callbacks
-         * that must be called into wrcb_to_call.
-         */
-        for (wr = *wrlist; wr != NULL; wr = *wrlist) {
-            PyGC_Head *wrasgc;                  /* AS_GC(wr) */
-
-            /* _PyWeakref_ClearRef clears the weakref but leaves
-             * the callback pointer intact.  Obscure:  it also
-             * changes *wrlist.
+        if ( _PyType_SUPPORTS_WEAKREFS(Py_TYPE(op))) {
+            /* `op` may have some weakrefs.  March over the list, clear
+             * all the weakrefs, and move the weakrefs with callbacks
+             * that must be called into wrcb_to_call.
              */
-            _PyObject_ASSERT((PyObject *)wr, wr->wr_object == op);
-            _PyWeakref_ClearRef(wr);
-            _PyObject_ASSERT((PyObject *)wr, wr->wr_object == Py_None);
-            if (wr->wr_callback == NULL) {
-                /* no callback */
-                continue;
-            }
-
-            /* Headache time.  `op` is going away, and is weakly referenced by
-             * `wr`, which has a callback.  Should the callback be invoked?  If wr
-             * is also trash, no:
-             *
-             * 1. There's no need to call it.  The object and the weakref are
-             *    both going away, so it's legitimate to pretend the weakref is
-             *    going away first.  The user has to ensure a weakref outlives its
-             *    referent if they want a guarantee that the wr callback will get
-             *    invoked.
-             *
-             * 2. It may be catastrophic to call it.  If the callback is also in
-             *    cyclic trash (CT), then although the CT is unreachable from
-             *    outside the current generation, CT may be reachable from the
-             *    callback.  Then the callback could resurrect insane objects.
-             *
-             * Since the callback is never needed and may be unsafe in this case,
-             * wr is simply left in the unreachable set.  Note that because we
-             * already called _PyWeakref_ClearRef(wr), its callback will never
-             * trigger.
-             *
-             * OTOH, if wr isn't part of CT, we should invoke the callback:  the
-             * weakref outlived the trash.  Note that since wr isn't CT in this
-             * case, its callback can't be CT either -- wr acted as an external
-             * root to this generation, and therefore its callback did too.  So
-             * nothing in CT is reachable from the callback either, so it's hard
-             * to imagine how calling it later could create a problem for us.  wr
-             * is moved to wrcb_to_call in this case.
-             */
-            if (gc_is_collecting(AS_GC(wr))) {
-                /* it should already have been cleared above */
-                assert(wr->wr_object == Py_None);
-                continue;
-            }
-
-            /* Create a new reference so that wr can't go away
-             * before we can process it again.
-             */
-            Py_INCREF(wr);
-
-            /* Move wr to wrcb_to_call, for the next pass. */
-            wrasgc = AS_GC(wr);
-            assert(wrasgc != next); /* wrasgc is reachable, but
-                                       next isn't, so they can't
-                                       be the same */
-            gc_list_move(wrasgc, &wrcb_to_call);
+            struct weakref_context context = {
+                &wrcb_to_call,
+                next,
+            };
+            _PyObject_ClearWeakRefs(op, handle_weakref, (void *)&context);
         }
     }
 
