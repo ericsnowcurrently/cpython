@@ -936,6 +936,20 @@ handle_callback(PyWeakReference *ref, PyObject *callback)
         Py_DECREF(cbresult);
 }
 
+void
+_PyObject_ClearWeakRefsFast(PyObject *op)
+{
+    assert(_PyType_SUPPORTS_WEAKREFS(Py_TYPE(op)));
+    assert(!PyType_Check(op) ||
+            ((PyTypeObject *)op)->tp_flags & Py_TPFLAGS_HEAPTYPE);
+    Py_ssize_t offset = Py_TYPE(op)->tp_weaklistoffset;
+    PyWeakReference **wrlist = (PyWeakReference **)((char *)op + offset);
+    while (*wrlist) {
+        clear_weakref(*wrlist);
+    }
+    // XXX Free the weakref?
+}
+
 /* This function is called by the tp_dealloc handler to clear weak references.
  *
  * This iterates through the weak references for 'object' and calls callbacks

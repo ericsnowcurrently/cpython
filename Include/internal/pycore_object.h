@@ -217,6 +217,13 @@ extern void _Py_PrintReferences(FILE *);
 extern void _Py_PrintReferenceAddresses(FILE *);
 #endif
 
+
+/* Clear the object's weakrefs quickly.  No callbacks are called.
+ * This is intended for use in hot code, such as subtype_dealloc().
+ * Some of the efficiency comes from not supporting static types.
+ */
+void _PyObject_ClearWeakRefsFast(PyObject *op);
+
 /* Return the *address* of the object's weaklist.
  *
  * For static builtin types this will always point to a NULL tp_weaklist.
@@ -246,6 +253,7 @@ _PyObject_GET_WEAKREFS_LISTPTR(PyObject *op)
     }
     return _PyObject_GET_BASIC_WEAKREFS_LISTPTR(op);
 }
+
 
 // Fast inlined version of PyObject_IS_GC()
 static inline int
