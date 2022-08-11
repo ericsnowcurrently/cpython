@@ -5,7 +5,7 @@ preserve
 #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
 #  include "pycore_gc.h"            // PyGC_Head
 #  include "pycore_runtime.h"       // _Py_ID()
-#endif
+#endif  // Py_BUILD_CORE && !Py_BUILD_CORE_MODULE
 
 
 PyDoc_STRVAR(_testcapi_VectorCallClass_set_vectorcall__doc__,
@@ -110,4 +110,4 @@ _testcapi_has_vectorcall_flag(PyObject *module, PyObject *arg)
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=609569aa9942584f input=a9049054013a1b77]*/
+/*[clinic end generated code: output=7958b3b9909f2975 input=a9049054013a1b77]*/

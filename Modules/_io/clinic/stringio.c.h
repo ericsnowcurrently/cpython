@@ -5,7 +5,7 @@ preserve
 #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
 #  include "pycore_gc.h"            // PyGC_Head
 #  include "pycore_runtime.h"       // _Py_ID()
-#endif
+#endif  // Py_BUILD_CORE && !Py_BUILD_CORE_MODULE
 
 
 PyDoc_STRVAR(_io_StringIO_getvalue__doc__,
@@ -377,4 +377,4 @@ _io_StringIO_seekable(stringio *self, PyObject *Py_UNUSED(ignored))
 {
     return _io_StringIO_seekable_impl(self);
 }
-/*[clinic end generated code: output=b1bde306e2928b19 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=7e8b8a8d92526c7e input=a9049054013a1b77]*/

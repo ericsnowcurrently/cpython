@@ -5,7 +5,7 @@ preserve
 #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
 #  include "pycore_gc.h"            // PyGC_Head
 #  include "pycore_runtime.h"       // _Py_ID()
-#endif
+#endif  // Py_BUILD_CORE && !Py_BUILD_CORE_MODULE
 
 
 PyDoc_STRVAR(readline_parse_and_bind__doc__,
@@ -691,4 +691,4 @@ readline_redisplay(PyObject *module, PyObject *Py_UNUSED(ignored))
 #ifndef READLINE_CLEAR_HISTORY_METHODDEF
     #define READLINE_CLEAR_HISTORY_METHODDEF
 #endif /* !defined(READLINE_CLEAR_HISTORY_METHODDEF) */
-/*[clinic end generated code: output=9097fcb749c19e27 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=5dcb8749e6a890b0 input=a9049054013a1b77]*/

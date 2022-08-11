@@ -5,7 +5,7 @@ preserve
 #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
 #  include "pycore_gc.h"            // PyGC_Head
 #  include "pycore_runtime.h"       // _Py_ID()
-#endif
+#endif  // Py_BUILD_CORE && !Py_BUILD_CORE_MODULE
 
 
 PyDoc_STRVAR(complex_conjugate__doc__,
@@ -170,4 +170,4 @@ skip_optional_pos:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=cbd44b1d2428d4d8 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=cd5fb5937ad3f41c input=a9049054013a1b77]*/

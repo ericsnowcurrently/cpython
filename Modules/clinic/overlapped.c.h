@@ -5,7 +5,7 @@ preserve
 #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
 #  include "pycore_gc.h"            // PyGC_Head
 #  include "pycore_runtime.h"       // _Py_ID()
-#endif
+#endif  // Py_BUILD_CORE && !Py_BUILD_CORE_MODULE
 
 
 PyDoc_STRVAR(_overlapped_CreateIoCompletionPort__doc__,
@@ -1264,4 +1264,4 @@ exit:
 
     return return_value;
 }
-/*[clinic end generated code: output=8a85a2b9616bf8f1 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=6c7285ab40835356 input=a9049054013a1b77]*/

@@ -5,7 +5,7 @@ preserve
 #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
 #  include "pycore_gc.h"            // PyGC_Head
 #  include "pycore_runtime.h"       // _Py_ID()
-#endif
+#endif  // Py_BUILD_CORE && !Py_BUILD_CORE_MODULE
 
 
 PyDoc_STRVAR(crypt_crypt__doc__,
@@ -66,4 +66,4 @@ crypt_crypt(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=235ccef9211184f4 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=58c7f59ba6cfe8a8 input=a9049054013a1b77]*/

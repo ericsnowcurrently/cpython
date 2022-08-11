@@ -5,7 +5,7 @@ preserve
 #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
 #  include "pycore_gc.h"            // PyGC_Head
 #  include "pycore_runtime.h"       // _Py_ID()
-#endif
+#endif  // Py_BUILD_CORE && !Py_BUILD_CORE_MODULE
 
 
 PyDoc_STRVAR(EncodingMap_size__doc__,
@@ -1557,4 +1557,4 @@ skip_optional_pos:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=7688af9eecfc6bfd input=a9049054013a1b77]*/
+/*[clinic end generated code: output=c88ecb91b1b1e702 input=a9049054013a1b77]*/

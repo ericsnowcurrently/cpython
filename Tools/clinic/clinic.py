@@ -520,7 +520,6 @@ def strip_leading_and_trailing_blank_lines(s):
         del lines[0]
     return '\n'.join(lines)
 
-
 @functools.lru_cache()
 def normalize_snippet(s, *, indent=0):
     """
@@ -537,6 +536,12 @@ def normalize_snippet(s, *, indent=0):
 
 
 def declare_parser(*, hasformat=False):
+    """
+    Generates parser with statically allocated kwtuple
+    iff the function is from core or builtin modules,
+    else sets kwtuple field to NULL.
+
+    """
     if hasformat:
         fname = ''
         format_ = '.format = "{format_units}:{name}",'
@@ -1790,7 +1795,7 @@ class BlockPrinter:
                 #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
                 #  include "pycore_gc.h"            // PyGC_Head
                 #  include "pycore_runtime.h"       // _Py_ID()
-                #endif
+                #endif  // Py_BUILD_CORE && !Py_BUILD_CORE_MODULE
 
             """)
 

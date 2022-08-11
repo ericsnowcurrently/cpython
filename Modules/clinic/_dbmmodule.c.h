@@ -5,7 +5,7 @@ preserve
 #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
 #  include "pycore_gc.h"            // PyGC_Head
 #  include "pycore_runtime.h"       // _Py_ID()
-#endif
+#endif  // Py_BUILD_CORE && !Py_BUILD_CORE_MODULE
 
 
 PyDoc_STRVAR(_dbm_dbm_close__doc__,
@@ -244,4 +244,4 @@ skip_optional:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=a2232bc0c1994f03 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=98215e69274cf59f input=a9049054013a1b77]*/

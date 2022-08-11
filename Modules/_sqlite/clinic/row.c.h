@@ -5,7 +5,7 @@ preserve
 #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
 #  include "pycore_gc.h"            // PyGC_Head
 #  include "pycore_runtime.h"       // _Py_ID()
-#endif
+#endif  // Py_BUILD_CORE && !Py_BUILD_CORE_MODULE
 
 
 static PyObject *
@@ -60,4 +60,4 @@ pysqlite_row_keys(pysqlite_Row *self, PyObject *Py_UNUSED(ignored))
 {
     return pysqlite_row_keys_impl(self);
 }
-/*[clinic end generated code: output=87b91f234633702e input=a9049054013a1b77]*/
+/*[clinic end generated code: output=169c04b9437df8e5 input=a9049054013a1b77]*/

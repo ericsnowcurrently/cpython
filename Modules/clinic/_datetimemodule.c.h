@@ -5,7 +5,7 @@ preserve
 #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
 #  include "pycore_gc.h"            // PyGC_Head
 #  include "pycore_runtime.h"       // _Py_ID()
-#endif
+#endif  // Py_BUILD_CORE && !Py_BUILD_CORE_MODULE
 
 
 PyDoc_STRVAR(datetime_date_fromtimestamp__doc__,
@@ -166,4 +166,4 @@ skip_optional_pos:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=faf7b2ab25ab94b9 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=8d0aa4b682c64de1 input=a9049054013a1b77]*/

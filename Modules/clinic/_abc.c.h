@@ -5,7 +5,7 @@ preserve
 #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
 #  include "pycore_gc.h"            // PyGC_Head
 #  include "pycore_runtime.h"       // _Py_ID()
-#endif
+#endif  // Py_BUILD_CORE && !Py_BUILD_CORE_MODULE
 
 
 PyDoc_STRVAR(_abc__reset_registry__doc__,
@@ -165,4 +165,4 @@ _abc_get_cache_token(PyObject *module, PyObject *Py_UNUSED(ignored))
 {
     return _abc_get_cache_token_impl(module);
 }
-/*[clinic end generated code: output=c2e69611a495c98d input=a9049054013a1b77]*/
+/*[clinic end generated code: output=3a6dc229fde33e0e input=a9049054013a1b77]*/
