@@ -1951,6 +1951,50 @@ parse_format(const char *format, int total, int npos,
 }
 
 static int
+parser_init_info(struct _PyArg_Parser *parser)
+{
+    const char * const *keywords = parser->keywords;
+    assert(keywords != NULL);
+    assert(parser->pos == 0 &&
+           (parser->format == NULL || parser->fname == NULL) &&
+           parser->custom_msg == NULL &&
+           parser->min == 0 &&
+           parser->max == 0);
+
+    int len, pos;
+    if (scan_keywords(keywords, &len, &pos) < 0) {
+        return -1;
+    }
+
+    const char *fname, *custommsg = NULL;
+    int min = 0, max = 0;
+    if (parser->format) {
+        assert(parser->fname == NULL);
+        if (parse_format(parser->format, len, pos,
+                         &fname, &custommsg, &min, &max) < 0) {
+            return -1;
+        }
+    }
+    else {
+        assert(parser->fname != NULL);
+        fname = parser->fname;
+    }
+
+    parser->total = len;
+    parser->pos = pos;
+    parser->fname = fname;
+    parser->custom_msg = custommsg;
+    parser->min = min;
+    parser->max = max;
+    assert(parser->kwtuple == NULL ||
+           (PyTuple_CheckExact(parser->kwtuple) &&
+            PyTuple_GET_SIZE(parser->kwtuple) == (len - pos)));
+    parser->kwtuple_owned = (parser->kwtuple == NULL);
+    parser->initialized = 1;
+    return 0;
+}
+
+static int
 parser_init_kwtuple(struct _PyArg_Parser *parser)
 {
     if (parser->kwtuple != NULL) {
@@ -1980,55 +2024,25 @@ parser_init_kwtuple(struct _PyArg_Parser *parser)
     return 0;
 }
 
-static int
+static inline int
 parser_init(struct _PyArg_Parser *parser)
 {
-    const char * const *keywords = parser->keywords;
-    assert(keywords != NULL);
-    assert(parser->pos == 0 &&
-           (parser->format == NULL || parser->fname == NULL) &&
-           parser->custom_msg == NULL &&
-           parser->min == 0 &&
-           parser->max == 0);
-
-    int len, pos;
-    if (scan_keywords(keywords, &len, &pos) < 0) {
-        return 0;
+    if (parser_init_info(parser) < 0) {
+        return -1;
     }
-
-    const char *fname, *custommsg = NULL;
-    int min = 0, max = 0;
-    if (parser->format) {
-        assert(parser->fname == NULL);
-        if (parse_format(parser->format, len, pos,
-                         &fname, &custommsg, &min, &max) < 0) {
-            return 0;
-        }
+    if (parser_init_kwtuple(parser) < 0) {
+        return -1;
     }
-    else {
-        assert(parser->fname != NULL);
-        fname = parser->fname;
-    }
-
-    parser->total = len;
-    parser->pos = pos;
-    parser->fname = fname;
-    parser->custom_msg = custommsg;
-    parser->min = min;
-    parser->max = max;
-    assert(parser->kwtuple == NULL ||
-           (PyTuple_CheckExact(parser->kwtuple) &&
-            PyTuple_GET_SIZE(parser->kwtuple) == (len - pos)));
-    parser->kwtuple_owned = (parser->kwtuple == NULL);
-    assert(parser->next == NULL);
-    parser->initialized = 1;
-    return 1;
+    return 0;
 }
 
 static void
 parser_clear(struct _PyArg_Parser *parser)
 {
-    if (parser->initialized == 1 && parser->kwtuple_owned) {
+    if (!parser->initialized) {
+        return;
+    }
+    if (parser->kwtuple_owned) {
         Py_CLEAR(parser->kwtuple);
     }
 }
@@ -2072,11 +2086,7 @@ init_parser(struct _PyArg_Parser *parser)
         goto finally;
     }
     ret = parser_init(parser);
-    if (ret == 0) {
-        goto finally;
-    }
-    if (parser_init_kwtuple(parser) < 0) {
-        ret = 0;
+    if (ret < 0) {
         goto finally;
     }
     parsers_add(parser);
