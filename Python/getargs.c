@@ -2022,6 +2022,7 @@ _parser_init(struct _PyArg_Parser *parser)
            (PyTuple_CheckExact(parser->kwtuple) &&
             PyTuple_GET_SIZE(parser->kwtuple) == (len - pos)));
     parser->kwtuple_owned = (parser->kwtuple == NULL);
+    assert(parser->next == NULL);
     parser->initialized = 1;
     return 1;
 }
