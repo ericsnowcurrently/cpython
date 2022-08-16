@@ -1848,9 +1848,6 @@ vgetargskeywords(PyObject *args, PyObject *kwargs, const char *format,
 }
 
 
-/* List of static parsers. */
-static struct _PyArg_Parser *static_arg_parsers = NULL;
-
 static int
 scan_keywords(const char * const *keywords, int *ptotal, int *pposonly)
 {
@@ -2040,21 +2037,21 @@ static inline void
 parsers_add(struct _PyArg_Parser *parser)
 {
     assert(parser->next == NULL);
-    parser->next = static_arg_parsers;
-    static_arg_parsers = parser;
+    parser->next = _PyRuntime.getargs.static_arg_parsers;
+    _PyRuntime.getargs.static_arg_parsers = parser;
 }
 
 static inline void
 parsers_clear(void)
 {
-    struct _PyArg_Parser *tmp, *s = static_arg_parsers;
+    struct _PyArg_Parser *tmp, *s = _PyRuntime.getargs.static_arg_parsers;
     while (s) {
         tmp = s->next;
         s->next = NULL;
         parser_clear(s);
         s = tmp;
     }
-    static_arg_parsers = NULL;
+    _PyRuntime.getargs.static_arg_parsers = NULL;
 }
 
 static inline int

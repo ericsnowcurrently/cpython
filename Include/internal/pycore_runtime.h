@@ -14,8 +14,12 @@ extern "C" {
 #include "pycore_interp.h"          // PyInterpreterState
 #include "pycore_unicodeobject.h"   // struct _Py_unicode_runtime_ids
 
+struct _PyArg_Parser;
+
 struct _getargs_runtime_state {
-   PyThread_type_lock mutex;
+    PyThread_type_lock mutex;
+    /* The head of the linked list of parsers to clean up during fini. */
+    struct _PyArg_Parser *static_arg_parsers;
 };
 
 /* ceval state */
