@@ -2028,7 +2028,7 @@ _parser_init(struct _PyArg_Parser *parser)
 }
 
 static inline int
-parser_init(struct _PyArg_Parser *parser)
+init_parser(struct _PyArg_Parser *parser)
 {
     int ret = 1;
     // volatile as it can be modified by other threads
@@ -2132,7 +2132,7 @@ vgetargskeywordsfast_impl(PyObject *const *args, Py_ssize_t nargs,
         return 0;
     }
 
-    if (!parser_init(parser)) {
+    if (!init_parser(parser)) {
         return 0;
     }
 
@@ -2364,7 +2364,7 @@ _PyArg_UnpackKeywords(PyObject *const *args, Py_ssize_t nargs,
         args = buf;
     }
 
-    if (!parser_init(parser)) {
+    if (!init_parser(parser)) {
         return NULL;
     }
 
@@ -2540,7 +2540,7 @@ _PyArg_UnpackKeywordsWithVararg(PyObject *const *args, Py_ssize_t nargs,
         args = buf;
     }
 
-    if (!parser_init(parser)) {
+    if (!init_parser(parser)) {
         return NULL;
     }
 
