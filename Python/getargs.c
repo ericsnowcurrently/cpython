@@ -1955,7 +1955,13 @@ parse_format(const char *format, int total, int npos,
 static int
 init_kwtuple(struct _PyArg_Parser *parser)
 {
+    if (parser->kwtuple != NULL) {
+        /* We leave parser->owned as-is. */
+        return 0;
+    }
     assert(parser->kwtuple == NULL);
+    assert(parser->kwtuple_owned == parser->initialized);
+
     int nkw = parser->total - parser->pos;
     PyObject *kwtuple = PyTuple_New(nkw);
     if (kwtuple == NULL) {
@@ -1972,6 +1978,7 @@ init_kwtuple(struct _PyArg_Parser *parser)
         PyTuple_SET_ITEM(kwtuple, i, str);
     }
     parser->kwtuple = kwtuple;
+    parser->kwtuple_owned = 1;
     return 0;
 }
 
@@ -2011,18 +2018,8 @@ _parser_init(struct _PyArg_Parser *parser)
     parser->custom_msg = custommsg;
     parser->min = min;
     parser->max = max;
-
-    int owned;
-    if (parser->kwtuple == NULL) {
-        if (init_kwtuple(parser) < 0) {
-            return 0;
-        }
-        owned = 1;
-    }
-    else {
-        owned = 0;
-    }
-    parser->initialized = owned ? 1 : -1;
+    parser->kwtuple_owned = (parser->kwtuple == NULL);
+    parser->initialized = 1;
     return 1;
 }
 
@@ -2032,19 +2029,23 @@ parser_init(struct _PyArg_Parser *parser)
     int ret = 1;
     // volatile as it can be modified by other threads
     // and should not be optimized or reordered by compiler
-    if (*((volatile int *)&parser->initialized)) {
+    if (*((volatile unsigned int *)&parser->initialized)) {
         assert(parser->kwtuple != NULL);
         return ret;
     }
     PyThread_acquire_lock(_PyRuntime.getargs.mutex, WAIT_LOCK);
     // Check again if another thread initialized the parser
     // while we were waiting for the lock.
-    if (*((volatile int *)&parser->initialized)) {
+    if (*((volatile unsigned int *)&parser->initialized)) {
         assert(parser->kwtuple != NULL);
         goto finally;
     }
     ret = _parser_init(parser);
     if (ret == 0) {
+        goto finally;
+    }
+    if (init_kwtuple(parser) < 0) {
+        ret = 0;
         goto finally;
     }
     assert(parser->next == NULL);
@@ -2059,7 +2060,7 @@ finally:
 static void
 parser_clear(struct _PyArg_Parser *parser)
 {
-    if (parser->initialized == 1) {
+    if (parser->initialized == 1 && parser->kwtuple_owned) {
         Py_CLEAR(parser->kwtuple);
     }
 }
