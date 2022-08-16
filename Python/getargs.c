@@ -1953,7 +1953,7 @@ parse_format(const char *format, int total, int npos,
 }
 
 static int
-init_kwtuple(struct _PyArg_Parser *parser)
+parser_init_kwtuple(struct _PyArg_Parser *parser)
 {
     if (parser->kwtuple != NULL) {
         /* We leave parser->owned as-is. */
@@ -2048,7 +2048,7 @@ parser_init(struct _PyArg_Parser *parser)
     if (ret == 0) {
         goto finally;
     }
-    if (init_kwtuple(parser) < 0) {
+    if (parser_init_kwtuple(parser) < 0) {
         ret = 0;
         goto finally;
     }
