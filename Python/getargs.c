@@ -2,8 +2,9 @@
 /* New getargs implementation */
 
 #include "Python.h"
-#include "pycore_tuple.h"         // _PyTuple_ITEMS()
 #include "pycore_pylifecycle.h"   // _PyArg_Fini
+#include "pycore_pystate.h"       // _Py_IsMainInterpreter()
+#include "pycore_tuple.h"         // _PyTuple_ITEMS()
 
 #include <ctype.h>
 #include <float.h>
@@ -2958,9 +2959,11 @@ _PyArg_NoKwnames(const char *funcname, PyObject *kwnames)
 }
 
 void
-_PyArg_Fini(void)
+_PyArg_Fini(PyInterpreterState *interp)
 {
-    parsers_clear();
+    if (_Py_IsMainInterpreter(interp)) {
+        parsers_clear();
+    }
 }
 
 #ifdef __cplusplus
