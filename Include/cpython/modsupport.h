@@ -62,6 +62,8 @@ typedef struct _PyArg_Parser {
     int max;            /* maximal number of positional arguments */
     PyObject *kwtuple;  /* tuple of keyword parameter names */
     unsigned int kwtuple_owned;
+    /* We use a linked list to track all the parsers for which we will
+     * we will clear owned memory during runtime finalization. */
     struct _PyArg_Parser *next;
 } _PyArg_Parser;
 

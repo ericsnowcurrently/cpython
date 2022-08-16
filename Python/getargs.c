@@ -1983,7 +1983,7 @@ parser_init_kwtuple(struct _PyArg_Parser *parser)
 }
 
 static int
-_parser_init(struct _PyArg_Parser *parser)
+parser_init(struct _PyArg_Parser *parser)
 {
     const char * const *keywords = parser->keywords;
     assert(keywords != NULL);
@@ -2027,6 +2027,35 @@ _parser_init(struct _PyArg_Parser *parser)
     return 1;
 }
 
+static void
+parser_clear(struct _PyArg_Parser *parser)
+{
+    if (parser->initialized == 1 && parser->kwtuple_owned) {
+        Py_CLEAR(parser->kwtuple);
+    }
+}
+
+static inline void
+parsers_add(struct _PyArg_Parser *parser)
+{
+    assert(parser->next == NULL);
+    parser->next = static_arg_parsers;
+    static_arg_parsers = parser;
+}
+
+static inline void
+parsers_clear(void)
+{
+    struct _PyArg_Parser *tmp, *s = static_arg_parsers;
+    while (s) {
+        tmp = s->next;
+        s->next = NULL;
+        parser_clear(s);
+        s = tmp;
+    }
+    static_arg_parsers = NULL;
+}
+
 static inline int
 init_parser(struct _PyArg_Parser *parser)
 {
@@ -2044,7 +2073,7 @@ init_parser(struct _PyArg_Parser *parser)
         assert(parser->kwtuple != NULL);
         goto finally;
     }
-    ret = _parser_init(parser);
+    ret = parser_init(parser);
     if (ret == 0) {
         goto finally;
     }
@@ -2052,21 +2081,11 @@ init_parser(struct _PyArg_Parser *parser)
         ret = 0;
         goto finally;
     }
-    assert(parser->next == NULL);
-    parser->next = static_arg_parsers;
-    static_arg_parsers = parser;
+    parsers_add(parser);
 
 finally:
     PyThread_release_lock(_PyRuntime.getargs.mutex);
     return 1;
-}
-
-static void
-parser_clear(struct _PyArg_Parser *parser)
-{
-    if (parser->initialized == 1 && parser->kwtuple_owned) {
-        Py_CLEAR(parser->kwtuple);
-    }
 }
 
 static PyObject*
@@ -2941,14 +2960,7 @@ _PyArg_NoKwnames(const char *funcname, PyObject *kwnames)
 void
 _PyArg_Fini(void)
 {
-    struct _PyArg_Parser *tmp, *s = static_arg_parsers;
-    while (s) {
-        tmp = s->next;
-        s->next = NULL;
-        parser_clear(s);
-        s = tmp;
-    }
-    static_arg_parsers = NULL;
+    parsers_clear();
 }
 
 #ifdef __cplusplus
