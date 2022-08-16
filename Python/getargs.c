@@ -2003,6 +2003,13 @@ _parser_init(struct _PyArg_Parser *parser)
         fname = parser->fname;
     }
 
+    parser->total = len;
+    parser->pos = pos;
+    parser->fname = fname;
+    parser->custom_msg = custommsg;
+    parser->min = min;
+    parser->max = max;
+
     int owned;
     PyObject *kwtuple = parser->kwtuple;
     if (kwtuple == NULL) {
@@ -2016,11 +2023,6 @@ _parser_init(struct _PyArg_Parser *parser)
         owned = 0;
     }
 
-    parser->pos = pos;
-    parser->fname = fname;
-    parser->custom_msg = custommsg;
-    parser->min = min;
-    parser->max = max;
     parser->kwtuple = kwtuple;
     parser->initialized = owned ? 1 : -1;
 
