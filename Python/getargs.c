@@ -2030,7 +2030,7 @@ _parser_init(struct _PyArg_Parser *parser)
     return 1;
 }
 
-static int
+static inline int
 parser_init(struct _PyArg_Parser *parser)
 {
     // volatile as it can be modified by other threads
