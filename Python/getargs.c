@@ -1952,25 +1952,27 @@ parse_format(const char *format, int total, int npos,
     return 0;
 }
 
-static PyObject *
-new_kwtuple(const char * const *keywords, int total, int pos)
+static int
+init_kwtuple(struct _PyArg_Parser *parser)
 {
-    int nkw = total - pos;
+    assert(parser->kwtuple == NULL);
+    int nkw = parser->total - parser->pos;
     PyObject *kwtuple = PyTuple_New(nkw);
     if (kwtuple == NULL) {
-        return NULL;
+        return -1;
     }
-    keywords += pos;
+    const char * const *keywords = parser->keywords + parser->pos;
     for (int i = 0; i < nkw; i++) {
         PyObject *str = PyUnicode_FromString(keywords[i]);
         if (str == NULL) {
             Py_DECREF(kwtuple);
-            return NULL;
+            return -1;
         }
         PyUnicode_InternInPlace(&str);
         PyTuple_SET_ITEM(kwtuple, i, str);
     }
-    return kwtuple;
+    parser->kwtuple = kwtuple;
+    return 0;
 }
 
 static int
@@ -2011,10 +2013,8 @@ _parser_init(struct _PyArg_Parser *parser)
     parser->max = max;
 
     int owned;
-    PyObject *kwtuple = parser->kwtuple;
-    if (kwtuple == NULL) {
-        kwtuple = new_kwtuple(keywords, len, pos);
-        if (kwtuple == NULL) {
+    if (parser->kwtuple == NULL) {
+        if (init_kwtuple(parser) < 0) {
             return 0;
         }
         owned = 1;
@@ -2022,8 +2022,6 @@ _parser_init(struct _PyArg_Parser *parser)
     else {
         owned = 0;
     }
-
-    parser->kwtuple = kwtuple;
     parser->initialized = owned ? 1 : -1;
 
     assert(parser->next == NULL);
