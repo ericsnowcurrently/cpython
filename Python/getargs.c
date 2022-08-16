@@ -2018,6 +2018,9 @@ _parser_init(struct _PyArg_Parser *parser)
     parser->custom_msg = custommsg;
     parser->min = min;
     parser->max = max;
+    assert(parser->kwtuple == NULL ||
+           (PyTuple_CheckExact(parser->kwtuple) &&
+            PyTuple_GET_SIZE(parser->kwtuple) == (len - pos)));
     parser->kwtuple_owned = (parser->kwtuple == NULL);
     parser->initialized = 1;
     return 1;
