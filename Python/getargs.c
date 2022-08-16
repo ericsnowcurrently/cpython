@@ -2078,14 +2078,14 @@ init_parser(struct _PyArg_Parser *parser)
 {
     // volatile as it can be modified by other threads
     // and should not be optimized or reordered by compiler
-    if (*((volatile unsigned int *)&parser->initialized)) {
+    if (*((volatile int *)&parser->initialized)) {
         assert(parser->kwtuple != NULL);
         return 1;
     }
     PyThread_acquire_lock(_PyRuntime.getargs.mutex, WAIT_LOCK);
     // Check again if another thread initialized the parser
     // while we were waiting for the lock.
-    if (*((volatile unsigned int *)&parser->initialized)) {
+    if (*((volatile int *)&parser->initialized)) {
         assert(parser->kwtuple != NULL);
         PyThread_release_lock(_PyRuntime.getargs.mutex);
         return 1;
