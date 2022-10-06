@@ -66,6 +66,7 @@ struct _PyTraceMalloc_Config _Py_tracemalloc_config = _PyTraceMalloc_Config_INIT
 #define _PyMem (_PyRuntime.allocators.standard.mem)
 #define _PyObject (_PyRuntime.allocators.standard.obj)
 #define _PyMem_Debug (_PyRuntime.allocators.debug)
+#define _PyObject_Arena (_PyRuntime.allocators.obj_arena)
 
 
 static int
@@ -267,79 +268,6 @@ _PyMem_GetCurrentAllocatorName(void)
     return NULL;
 }
 
-
-/***************************************/
-/* the object allocator implementation */
-
-#ifdef WITH_PYMALLOC
-#  ifdef MS_WINDOWS
-#    include <windows.h>
-#  elif defined(HAVE_MMAP)
-#    include <sys/mman.h>
-#    ifdef MAP_ANONYMOUS
-#      define ARENAS_USE_MMAP
-#    endif
-#  endif
-#endif
-
-#ifdef MS_WINDOWS
-static void *
-_PyObject_ArenaVirtualAlloc(void *Py_UNUSED(ctx), size_t size)
-{
-    return VirtualAlloc(NULL, size,
-                        MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-}
-
-static void
-_PyObject_ArenaVirtualFree(void *Py_UNUSED(ctx), void *ptr,
-    size_t Py_UNUSED(size))
-{
-    VirtualFree(ptr, 0, MEM_RELEASE);
-}
-
-#elif defined(ARENAS_USE_MMAP)
-static void *
-_PyObject_ArenaMmap(void *Py_UNUSED(ctx), size_t size)
-{
-    void *ptr;
-    ptr = mmap(NULL, size, PROT_READ|PROT_WRITE,
-               MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
-    if (ptr == MAP_FAILED)
-        return NULL;
-    assert(ptr != NULL);
-    return ptr;
-}
-
-static void
-_PyObject_ArenaMunmap(void *Py_UNUSED(ctx), void *ptr, size_t size)
-{
-    munmap(ptr, size);
-}
-
-#else
-static void *
-_PyObject_ArenaMalloc(void *Py_UNUSED(ctx), size_t size)
-{
-    return malloc(size);
-}
-
-static void
-_PyObject_ArenaFree(void *Py_UNUSED(ctx), void *ptr, size_t Py_UNUSED(size))
-{
-    free(ptr);
-}
-#endif
-
-
-static PyObjectArenaAllocator _PyObject_Arena = {NULL,
-#ifdef MS_WINDOWS
-    _PyObject_ArenaVirtualAlloc, _PyObject_ArenaVirtualFree
-#elif defined(ARENAS_USE_MMAP)
-    _PyObject_ArenaMmap, _PyObject_ArenaMunmap
-#else
-    _PyObject_ArenaMalloc, _PyObject_ArenaFree
-#endif
-    };
 
 #ifdef WITH_PYMALLOC
 static int
@@ -1843,7 +1771,7 @@ allocate_from_new_pool(uint size)
    or when the max memory limit has been reached.
 */
 static inline void*
-pymalloc_alloc(void *Py_UNUSED(ctx), size_t nbytes)
+pymalloc_alloc(PyInterpreterState *interp, void *Py_UNUSED(ctx), size_t nbytes)
 {
 #ifdef WITH_VALGRIND
     if (UNLIKELY(running_on_valgrind == -1)) {
@@ -1893,7 +1821,8 @@ pymalloc_alloc(void *Py_UNUSED(ctx), size_t nbytes)
 void *
 _PyObject_Malloc(void *ctx, size_t nbytes)
 {
-    void* ptr = pymalloc_alloc(ctx, nbytes);
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    void* ptr = pymalloc_alloc(interp, ctx, nbytes);
     if (LIKELY(ptr != NULL)) {
         return ptr;
     }
@@ -1912,7 +1841,8 @@ _PyObject_Calloc(void *ctx, size_t nelem, size_t elsize)
     assert(elsize == 0 || nelem <= (size_t)PY_SSIZE_T_MAX / elsize);
     size_t nbytes = nelem * elsize;
 
-    void* ptr = pymalloc_alloc(ctx, nbytes);
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    void* ptr = pymalloc_alloc(interp, ctx, nbytes);
     if (LIKELY(ptr != NULL)) {
         memset(ptr, 0, nbytes);
         return ptr;
@@ -2113,7 +2043,7 @@ insert_to_freepool(poolp pool)
    Return 1 if it was freed.
    Return 0 if the block was not allocated by pymalloc_alloc(). */
 static inline int
-pymalloc_free(void *Py_UNUSED(ctx), void *p)
+pymalloc_free(PyInterpreterState *interp, void *Py_UNUSED(ctx), void *p)
 {
     assert(p != NULL);
 
@@ -2178,7 +2108,8 @@ _PyObject_Free(void *ctx, void *p)
         return;
     }
 
-    if (UNLIKELY(!pymalloc_free(ctx, p))) {
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    if (UNLIKELY(!pymalloc_free(interp, ctx, p))) {
         /* pymalloc didn't allocate this address */
         PyMem_RawFree(p);
         raw_allocated_blocks--;
@@ -2196,7 +2127,8 @@ _PyObject_Free(void *ctx, void *p)
 
    Return 0 if pymalloc didn't allocated p. */
 static int
-pymalloc_realloc(void *ctx, void **newptr_p, void *p, size_t nbytes)
+pymalloc_realloc(PyInterpreterState *interp, void *ctx,
+                 void **newptr_p, void *p, size_t nbytes)
 {
     void *bp;
     poolp pool;
@@ -2265,7 +2197,8 @@ _PyObject_Realloc(void *ctx, void *ptr, size_t nbytes)
         return _PyObject_Malloc(ctx, nbytes);
     }
 
-    if (pymalloc_realloc(ctx, &ptr2, ptr, nbytes)) {
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    if (pymalloc_realloc(interp, ctx, &ptr2, ptr, nbytes)) {
         return ptr2;
     }
 
