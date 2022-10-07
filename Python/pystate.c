@@ -52,7 +52,7 @@ _Py_COMP_DIAG_PUSH
 _Py_COMP_DIAG_IGNORE_DEPR_DECLS
 /* We use "initial" if the runtime gets re-used
    (e.g. Py_Finalize() followed by Py_Initialize(). */
-static const _PyRuntimeState initial = _PyRuntimeState_INIT;
+static const _PyRuntimeState initial = _PyRuntimeState_INIT(initial);
 _Py_COMP_DIAG_POP
 
 static int
