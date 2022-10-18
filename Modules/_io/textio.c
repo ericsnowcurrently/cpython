@@ -976,15 +976,10 @@ io_check_errors(PyObject *errors)
 {
     assert(errors != NULL && errors != Py_None);
 
-    PyInterpreterState *interp = _PyInterpreterState_GET();
-#ifndef Py_DEBUG
-    /* In release mode, only check in development mode (-X dev) */
-    if (!_PyInterpreterState_GetConfig(interp)->dev_mode) {
+    if (!_PyRuntime.do_debug_checks) {
         return 0;
     }
-#else
-    /* Always check in debug mode */
-#endif
+    PyInterpreterState *interp = _PyInterpreterState_GET();
 
     /* Avoid calling PyCodec_LookupError() before the codec registry is ready:
        before_PyUnicode_InitEncodings() is called. */

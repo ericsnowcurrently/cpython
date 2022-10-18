@@ -1069,6 +1069,15 @@ pyinit_core(_PyRuntimeState *runtime,
         goto done;
     }
 
+    runtime->write_unraisable = config.dev_mode;
+#ifndef Py_DEBUG
+    /* In release mode, only check in development mode (-X dev) */
+    runtime->do_debug_checks = config.dev_mode;
+#else
+    /* Always check in debug mode */
+    runtime->do_debug_checks = 1;
+#endif
+
 done:
     PyConfig_Clear(&config);
     return status;

@@ -433,15 +433,10 @@ unicode_check_encoding_errors(const char *encoding, const char *errors)
         return 0;
     }
 
-    PyInterpreterState *interp = _PyInterpreterState_GET();
-#ifndef Py_DEBUG
-    /* In release mode, only check in development mode (-X dev) */
-    if (!_PyInterpreterState_GetConfig(interp)->dev_mode) {
+    if (!_PyRuntime.do_debug_checks) {
         return 0;
     }
-#else
-    /* Always check in debug mode */
-#endif
+    PyInterpreterState *interp = _PyInterpreterState_GET();
 
     /* Avoid calling _PyCodec_Lookup() and PyCodec_LookupError() before the
        codec registry is ready: before_PyUnicode_InitEncodings() is called. */

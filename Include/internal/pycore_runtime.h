@@ -121,6 +121,11 @@ typedef struct pyruntimestate {
 
     PyPreConfig preconfig;
 
+    /* Write unraisable errors instead of eating them. */
+    int write_unraisable;
+
+    int do_debug_checks;
+
     // Audit values must be preserved when Py_Initialize()/Py_Finalize()
     // is called multiple times.
     Py_OpenCodeHookFunction open_code_hook;

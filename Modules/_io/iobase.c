@@ -281,7 +281,7 @@ iobase_finalize(PyObject *self)
            shutdown issues). */
         if (res == NULL) {
 #ifndef Py_DEBUG
-            if (_Py_GetConfig()->dev_mode) {
+            if (_PyRuntime.write_unraisable) {
                 PyErr_WriteUnraisable(self);
             }
             else {
