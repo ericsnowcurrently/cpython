@@ -121,12 +121,12 @@ typedef struct pyruntimestate {
 
     PyPreConfig preconfig;
 
-    /* Write unraisable errors instead of eating them. */
+    /* State derived from the config during init: */
+    // Write unraisable errors instead of eating them.
     int write_unraisable;
-
     int do_debug_checks;
-
     int print_import_time;
+    int code_debug_ranges;
 
     // Audit values must be preserved when Py_Initialize()/Py_Finalize()
     // is called multiple times.

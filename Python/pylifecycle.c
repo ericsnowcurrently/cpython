@@ -1077,8 +1077,8 @@ pyinit_core(_PyRuntimeState *runtime,
     /* Always check in debug mode */
     runtime->do_debug_checks = 1;
 #endif
-
     runtime->print_import_time = config.import_time;
+    runtime->code_debug_ranges = config.code_debug_ranges;
 
 done:
     PyConfig_Clear(&config);

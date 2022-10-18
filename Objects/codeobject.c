@@ -486,7 +486,7 @@ _PyCode_New(struct _PyCodeConstructor *con)
     PyObject *replacement_locations = NULL;
     // Compact the linetable if we are opted out of debug
     // ranges.
-    if (!_Py_GetConfig()->code_debug_ranges) {
+    if (!_PyRuntime.code_debug_ranges) {
         replacement_locations = remove_column_info(con->linetable);
         if (replacement_locations == NULL) {
             return NULL;
