@@ -126,6 +126,8 @@ typedef struct pyruntimestate {
 
     int do_debug_checks;
 
+    int print_import_time;
+
     // Audit values must be preserved when Py_Initialize()/Py_Finalize()
     // is called multiple times.
     Py_OpenCodeHookFunction open_code_hook;

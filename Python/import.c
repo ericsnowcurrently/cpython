@@ -1692,7 +1692,7 @@ import_find_and_load(PyThreadState *tstate, PyObject *abs_name)
 {
     PyObject *mod = NULL;
     PyInterpreterState *interp = tstate->interp;
-    int import_time = _PyInterpreterState_GetConfig(interp)->import_time;
+    int import_time = _PyRuntime.print_import_time;
     static int import_level;
     static _PyTime_t accumulated;
 

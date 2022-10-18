@@ -1078,6 +1078,8 @@ pyinit_core(_PyRuntimeState *runtime,
     runtime->do_debug_checks = 1;
 #endif
 
+    runtime->print_import_time = config.import_time;
+
 done:
     PyConfig_Clear(&config);
     return status;
