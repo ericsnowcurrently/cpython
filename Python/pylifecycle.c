@@ -849,6 +849,7 @@ pycore_interp_init(PyThreadState *tstate)
     const PyConfig *config = _PyInterpreterState_GetConfig(interp);
     interp->bytes_warning = config->bytes_warning;
     interp->warn_default_encoding = config->warn_default_encoding;
+    interp->interactive = config->interactive;
 
     if (_PyWarnings_InitState(interp) < 0) {
         return _PyStatus_ERR("can't initialize warnings");
@@ -2970,7 +2971,8 @@ Py_FdIsInteractive(FILE *fp, const char *filename)
     if (isatty(fileno(fp))) {
         return 1;
     }
-    if (!_Py_GetConfig()->interactive) {
+    PyInterpreterState *interp = _PyInterpreterState_Get();
+    if (!interp->interactive) {
         return 0;
     }
     return ((filename == NULL)
@@ -2985,7 +2987,8 @@ _Py_FdIsInteractive(FILE *fp, PyObject *filename)
     if (isatty(fileno(fp))) {
         return 1;
     }
-    if (!_Py_GetConfig()->interactive) {
+    PyInterpreterState *interp = _PyInterpreterState_Get();
+    if (!interp->interactive) {
         return 0;
     }
     return ((filename == NULL)
