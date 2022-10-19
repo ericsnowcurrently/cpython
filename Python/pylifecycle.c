@@ -856,6 +856,7 @@ pycore_interp_init(PyThreadState *tstate)
 #ifdef MS_WINDOWS
     interp->legacy_windows_stdio = config->legacy_windows_stdio;
 #endif
+    interp->use_frozen_modules = config->use_frozen_modules;
 
     assert(interp->check_hash_pycs_mode == NULL);
     interp->check_hash_pycs_mode = PyUnicode_FromWideChar(

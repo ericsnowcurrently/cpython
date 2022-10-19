@@ -156,6 +156,7 @@ struct _is {
 #ifdef MS_WINDOWS
     int legacy_windows_stdio;
 #endif
+    int use_frozen_modules;
 
     PyObject *check_hash_pycs_mode;
 
