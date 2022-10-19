@@ -857,6 +857,13 @@ pycore_interp_init(PyThreadState *tstate)
     interp->legacy_windows_stdio = config->legacy_windows_stdio;
 #endif
 
+    assert(interp->check_hash_pycs_mode == NULL);
+    interp->check_hash_pycs_mode = PyUnicode_FromWideChar(
+            config->check_hash_pycs_mode, -1);
+    if (interp->check_hash_pycs_mode == NULL) {
+        return _PyStatus_ERR("can't initialize check_hash_pycs_mode");
+    }
+
     if (_PyWarnings_InitState(interp) < 0) {
         return _PyStatus_ERR("can't initialize warnings");
     }

@@ -157,6 +157,8 @@ struct _is {
     int legacy_windows_stdio;
 #endif
 
+    PyObject *check_hash_pycs_mode;
+
     PyObject *dict;  /* Stores per-interpreter state */
 
     PyObject *builtins_copy;
