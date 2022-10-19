@@ -177,7 +177,7 @@ init_importlib(PyThreadState *tstate, PyObject *sysmod)
     assert(!_PyErr_Occurred(tstate));
 
     PyInterpreterState *interp = tstate->interp;
-    int verbose = _PyInterpreterState_GetConfig(interp)->verbose;
+    int verbose = interp->verbose;
 
     // Import _importlib through its frozen version, _frozen_importlib.
     if (verbose) {
@@ -852,6 +852,7 @@ pycore_interp_init(PyThreadState *tstate)
     interp->interactive = config->interactive;
     interp->optimization_level = config->optimization_level;
     interp->parser_debug = config->parser_debug;
+    interp->verbose = config->verbose;
 
     if (_PyWarnings_InitState(interp) < 0) {
         return _PyStatus_ERR("can't initialize warnings");
@@ -1549,7 +1550,7 @@ finalize_modules(PyThreadState *tstate)
         // Already done
         return;
     }
-    int verbose = _PyInterpreterState_GetConfig(interp)->verbose;
+    int verbose = interp->verbose;
 
     // Delete some special builtins._ and sys attributes first.  These are
     // common places where user values hide and people complain when their

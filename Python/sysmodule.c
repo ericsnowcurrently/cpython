@@ -330,8 +330,8 @@ _PySys_ClearAuditHooks(PyThreadState *ts)
         return;
     }
 
-    const PyConfig *config = _PyInterpreterState_GetConfig(ts->interp);
-    if (config->verbose) {
+    PyInterpreterState *interp = _PyInterpreterState_Get();
+    if (interp->verbose) {
         PySys_WriteStderr("# clear sys.audit hooks\n");
     }
 

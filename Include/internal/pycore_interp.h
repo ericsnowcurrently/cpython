@@ -152,6 +152,7 @@ struct _is {
     int interactive;
     int optimization_level;
     int parser_debug;
+    int verbose;
 
     PyObject *dict;  /* Stores per-interpreter state */
 

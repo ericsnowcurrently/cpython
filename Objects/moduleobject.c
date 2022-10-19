@@ -595,7 +595,8 @@ _PyModule_ClearDict(PyObject *d)
     Py_ssize_t pos;
     PyObject *key, *value;
 
-    int verbose = _Py_GetConfig()->verbose;
+    PyInterpreterState *interp = _PyInterpreterState_Get();
+    int verbose = interp->verbose;
 
     /* First, clear only names starting with a single underscore */
     pos = 0;
@@ -682,7 +683,8 @@ module___init___impl(PyModuleObject *self, PyObject *name, PyObject *doc)
 static void
 module_dealloc(PyModuleObject *m)
 {
-    int verbose = _Py_GetConfig()->verbose;
+    PyInterpreterState *interp = _PyInterpreterState_Get();
+    int verbose = interp->verbose;
 
     PyObject_GC_UnTrack(m);
     if (verbose && m->md_name) {

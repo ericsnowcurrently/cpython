@@ -1024,7 +1024,7 @@ _PyInterpreterState_ClearModules(PyInterpreterState *interp)
 void
 PyThreadState_Clear(PyThreadState *tstate)
 {
-    int verbose = _PyInterpreterState_GetConfig(tstate->interp)->verbose;
+    int verbose = tstate->interp->verbose;
 
     if (verbose && tstate->cframe->current_frame != NULL) {
         /* bpo-20526: After the main thread calls
