@@ -151,6 +151,7 @@ struct _is {
     int warn_default_encoding;
     int interactive;
     int optimization_level;
+    int parser_debug;
 
     PyObject *dict;  /* Stores per-interpreter state */
 

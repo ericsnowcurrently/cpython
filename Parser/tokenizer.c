@@ -98,7 +98,8 @@ tok_new(void)
     tok->interactive_underflow = IUNDERFLOW_NORMAL;
     tok->str = NULL;
 #ifdef Py_DEBUG
-    tok->debug = _Py_GetConfig()->parser_debug;
+    PyInterpreterState *interp = _PyInterpreterState_Get();
+    tok->debug = interp->parser_debug;
 #endif
     return tok;
 }
