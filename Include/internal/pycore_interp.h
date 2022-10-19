@@ -148,6 +148,7 @@ struct _is {
 #endif
 
     int bytes_warning;
+    int warn_default_encoding;
 
     PyObject *dict;  /* Stores per-interpreter state */
 
