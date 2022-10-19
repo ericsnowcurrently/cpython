@@ -14965,6 +14965,24 @@ init_stdio_encoding(PyInterpreterState *interp)
 }
 
 
+static char *
+_copy_utf8(PyObject *unicode)
+{
+    Py_ssize_t size;
+    const char *cache = PyUnicode_AsUTF8AndSize(unicode, &size);
+    if (cache == NULL) {
+        return NULL;
+    }
+    char *copied = PyMem_RawMalloc(size + 1);
+    if (copied == NULL) {
+        PyErr_NoMemory();
+        return NULL;
+    }
+    memcpy(copied, cache, size);
+    copied[size] = '\0';
+    return copied;
+}
+
 static int
 init_fs_codec(PyInterpreterState *interp)
 {
@@ -14978,16 +14996,13 @@ init_fs_codec(PyInterpreterState *interp)
     }
 
     char *encoding, *errors;
-    if (encode_wstr_utf8(config->filesystem_encoding,
-                         &encoding,
-                         "filesystem_encoding") < 0) {
+    encoding = _copy_utf8(interp->filesystem_encoding);
+    if (encoding == NULL) {
         return -1;
     }
-
     if (encode_wstr_utf8(config->filesystem_errors,
                          &errors,
                          "filesystem_errors") < 0) {
-        PyMem_RawFree(encoding);
         return -1;
     }
 
@@ -15034,9 +15049,17 @@ init_fs_encoding(PyThreadState *tstate)
                              "of the filesystem encoding");
     }
 
+    PyObject *encoding = PyUnicode_FromWideChar(config->filesystem_encoding, -1);
+    if (encoding == NULL) {
+        return _PyStatus_ERR("cannot initialize filesystem_encoding");
+    }
+    assert(interp->filesystem_encoding == NULL);
+    interp->filesystem_encoding = encoding;
+
     if (init_fs_codec(interp) < 0) {
         return _PyStatus_ERR("cannot initialize filesystem codec");
     }
+
     return _PyStatus_OK();
 }
 
@@ -15073,17 +15096,21 @@ _PyUnicode_EnableLegacyWindowsFSEncoding(void)
     PyConfig *config = (PyConfig *)_PyInterpreterState_GetConfig(interp);
 
     /* Set the filesystem encoding to mbcs/replace (PEP 529) */
-    wchar_t *encoding = _PyMem_RawWcsdup(L"mbcs");
+    PyObject *encoding = PyUnicode_FromWideChar(L"mbcs", -1);
+    if (encoding == NULL) {
+        return -1;
+    }
     wchar_t *errors = _PyMem_RawWcsdup(L"replace");
-    if (encoding == NULL || errors == NULL) {
-        PyMem_RawFree(encoding);
+    if (errors == NULL) {
+        Py_DECREF(encoding);
         PyMem_RawFree(errors);
         PyErr_NoMemory();
         return -1;
     }
 
-    PyMem_RawFree(config->filesystem_encoding);
-    config->filesystem_encoding = encoding;
+    assert(interp->filesystem_encoding != NULL);
+    Py_DECREF(interp->filesystem_encoding);
+    interp->filesystem_encoding = encoding;
     PyMem_RawFree(config->filesystem_errors);
     config->filesystem_errors = errors;
 

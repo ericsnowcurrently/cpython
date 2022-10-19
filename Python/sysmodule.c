@@ -854,8 +854,7 @@ sys_getfilesystemencoding_impl(PyObject *module)
 /*[clinic end generated code: output=1dc4bdbe9be44aa7 input=8475f8649b8c7d8c]*/
 {
     PyInterpreterState *interp = _PyInterpreterState_GET();
-    const PyConfig *config = _PyInterpreterState_GetConfig(interp);
-    return PyUnicode_FromWideChar(config->filesystem_encoding, -1);
+    return Py_NewRef(interp->filesystem_encoding);
 }
 
 /*[clinic input]
