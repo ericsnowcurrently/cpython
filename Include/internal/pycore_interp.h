@@ -147,6 +147,8 @@ struct _is {
     int dlopenflags;
 #endif
 
+    int bytes_warning;
+
     PyObject *dict;  /* Stores per-interpreter state */
 
     PyObject *builtins_copy;

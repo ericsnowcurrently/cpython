@@ -846,6 +846,9 @@ pycore_interp_init(PyThreadState *tstate)
         goto done;
     }
 
+    const PyConfig *config = _PyInterpreterState_GetConfig(interp);
+    interp->bytes_warning = config->bytes_warning;
+
     if (_PyWarnings_InitState(interp) < 0) {
         return _PyStatus_ERR("can't initialize warnings");
     }
@@ -865,7 +868,6 @@ pycore_interp_init(PyThreadState *tstate)
         goto done;
     }
 
-    const PyConfig *config = _PyInterpreterState_GetConfig(interp);
     if (config->_install_importlib) {
         /* This call sets up builtin and frozen import support */
         if (init_importlib(tstate, sysmod) < 0) {
