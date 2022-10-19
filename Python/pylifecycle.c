@@ -850,6 +850,7 @@ pycore_interp_init(PyThreadState *tstate)
     interp->bytes_warning = config->bytes_warning;
     interp->warn_default_encoding = config->warn_default_encoding;
     interp->interactive = config->interactive;
+    interp->optimization_level = config->optimization_level;
 
     if (_PyWarnings_InitState(interp) < 0) {
         return _PyStatus_ERR("can't initialize warnings");

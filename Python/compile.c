@@ -600,6 +600,7 @@ _PyAST_Compile(mod_ty mod, PyObject *filename, PyCompilerFlags *flags,
     PyCodeObject *co = NULL;
     PyCompilerFlags local_flags = _PyCompilerFlags_INIT;
     int merged;
+    PyInterpreterState *interp = _PyInterpreterState_Get();
     if (!compiler_init(&c))
         return NULL;
     Py_INCREF(filename);
@@ -615,7 +616,7 @@ _PyAST_Compile(mod_ty mod, PyObject *filename, PyCompilerFlags *flags,
     c.c_future->ff_features = merged;
     flags->cf_flags = merged;
     c.c_flags = flags;
-    c.c_optimize = (optimize == -1) ? _Py_GetConfig()->optimization_level : optimize;
+    c.c_optimize = (optimize == -1) ? interp->optimization_level : optimize;
     c.c_nestlevel = 0;
 
     _PyASTOptimizeState state;
