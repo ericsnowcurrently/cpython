@@ -140,6 +140,7 @@ struct _is {
     int codecs_initialized;
 
     PyObject *filesystem_encoding;
+    PyObject *filesystem_errors;
 
     PyConfig config;
 #ifdef HAVE_DLOPEN

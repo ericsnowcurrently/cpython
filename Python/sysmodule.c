@@ -868,8 +868,7 @@ sys_getfilesystemencodeerrors_impl(PyObject *module)
 /*[clinic end generated code: output=ba77b36bbf7c96f5 input=22a1e8365566f1e5]*/
 {
     PyInterpreterState *interp = _PyInterpreterState_GET();
-    const PyConfig *config = _PyInterpreterState_GetConfig(interp);
-    return PyUnicode_FromWideChar(config->filesystem_errors, -1);
+    return Py_NewRef(interp->filesystem_errors);
 }
 
 /*[clinic input]

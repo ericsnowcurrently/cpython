@@ -420,6 +420,7 @@ interpreter_clear(PyInterpreterState *interp, PyThreadState *tstate)
     Py_CLEAR(interp->codec_search_cache);
     Py_CLEAR(interp->codec_error_registry);
     Py_CLEAR(interp->filesystem_encoding);
+    Py_CLEAR(interp->filesystem_errors);
     Py_CLEAR(interp->modules);
     Py_CLEAR(interp->modules_by_index);
     Py_CLEAR(interp->builtins_copy);

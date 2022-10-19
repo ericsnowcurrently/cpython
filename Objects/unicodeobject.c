@@ -15000,9 +15000,9 @@ init_fs_codec(PyInterpreterState *interp)
     if (encoding == NULL) {
         return -1;
     }
-    if (encode_wstr_utf8(config->filesystem_errors,
-                         &errors,
-                         "filesystem_errors") < 0) {
+    errors = _copy_utf8(interp->filesystem_errors);
+    if (errors == NULL) {
+        PyMem_RawFree(encoding);
         return -1;
     }
 
@@ -15053,8 +15053,15 @@ init_fs_encoding(PyThreadState *tstate)
     if (encoding == NULL) {
         return _PyStatus_ERR("cannot initialize filesystem_encoding");
     }
+    PyObject *errors = PyUnicode_FromWideChar(config->filesystem_errors, -1);
+    if (errors == NULL) {
+        Py_DECREF(encoding);
+        return _PyStatus_ERR("cannot initialize filesystem_errors");
+    }
     assert(interp->filesystem_encoding == NULL);
+    assert(interp->filesystem_errors == NULL);
     interp->filesystem_encoding = encoding;
+    interp->filesystem_errors = errors;
 
     if (init_fs_codec(interp) < 0) {
         return _PyStatus_ERR("cannot initialize filesystem codec");
@@ -15093,26 +15100,24 @@ int
 _PyUnicode_EnableLegacyWindowsFSEncoding(void)
 {
     PyInterpreterState *interp = _PyInterpreterState_GET();
-    PyConfig *config = (PyConfig *)_PyInterpreterState_GetConfig(interp);
 
     /* Set the filesystem encoding to mbcs/replace (PEP 529) */
     PyObject *encoding = PyUnicode_FromWideChar(L"mbcs", -1);
     if (encoding == NULL) {
         return -1;
     }
-    wchar_t *errors = _PyMem_RawWcsdup(L"replace");
+    PyObject *errors = PyUnicode_FromWideChar(L"replace", -1);
     if (errors == NULL) {
         Py_DECREF(encoding);
-        PyMem_RawFree(errors);
-        PyErr_NoMemory();
         return -1;
     }
 
     assert(interp->filesystem_encoding != NULL);
+    assert(interp->filesystem_errors != NULL);
     Py_DECREF(interp->filesystem_encoding);
     interp->filesystem_encoding = encoding;
-    PyMem_RawFree(config->filesystem_errors);
-    config->filesystem_errors = errors;
+    Py_DECREF(interp->filesystem_errors);
+    interp->filesystem_errors = errors;
 
     return init_fs_codec(interp);
 }
