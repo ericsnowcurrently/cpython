@@ -153,6 +153,9 @@ struct _is {
     int optimization_level;
     int parser_debug;
     int verbose;
+#ifdef MS_WINDOWS
+    int legacy_windows_stdio;
+#endif
 
     PyObject *dict;  /* Stores per-interpreter state */
 

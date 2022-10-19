@@ -319,8 +319,8 @@ _io_open_impl(PyObject *module, PyObject *file, const char *mode,
     {
         PyObject *RawIO_class = (PyObject *)&PyFileIO_Type;
 #ifdef MS_WINDOWS
-        const PyConfig *config = _Py_GetConfig();
-        if (!config->legacy_windows_stdio && _PyIO_get_console_type(path_or_fd) != '\0') {
+        PyInterpreterState *interp = _PyInterpreterState_GET();
+        if (!interp->legacy_windows_stdio && _PyIO_get_console_type(path_or_fd) != '\0') {
             RawIO_class = (PyObject *)&PyWindowsConsoleIO_Type;
             encoding = "utf-8";
         }

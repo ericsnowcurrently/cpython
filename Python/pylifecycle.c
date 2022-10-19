@@ -853,6 +853,9 @@ pycore_interp_init(PyThreadState *tstate)
     interp->optimization_level = config->optimization_level;
     interp->parser_debug = config->parser_debug;
     interp->verbose = config->verbose;
+#ifdef MS_WINDOWS
+    interp->legacy_windows_stdio = config->legacy_windows_stdio;
+#endif
 
     if (_PyWarnings_InitState(interp) < 0) {
         return _PyStatus_ERR("can't initialize warnings");
