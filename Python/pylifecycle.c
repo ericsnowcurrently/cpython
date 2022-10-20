@@ -636,35 +636,6 @@ init_interp_create_gil(PyThreadState *tstate)
 }
 
 
-static PyStatus new_interpreter(_PyRuntimeState *, const PyConfig *, int isolated,
-                                PyThreadState **);
-
-static PyStatus
-pycore_create_main_interpreter(_PyRuntimeState *runtime,
-                               const PyConfig *src_config,
-                               PyThreadState **tstate_p)
-{
-    /* Auto-thread-state API */
-    PyStatus status = _PyGILState_Init(runtime);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
-
-    PyThreadState *tstate;
-    status = new_interpreter(runtime, src_config, 0, &tstate);
-    if (_PyStatus_EXCEPTION(status)) {
-        if (status.code == 1) {
-            return _PyStatus_ERR_CODE("can't make main interpreter", 1);
-        }
-        return status;
-    }
-    assert(_Py_IsMainInterpreter(tstate->interp));
-    (void) PyThreadState_Swap(tstate);
-    *tstate_p = tstate;
-    return _PyStatus_OK();
-}
-
-
 static PyStatus
 pycore_init_global_objects(PyInterpreterState *interp)
 {
@@ -871,22 +842,36 @@ done:
 }
 
 
+static PyStatus new_interpreter(_PyRuntimeState *, const PyConfig *, int isolated,
+                                PyThreadState **);
+
 static PyStatus
 pyinit_config(_PyRuntimeState *runtime,
-              const PyConfig *config,
+              const PyConfig *src_config,
               PyThreadState **tstate_p)
 {
-    PyStatus status = pycore_init_runtime(runtime, config);
+    PyStatus status = pycore_init_runtime(runtime, src_config);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
 
-    PyThreadState *tstate;
-    status = pycore_create_main_interpreter(runtime, config, &tstate);
+    /* Auto-thread-state API */
+    status = _PyGILState_Init(runtime);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
-    *tstate_p = tstate;
+
+    /* Create the main interpreter. */
+    PyThreadState *tstate;
+    status = new_interpreter(runtime, src_config, 0, &tstate);
+    if (_PyStatus_EXCEPTION(status)) {
+        if (status.code == 1) {
+            return _PyStatus_ERR_CODE("can't make main interpreter", 1);
+        }
+        return status;
+    }
+    assert(_Py_IsMainInterpreter(tstate->interp));
+    (void) PyThreadState_Swap(tstate);
 
     status = pycore_interp_init(tstate);
     if (_PyStatus_EXCEPTION(status)) {
@@ -895,6 +880,8 @@ pyinit_config(_PyRuntimeState *runtime,
 
     /* Only when we get here is the runtime core fully initialized */
     runtime->core_initialized = 1;
+
+    *tstate_p = tstate;
     return _PyStatus_OK();
 }
 
