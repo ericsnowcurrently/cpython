@@ -205,9 +205,9 @@ _Py_CheckPython3(void)
        that has not been a normal install layout for a while */
     PyInterpreterState *interp = _PyInterpreterState_GET();
     PyConfig *config = (PyConfig*)_PyInterpreterState_GetConfig(interp);
-    assert(config->prefix);
-    if (config->prefix) {
-        wcscpy_s(py3path, MAXPATHLEN, config->prefix);
+    assert(interp->prefix);
+    if (interp->prefix) {
+        wcscpy_s(py3path, MAXPATHLEN, interp->prefix);
         if (py3path[0] && _Py_add_relfile(py3path, L"DLLs\\" PY3_DLLNAME, MAXPATHLEN) >= 0) {
             hPython3 = LoadLibraryExW(py3path, NULL, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
         }

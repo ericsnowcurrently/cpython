@@ -158,6 +158,8 @@ struct _is {
 #endif
     int use_frozen_modules;
 
+    wchar_t *prefix;
+
     PyObject *check_hash_pycs_mode;
 
     PyObject *dict;  /* Stores per-interpreter state */
