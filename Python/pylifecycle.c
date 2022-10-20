@@ -1999,19 +1999,6 @@ new_subinterpreter(_PyRuntimeState *runtime,
 {
     PyStatus status;
 
-    status = _PyRuntime_Initialize();
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
-
-    if (!runtime->initialized) {
-        return _PyStatus_ERR("Py_Initialize must be called first");
-    }
-
-    /* Issue #10915, #15751: The GIL API doesn't work with multiple
-       interpreters: disable PyGILState_Check(). */
-    runtime->gilstate.check_enabled = 0;
-
     PyThreadState *tstate;
     status = new_interpreter(runtime, src_config, isolated, &tstate);
     if (_PyStatus_EXCEPTION(status)) {
@@ -2049,6 +2036,21 @@ error:
 PyThreadState *
 _Py_NewInterpreter(int isolated_subinterpreter)
 {
+    _PyRuntimeState *runtime = &_PyRuntime;
+
+    PyStatus status = _PyRuntime_Initialize();
+    if (_PyStatus_EXCEPTION(status)) {
+        goto error;
+    }
+    if (!runtime->initialized) {
+        status = _PyStatus_ERR("Py_Initialize must be called first");
+        goto error;
+    }
+
+    /* Issue #10915, #15751: The GIL API doesn't work with multiple
+       interpreters: disable PyGILState_Check(). */
+    runtime->gilstate.check_enabled = 0;
+
     PyInterpreterState *parent;
     PyThreadState *current = _PyThreadState_GET();
     if (current != NULL) {
@@ -2062,15 +2064,18 @@ _Py_NewInterpreter(int isolated_subinterpreter)
 
     PyThreadState *tstate = NULL;
     /* We will copy the parent interpreter config into the new interpreter */
-    PyStatus status = new_subinterpreter(parent->runtime,
-                                         &parent->config,
-                                         isolated_subinterpreter,
-                                         &tstate);
+    status = new_subinterpreter(runtime,
+                                &parent->config,
+                                isolated_subinterpreter,
+                                &tstate);
     if (_PyStatus_EXCEPTION(status)) {
-        Py_ExitStatusException(status);
+        goto error;
     }
     return tstate;
 
+error:
+    Py_ExitStatusException(status);
+    return NULL;
 }
 
 PyThreadState *
