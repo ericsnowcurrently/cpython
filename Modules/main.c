@@ -710,7 +710,7 @@ pymain_main(_PyArgv *args)
     PyStatus status = pymain_init(args);
     if (_PyStatus_IS_EXIT(status)) {
         pymain_free();
-        return status.exitcode;
+        return status.code;
     }
     if (_PyStatus_EXCEPTION(status)) {
         pymain_exit_error(status);

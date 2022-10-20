@@ -2886,7 +2886,7 @@ void _Py_NO_RETURN
 Py_ExitStatusException(PyStatus status)
 {
     if (_PyStatus_IS_EXIT(status)) {
-        exit(status.exitcode);
+        exit(status.code);
     }
     else if (_PyStatus_IS_ERROR(status)) {
         fatal_error(fileno(stderr), 1, status.func, status.err_msg, 1);

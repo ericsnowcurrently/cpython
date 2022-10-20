@@ -15,7 +15,7 @@ typedef struct {
     } _type;
     const char *func;
     const char *err_msg;
-    int exitcode;
+    int code;
 } PyStatus;
 
 PyAPI_FUNC(PyStatus) PyStatus_Ok(void);

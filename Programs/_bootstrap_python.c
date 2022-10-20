@@ -111,7 +111,7 @@ main(int argc, char **argv)
 error:
     PyConfig_Clear(&config);
     if (PyStatus_IsExit(status)) {
-        return status.exitcode;
+        return status.code;
     }
     Py_ExitStatusException(status);
 }

@@ -30,11 +30,17 @@ struct pyruntimestate;
         .func = _PyStatus_GET_FUNC(), \
         .err_msg = (ERR_MSG)}
         /* other fields are set to 0 */
+#define _PyStatus_ERR_CODE(ERR_MSG, CODE) \
+    (PyStatus){ \
+        ._type = _PyStatus_TYPE_ERROR, \
+        .func = _PyStatus_GET_FUNC(), \
+        .err_msg = (ERR_MSG), \
+        .code = (CODE)}
 #define _PyStatus_NO_MEMORY() _PyStatus_ERR("memory allocation failed")
 #define _PyStatus_EXIT(EXITCODE) \
     (PyStatus){ \
         ._type = _PyStatus_TYPE_EXIT, \
-        .exitcode = (EXITCODE)}
+        .code = (EXITCODE)}
 #define _PyStatus_IS_ERROR(err) \
     ((err)._type == _PyStatus_TYPE_ERROR)
 #define _PyStatus_IS_EXIT(err) \
