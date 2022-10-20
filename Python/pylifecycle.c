@@ -1150,8 +1150,8 @@ Py_InitializeFromConfig(const PyConfig *src_config)
     if (_PyStatus_EXCEPTION(status)) {
         goto done;
     }
-    // Read the configuration, but don't compute the path configuration
-    // (it is computed in the main init).
+    // Read and update the configuration, but don't compute
+    // the path configuration (it is computed in the main init).
     status = _PyConfig_Read(&config, 0);
     if (_PyStatus_EXCEPTION(status)) {
         goto done;
