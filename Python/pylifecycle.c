@@ -974,44 +974,31 @@ pyinit_core(_PyRuntimeState *runtime,
             const PyConfig *config,
             PyThreadState **tstate_p)
 {
-    PyStatus status;
-
-    if (!runtime->core_initialized) {
-        status = pycore_init_runtime(runtime, config);
-        if (_PyStatus_EXCEPTION(status)) {
-            goto done;
-        }
-
-        /* Auto-thread-state API */
-        status = _PyGILState_Init(runtime);
-        if (_PyStatus_EXCEPTION(status)) {
-            goto done;
-        }
-
-        /* Create the main interpreter. */
-        PyThreadState *tstate;
-        status = new_interpreter(runtime, config, 0, &tstate);
-        if (_PyStatus_EXCEPTION(status)) {
-            if (status.code == 1) {
-                status = _PyStatus_ERR_CODE("can't make main interpreter", 1);
-            }
-            goto done;
-        }
-        assert(_Py_IsMainInterpreter(tstate->interp));
-
-        /* Only when we get here is the runtime core fully initialized */
-        runtime->core_initialized = 1;
-
-        (void) PyThreadState_Swap(tstate);
-        *tstate_p = tstate;
-        status = _PyStatus_OK();
-    }
-    else {
-        status = pyinit_core_reconfigure(runtime, config, tstate_p);
+    PyStatus status = pycore_init_runtime(runtime, config);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
     }
 
-done:
-    return status;
+    /* Auto-thread-state API */
+    status = _PyGILState_Init(runtime);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+
+    /* Create the main interpreter. */
+    PyThreadState *tstate;
+    status = new_interpreter(runtime, config, 0, &tstate);
+    if (_PyStatus_EXCEPTION(status)) {
+        if (status.code == 1) {
+            status = _PyStatus_ERR_CODE("can't make main interpreter", 1);
+        }
+        return status;
+    }
+    assert(_Py_IsMainInterpreter(tstate->interp));
+
+    (void) PyThreadState_Swap(tstate);
+    *tstate_p = tstate;
+    return _PyStatus_OK();
 }
 
 
@@ -1214,9 +1201,18 @@ Py_InitializeFromConfig(const PyConfig *src_config)
 
     /* Initialize the runtime using the readied config. */
     PyThreadState *tstate = NULL;
-    status = pyinit_core(runtime, &config, &tstate);
-    if (_PyStatus_EXCEPTION(status)) {
-        goto done;
+    if (!runtime->core_initialized) {
+        status = pyinit_core(runtime, &config, &tstate);
+        if (_PyStatus_EXCEPTION(status)) {
+            goto done;
+        }
+        runtime->core_initialized = 1;
+    }
+    else {
+        status = pyinit_core_reconfigure(runtime, &config, &tstate);
+        if (_PyStatus_EXCEPTION(status)) {
+            goto done;
+        }
     }
     if (tstate->interp->config._init_main) {
         status = pyinit_main(tstate);
