@@ -637,23 +637,17 @@ init_interp_create_gil(PyThreadState *tstate)
 
 
 static PyStatus
-pycore_create_main_interpreter(_PyRuntimeState *runtime,
-                               const PyConfig *src_config,
-                               PyThreadState **tstate_p)
+new_main_interpreter(_PyRuntimeState *runtime,
+                     const PyConfig *src_config,
+                     PyThreadState **tstate_p)
 {
-    /* Auto-thread-state API */
-    PyStatus status = _PyGILState_Init(runtime);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
-
     PyInterpreterState *interp = PyInterpreterState_New();
     if (interp == NULL) {
         return _PyStatus_ERR("can't make main interpreter");
     }
     assert(_Py_IsMainInterpreter(interp));
 
-    status = _PyConfig_Copy(&interp->config, src_config);
+    PyStatus status = _PyConfig_Copy(&interp->config, src_config);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
@@ -670,6 +664,24 @@ pycore_create_main_interpreter(_PyRuntimeState *runtime,
     }
 
     *tstate_p = tstate;
+    return _PyStatus_OK();
+}
+
+static PyStatus
+pycore_create_main_interpreter(_PyRuntimeState *runtime,
+                               const PyConfig *src_config,
+                               PyThreadState **tstate_p)
+{
+    /* Auto-thread-state API */
+    PyStatus status = _PyGILState_Init(runtime);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+
+    status = new_main_interpreter(runtime, src_config, tstate_p);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
     return _PyStatus_OK();
 }
 
