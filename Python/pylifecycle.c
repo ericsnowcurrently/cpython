@@ -952,23 +952,7 @@ _Py_PreInitializeFromConfig(const PyConfig *config,
 static PyStatus new_interpreter(_PyRuntimeState *, const PyConfig *, int isolated,
                                 PyThreadState **);
 
-/* Begin runtime initialization
- *
- * On return, the first thread and interpreter state have been created,
- * but the compiler, signal handling, multithreading and
- * multiple interpreter support, and codec infrastructure are not yet
- * available.
- *
- * The import system will support builtin and frozen modules only.
- * The only supported io is writing to sys.stderr
- *
- * If any operation invoked by this function fails, a fatal error is
- * issued and the function does not return.
- *
- * Any code invoked from this function should *not* assume it has access
- * to the Python C API (unless the API is explicitly listed as being
- * safe to call without calling Py_Initialize first)
- */
+/* Begin runtime initialization */
 static PyStatus
 pyinit_core(_PyRuntimeState *runtime,
             const PyConfig *config,
@@ -1214,6 +1198,24 @@ Py_InitializeFromConfig(const PyConfig *src_config)
             goto done;
         }
     }
+
+    /* Before this point:
+     *
+     * Any code invoked from this function should *not* assume it has access
+     * to the Python C API (unless the API is explicitly listed as being
+     * safe to call without calling Py_Initialize first)
+     *
+     * At this point:
+     *
+     * The first ("main") interpreter and thread state have been created,
+     * but the compiler, signal handling, multithreading, multiple
+     * interpreter support, and codec infrastructure
+     * are not yet available.
+     *
+     * The import system will support builtin and frozen modules only.
+     * The only supported io is writing to sys.stderr
+     */
+
     if (tstate->interp->config._init_main) {
         status = pyinit_main(tstate);
         if (_PyStatus_EXCEPTION(status)) {
