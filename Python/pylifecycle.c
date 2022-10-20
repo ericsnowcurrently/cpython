@@ -1987,6 +1987,12 @@ new_interpreter(_PyRuntimeState *runtime,
         return _PyStatus_OK();
     }
 
+    status = _PyConfig_Copy(&interp->config, src_config);
+    if (_PyStatus_EXCEPTION(status)) {
+        goto error;
+    }
+    interp->config._isolated_interpreter = isolated_subinterpreter;
+
     PyThreadState *tstate = PyThreadState_New(interp);
     if (tstate == NULL) {
         PyInterpreterState_Delete(interp);
@@ -1994,12 +2000,6 @@ new_interpreter(_PyRuntimeState *runtime,
         return _PyStatus_OK();
     }
     PyThreadState *save_tstate = PyThreadState_Swap(tstate);
-
-    status = _PyConfig_Copy(&interp->config, src_config);
-    if (_PyStatus_EXCEPTION(status)) {
-        goto error;
-    }
-    interp->config._isolated_interpreter = isolated_subinterpreter;
 
     status = init_interp_create_gil(tstate);
     if (_PyStatus_EXCEPTION(status)) {
