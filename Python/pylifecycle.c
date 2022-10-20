@@ -575,43 +575,6 @@ pyinit_core_reconfigure(_PyRuntimeState *runtime,
 
 
 static PyStatus
-pycore_init_runtime(_PyRuntimeState *runtime,
-                    const PyConfig *config)
-{
-    if (runtime->initialized) {
-        return _PyStatus_ERR("main interpreter already initialized");
-    }
-
-    PyStatus status = _PyConfig_Write(config, runtime);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
-
-    /* Py_Finalize leaves _Py_Finalizing set in order to help daemon
-     * threads behave a little more gracefully at interpreter shutdown.
-     * We clobber it here so the new interpreter can start with a clean
-     * slate.
-     *
-     * However, this may still lead to misbehaviour if there are daemon
-     * threads still hanging around from a previous Py_Initialize/Finalize
-     * pair :(
-     */
-    _PyRuntimeState_SetFinalizing(runtime, NULL);
-
-    status = _Py_HashRandomization_Init(config);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
-
-    status = _PyInterpreterState_Enable(runtime);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
-    return _PyStatus_OK();
-}
-
-
-static PyStatus
 init_interp_create_gil(PyThreadState *tstate)
 {
     PyStatus status;
@@ -958,7 +921,32 @@ pyinit_core(_PyRuntimeState *runtime,
             const PyConfig *config,
             PyThreadState **tstate_p)
 {
-    PyStatus status = pycore_init_runtime(runtime, config);
+    if (runtime->initialized) {
+        return _PyStatus_ERR("main interpreter already initialized");
+    }
+
+    PyStatus status = _PyConfig_Write(config, runtime);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+
+    /* Py_Finalize leaves _Py_Finalizing set in order to help daemon
+     * threads behave a little more gracefully at interpreter shutdown.
+     * We clobber it here so the new interpreter can start with a clean
+     * slate.
+     *
+     * However, this may still lead to misbehaviour if there are daemon
+     * threads still hanging around from a previous Py_Initialize/Finalize
+     * pair :(
+     */
+    _PyRuntimeState_SetFinalizing(runtime, NULL);
+
+    status = _Py_HashRandomization_Init(config);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+
+    status = _PyInterpreterState_Enable(runtime);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
