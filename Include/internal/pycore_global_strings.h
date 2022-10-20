@@ -525,6 +525,7 @@ struct _Py_global_strings {
         STRUCT_FOR_ID(pid)
         STRUCT_FOR_ID(policy)
         STRUCT_FOR_ID(pos)
+        STRUCT_FOR_ID(prefix)
         STRUCT_FOR_ID(print_file_and_line)
         STRUCT_FOR_ID(priority)
         STRUCT_FOR_ID(progress)

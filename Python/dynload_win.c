@@ -203,13 +203,15 @@ _Py_CheckPython3(void)
 
     /* For back-compat, also search {sys.prefix}\DLLs, though
        that has not been a normal install layout for a while */
-    PyInterpreterState *interp = _PyInterpreterState_GET();
-    PyConfig *config = (PyConfig*)_PyInterpreterState_GetConfig(interp);
-    assert(interp->prefix);
-    if (interp->prefix) {
-        wcscpy_s(py3path, MAXPATHLEN, interp->prefix);
-        if (py3path[0] && _Py_add_relfile(py3path, L"DLLs\\" PY3_DLLNAME, MAXPATHLEN) >= 0) {
-            hPython3 = LoadLibraryExW(py3path, NULL, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+    PyThreadState *tstate = PyThreadState_Get();
+    PyObject *prefix = _PySys_GetAttr(tstate, _Py_ID(prefix));
+    if (prefix != NULL) {
+        int res = PyUnicode_AsWideChar(prefix, py3path, MAXPATHLEN);
+        Py_DECREF(prefix);
+        if (res >= 0) {
+            if (py3path[0] && _Py_add_relfile(py3path, L"DLLs\\" PY3_DLLNAME, MAXPATHLEN) >= 0) {
+                hPython3 = LoadLibraryExW(py3path, NULL, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+            }
         }
     }
     return hPython3 != NULL;

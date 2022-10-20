@@ -858,13 +858,6 @@ pycore_interp_init(PyThreadState *tstate)
 #endif
     interp->use_frozen_modules = config->use_frozen_modules;
 
-    assert(interp->prefix == NULL);
-    assert(config->prefix != NULL);
-    interp->prefix = _PyMem_RawWcsdup(config->prefix);
-    if (interp->prefix != NULL) {
-        return _PyStatus_NO_MEMORY();
-    }
-
     assert(interp->check_hash_pycs_mode == NULL);
     interp->check_hash_pycs_mode = PyUnicode_FromWideChar(
             config->check_hash_pycs_mode, -1);

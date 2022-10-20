@@ -416,10 +416,6 @@ interpreter_clear(PyInterpreterState *interp, PyThreadState *tstate)
     Py_CLEAR(interp->audit_hooks);
 
     PyConfig_Clear(&interp->config);
-    if (interp->prefix != NULL) {
-        PyMem_RawFree(interp->prefix);
-        interp->prefix = NULL;
-    }
     Py_CLEAR(interp->codec_search_path);
     Py_CLEAR(interp->codec_search_cache);
     Py_CLEAR(interp->codec_error_registry);
