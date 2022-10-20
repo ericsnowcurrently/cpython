@@ -952,7 +952,7 @@ _Py_PreInitializeFromConfig(const PyConfig *config,
 static PyStatus new_interpreter(_PyRuntimeState *, const PyConfig *, int isolated,
                                 PyThreadState **);
 
-/* Begin interpreter initialization
+/* Begin runtime initialization
  *
  * On return, the first thread and interpreter state have been created,
  * but the compiler, signal handling, multithreading and
