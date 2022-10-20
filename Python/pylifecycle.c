@@ -1991,51 +1991,10 @@ error:
 
 */
 
-static PyStatus
-new_subinterpreter(_PyRuntimeState *runtime,
-                   PyConfig *src_config,
-                   int isolated,
-                   PyThreadState **tstate_p)
-{
-    PyStatus status;
-
-    PyThreadState *tstate;
-    status = new_interpreter(runtime, src_config, isolated, &tstate);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status.code == 0 ? status : _PyStatus_OK();
-    }
-    PyThreadState *save_tstate =  PyThreadState_Swap(tstate);
-    PyInterpreterState *interp = tstate->interp;
-
-    status = pycore_interp_init(tstate);
-    if (_PyStatus_EXCEPTION(status)) {
-        goto error;
-    }
-
-    status = init_interp_main(tstate);
-    if (_PyStatus_EXCEPTION(status)) {
-        goto error;
-    }
-
-    *tstate_p = tstate;
-    return _PyStatus_OK();
-
-error:
-    *tstate_p = NULL;
-
-    /* Oops, it didn't work.  Undo it all. */
-    PyErr_PrintEx(0);
-    PyThreadState_Clear(tstate);
-    PyThreadState_Delete(tstate);
-    PyInterpreterState_Delete(interp);
-    PyThreadState_Swap(save_tstate);
-
-    return status;
-}
-
 PyThreadState *
 _Py_NewInterpreter(int isolated_subinterpreter)
 {
+    PyThreadState *tstate = NULL;
     _PyRuntimeState *runtime = &_PyRuntime;
 
     PyStatus status = _PyRuntime_Initialize();
@@ -2062,15 +2021,42 @@ _Py_NewInterpreter(int isolated_subinterpreter)
         assert(parent != NULL);
     }
 
-    PyThreadState *tstate = NULL;
+    /* Create and init the subinterpreter. */
     /* We will copy the parent interpreter config into the new interpreter */
-    status = new_subinterpreter(runtime,
-                                &parent->config,
-                                isolated_subinterpreter,
-                                &tstate);
+    status = new_interpreter(runtime,
+                             &parent->config,
+                             isolated_subinterpreter,
+                             &tstate);
     if (_PyStatus_EXCEPTION(status)) {
+        PyErr_PrintEx(0);
+        if (status.code != 0) {
+            status = _PyStatus_OK();
+        }
         goto error;
     }
+    PyThreadState *save_tstate =  PyThreadState_Swap(tstate);
+    PyInterpreterState *interp = tstate->interp;
+
+    status = pycore_interp_init(tstate);
+    if (_PyStatus_EXCEPTION(status)) {
+        PyErr_PrintEx(0);
+        PyThreadState_Clear(tstate);
+        PyThreadState_Delete(tstate);
+        PyInterpreterState_Delete(interp);
+        PyThreadState_Swap(save_tstate);
+        goto error;
+    }
+
+    status = init_interp_main(tstate);
+    if (_PyStatus_EXCEPTION(status)) {
+        PyErr_PrintEx(0);
+        PyThreadState_Clear(tstate);
+        PyThreadState_Delete(tstate);
+        PyInterpreterState_Delete(interp);
+        PyThreadState_Swap(save_tstate);
+        goto error;
+    }
+
     return tstate;
 
 error:
