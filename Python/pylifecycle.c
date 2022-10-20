@@ -971,33 +971,13 @@ static PyStatus new_interpreter(_PyRuntimeState *, const PyConfig *, int isolate
  */
 static PyStatus
 pyinit_core(_PyRuntimeState *runtime,
-            const PyConfig *src_config,
+            const PyConfig *config,
             PyThreadState **tstate_p)
 {
     PyStatus status;
 
-    status = _Py_PreInitializeFromConfig(src_config, NULL);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
-
-    PyConfig config;
-    PyConfig_InitPythonConfig(&config);
-
-    status = _PyConfig_Copy(&config, src_config);
-    if (_PyStatus_EXCEPTION(status)) {
-        goto done;
-    }
-
-    // Read the configuration, but don't compute the path configuration
-    // (it is computed in the main init).
-    status = _PyConfig_Read(&config, 0);
-    if (_PyStatus_EXCEPTION(status)) {
-        goto done;
-    }
-
     if (!runtime->core_initialized) {
-        status = pycore_init_runtime(runtime, &config);
+        status = pycore_init_runtime(runtime, config);
         if (_PyStatus_EXCEPTION(status)) {
             goto done;
         }
@@ -1010,7 +990,7 @@ pyinit_core(_PyRuntimeState *runtime,
 
         /* Create the main interpreter. */
         PyThreadState *tstate;
-        status = new_interpreter(runtime, &config, 0, &tstate);
+        status = new_interpreter(runtime, config, 0, &tstate);
         if (_PyStatus_EXCEPTION(status)) {
             if (status.code == 1) {
                 status = _PyStatus_ERR_CODE("can't make main interpreter", 1);
@@ -1027,11 +1007,10 @@ pyinit_core(_PyRuntimeState *runtime,
         status = _PyStatus_OK();
     }
     else {
-        status = pyinit_core_reconfigure(runtime, &config, tstate_p);
+        status = pyinit_core_reconfigure(runtime, config, tstate_p);
     }
 
 done:
-    PyConfig_Clear(&config);
     return status;
 }
 
@@ -1201,9 +1180,9 @@ pyinit_main(PyThreadState *tstate)
 
 
 PyStatus
-Py_InitializeFromConfig(const PyConfig *config)
+Py_InitializeFromConfig(const PyConfig *src_config)
 {
-    if (config == NULL) {
+    if (src_config == NULL) {
         return _PyStatus_ERR("initialization config is NULL");
     }
 
@@ -1215,21 +1194,42 @@ Py_InitializeFromConfig(const PyConfig *config)
     }
     _PyRuntimeState *runtime = &_PyRuntime;
 
-    PyThreadState *tstate = NULL;
-    status = pyinit_core(runtime, config, &tstate);
+    /* Initialize/copy the config to use during init. */
+    PyConfig config;
+    status = _Py_PreInitializeFromConfig(src_config, NULL);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
-    config = _PyInterpreterState_GetConfig(tstate->interp);
+    PyConfig_InitPythonConfig(&config);
+    status = _PyConfig_Copy(&config, src_config);
+    if (_PyStatus_EXCEPTION(status)) {
+        goto done;
+    }
+    // Read the configuration, but don't compute the path configuration
+    // (it is computed in the main init).
+    status = _PyConfig_Read(&config, 0);
+    if (_PyStatus_EXCEPTION(status)) {
+        goto done;
+    }
 
-    if (config->_init_main) {
+    /* Initialize the runtime using the readied config. */
+    PyThreadState *tstate = NULL;
+    status = pyinit_core(runtime, &config, &tstate);
+    if (_PyStatus_EXCEPTION(status)) {
+        goto done;
+    }
+    if (tstate->interp->config._init_main) {
         status = pyinit_main(tstate);
         if (_PyStatus_EXCEPTION(status)) {
-            return status;
+            goto done;
         }
     }
 
-    return _PyStatus_OK();
+    status = _PyStatus_OK();
+
+done:
+    PyConfig_Clear(&config);
+    return status;
 }
 
 
