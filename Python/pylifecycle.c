@@ -553,11 +553,6 @@ pyinit_core_reconfigure(_PyRuntimeState *runtime,
         return _PyStatus_ERR("can't make main interpreter");
     }
 
-    status = _PyConfig_Write(config, runtime);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
-
     status = _PyConfig_Copy(&interp->config, config);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
@@ -921,15 +916,6 @@ pyinit_core(_PyRuntimeState *runtime,
             const PyConfig *config,
             PyThreadState **tstate_p)
 {
-    if (runtime->initialized) {
-        return _PyStatus_ERR("main interpreter already initialized");
-    }
-
-    PyStatus status = _PyConfig_Write(config, runtime);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
-
     /* Py_Finalize leaves _Py_Finalizing set in order to help daemon
      * threads behave a little more gracefully at interpreter shutdown.
      * We clobber it here so the new interpreter can start with a clean
@@ -941,7 +927,7 @@ pyinit_core(_PyRuntimeState *runtime,
      */
     _PyRuntimeState_SetFinalizing(runtime, NULL);
 
-    status = _Py_HashRandomization_Init(config);
+    PyStatus status = _Py_HashRandomization_Init(config);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
@@ -1170,10 +1156,19 @@ Py_InitializeFromConfig(const PyConfig *src_config)
     if (_PyStatus_EXCEPTION(status)) {
         goto done;
     }
+    status = _PyConfig_Write(&config, runtime);
+    if (_PyStatus_EXCEPTION(status)) {
+        goto done;
+    }
 
     /* Initialize the runtime using the readied config. */
     PyThreadState *tstate = NULL;
     if (!runtime->core_initialized) {
+        if (runtime->initialized) {
+            status = _PyStatus_ERR("main interpreter already initialized");
+            goto done;
+        }
+
         status = pyinit_core(runtime, &config, &tstate);
         if (_PyStatus_EXCEPTION(status)) {
             goto done;
