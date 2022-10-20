@@ -882,7 +882,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
             'check_hash_pycs_mode': 'always',
             'pathconfig_warnings': 0,
 
-            '_isolated_interpreter': 1,
+            '_isolated_interpreter': 0,
         }
         self.check_all_configs("test_init_from_config", config, preconfig,
                                api=API_COMPAT)

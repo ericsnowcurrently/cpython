@@ -636,36 +636,8 @@ init_interp_create_gil(PyThreadState *tstate)
 }
 
 
-static PyStatus
-new_main_interpreter(_PyRuntimeState *runtime,
-                     const PyConfig *src_config,
-                     PyThreadState **tstate_p)
-{
-    PyInterpreterState *interp = PyInterpreterState_New();
-    if (interp == NULL) {
-        return _PyStatus_ERR("can't make main interpreter");
-    }
-    assert(_Py_IsMainInterpreter(interp));
-
-    PyStatus status = _PyConfig_Copy(&interp->config, src_config);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
-
-    PyThreadState *tstate = PyThreadState_New(interp);
-    if (tstate == NULL) {
-        return _PyStatus_ERR("can't make first thread");
-    }
-    (void) PyThreadState_Swap(tstate);
-
-    status = init_interp_create_gil(tstate);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
-
-    *tstate_p = tstate;
-    return _PyStatus_OK();
-}
+static PyStatus new_interpreter(_PyRuntimeState *, const PyConfig *, int isolated,
+                                PyThreadState **);
 
 static PyStatus
 pycore_create_main_interpreter(_PyRuntimeState *runtime,
@@ -678,10 +650,17 @@ pycore_create_main_interpreter(_PyRuntimeState *runtime,
         return status;
     }
 
-    status = new_main_interpreter(runtime, src_config, tstate_p);
+    PyThreadState *tstate;
+    status = new_interpreter(runtime, src_config, 0, &tstate);
     if (_PyStatus_EXCEPTION(status)) {
+        if (status.code == 1) {
+            return _PyStatus_ERR_CODE("can't make main interpreter", 1);
+        }
         return status;
     }
+    assert(_Py_IsMainInterpreter(tstate->interp));
+    (void) PyThreadState_Swap(tstate);
+    *tstate_p = tstate;
     return _PyStatus_OK();
 }
 
@@ -1959,6 +1938,59 @@ Py_Finalize(void)
 }
 
 
+static PyStatus
+new_interpreter(_PyRuntimeState *runtime,
+                const PyConfig *src_config,
+                int isolated,
+                PyThreadState **tstate_p)
+{
+    PyStatus status;
+
+    PyInterpreterState *interp = PyInterpreterState_New();
+    if (interp == NULL) {
+        status = _PyStatus_ERR_CODE("can't make interpreter", 1);
+        goto error;
+    }
+
+    status = _PyConfig_Copy(&interp->config, src_config);
+    if (_PyStatus_EXCEPTION(status)) {
+        goto error;
+    }
+    interp->config._isolated_interpreter = isolated;
+
+    PyThreadState *tstate = PyThreadState_New(interp);
+    if (tstate == NULL) {
+        status = _PyStatus_ERR_CODE("can't make first thread", 2);
+        goto error;
+    }
+    PyThreadState *save_tstate = PyThreadState_Swap(tstate);
+
+    status = init_interp_create_gil(tstate);
+    if (_PyStatus_EXCEPTION(status)) {
+        goto error;
+    }
+    (void) PyThreadState_Swap(save_tstate);
+
+    *tstate_p = tstate;
+    return _PyStatus_OK();
+
+error:
+    *tstate_p = NULL;
+
+    /* Oops, it didn't work.  Undo it all. */
+    PyErr_PrintEx(0);
+    if (interp != NULL) {
+        if (tstate != NULL) {
+            PyThreadState_Clear(tstate);
+            PyThreadState_Delete(tstate);
+        }
+        PyInterpreterState_Delete(interp);
+    }
+    (void) PyThreadState_Swap(save_tstate);
+
+    return status;
+}
+
 /* Create and initialize a new interpreter and thread, and return the
    new thread.  This requires that Py_Initialize() has been called
    first.
@@ -1973,10 +2005,10 @@ Py_Finalize(void)
 */
 
 static PyStatus
-new_interpreter(_PyRuntimeState *runtime,
-                PyConfig *src_config,
-                int isolated_subinterpreter,
-                PyThreadState **tstate_p)
+new_subinterpreter(_PyRuntimeState *runtime,
+                   PyConfig *src_config,
+                   int isolated,
+                   PyThreadState **tstate_p)
 {
     PyStatus status;
 
@@ -1993,30 +2025,13 @@ new_interpreter(_PyRuntimeState *runtime,
        interpreters: disable PyGILState_Check(). */
     runtime->gilstate.check_enabled = 0;
 
-    PyInterpreterState *interp = PyInterpreterState_New();
-    if (interp == NULL) {
-        *tstate_p = NULL;
-        return _PyStatus_OK();
-    }
-
-    status = _PyConfig_Copy(&interp->config, src_config);
+    PyThreadState *tstate;
+    status = new_interpreter(runtime, src_config, isolated, &tstate);
     if (_PyStatus_EXCEPTION(status)) {
-        goto error;
+        return status.code == 0 ? status : _PyStatus_OK();
     }
-    interp->config._isolated_interpreter = isolated_subinterpreter;
-
-    PyThreadState *tstate = PyThreadState_New(interp);
-    if (tstate == NULL) {
-        PyInterpreterState_Delete(interp);
-        *tstate_p = NULL;
-        return _PyStatus_OK();
-    }
-    PyThreadState *save_tstate = PyThreadState_Swap(tstate);
-
-    status = init_interp_create_gil(tstate);
-    if (_PyStatus_EXCEPTION(status)) {
-        goto error;
-    }
+    PyThreadState *save_tstate =  PyThreadState_Swap(tstate);
+    PyInterpreterState *interp = tstate->interp;
 
     status = pycore_interp_init(tstate);
     if (_PyStatus_EXCEPTION(status)) {
@@ -2060,10 +2075,10 @@ _Py_NewInterpreter(int isolated_subinterpreter)
 
     PyThreadState *tstate = NULL;
     /* We will copy the parent interpreter config into the new interpreter */
-    PyStatus status = new_interpreter(parent->runtime,
-                                      &parent->config,
-                                      isolated_subinterpreter,
-                                      &tstate);
+    PyStatus status = new_subinterpreter(parent->runtime,
+                                         &parent->config,
+                                         isolated_subinterpreter,
+                                         &tstate);
     if (_PyStatus_EXCEPTION(status)) {
         Py_ExitStatusException(status);
     }
