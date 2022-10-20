@@ -871,16 +871,11 @@ pyinit_config(_PyRuntimeState *runtime,
         return status;
     }
     assert(_Py_IsMainInterpreter(tstate->interp));
-    (void) PyThreadState_Swap(tstate);
-
-    status = pycore_interp_init(tstate);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
 
     /* Only when we get here is the runtime core fully initialized */
     runtime->core_initialized = 1;
 
+    (void) PyThreadState_Swap(tstate);
     *tstate_p = tstate;
     return _PyStatus_OK();
 }
@@ -1956,8 +1951,13 @@ new_interpreter(_PyRuntimeState *runtime,
     if (_PyStatus_EXCEPTION(status)) {
         goto error;
     }
-    (void) PyThreadState_Swap(save_tstate);
 
+    status = pycore_interp_init(tstate);
+    if (_PyStatus_EXCEPTION(status)) {
+        goto error;
+    }
+
+    (void) PyThreadState_Swap(save_tstate);
     *tstate_p = tstate;
     return _PyStatus_OK();
 
@@ -2036,16 +2036,6 @@ _Py_NewInterpreter(int isolated_subinterpreter)
     }
     PyThreadState *save_tstate =  PyThreadState_Swap(tstate);
     PyInterpreterState *interp = tstate->interp;
-
-    status = pycore_interp_init(tstate);
-    if (_PyStatus_EXCEPTION(status)) {
-        PyErr_PrintEx(0);
-        PyThreadState_Clear(tstate);
-        PyThreadState_Delete(tstate);
-        PyInterpreterState_Delete(interp);
-        PyThreadState_Swap(save_tstate);
-        goto error;
-    }
 
     status = init_interp_main(tstate);
     if (_PyStatus_EXCEPTION(status)) {
