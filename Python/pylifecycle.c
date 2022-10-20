@@ -524,51 +524,6 @@ done:
 }
 
 
-/* Global initializations.  Can be undone by Py_Finalize().  Don't
-   call this twice without an intervening Py_Finalize() call.
-
-   Every call to Py_InitializeFromConfig, Py_Initialize or Py_InitializeEx
-   must have a corresponding call to Py_Finalize.
-
-   Locking: you must hold the interpreter lock while calling these APIs.
-   (If the lock has not yet been initialized, that's equivalent to
-   having the lock, but you cannot use multiple threads.)
-
-*/
-
-static PyStatus
-pyinit_core_reconfigure(_PyRuntimeState *runtime,
-                        const PyConfig *config,
-                        PyThreadState **tstate_p)
-{
-    PyStatus status;
-    PyThreadState *tstate = _PyThreadState_GET();
-    if (!tstate) {
-        return _PyStatus_ERR("failed to read thread state");
-    }
-    *tstate_p = tstate;
-
-    PyInterpreterState *interp = tstate->interp;
-    if (interp == NULL) {
-        return _PyStatus_ERR("can't make main interpreter");
-    }
-
-    status = _PyConfig_Copy(&interp->config, config);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
-    config = _PyInterpreterState_GetConfig(interp);
-
-    if (config->_install_importlib) {
-        status = _PyPathConfig_UpdateGlobal(config);
-        if (_PyStatus_EXCEPTION(status)) {
-            return status;
-        }
-    }
-    return _PyStatus_OK();
-}
-
-
 static PyStatus
 init_interp_create_gil(PyThreadState *tstate)
 {
@@ -1124,6 +1079,13 @@ pyinit_main(PyThreadState *tstate)
 }
 
 
+/* Global initializations.  Can be undone by Py_Finalize().  Don't
+ * call this twice without an intervening Py_Finalize() call.
+ *
+ * Every call to Py_InitializeFromConfig, Py_Initialize or Py_InitializeEx
+ * must have a corresponding call to Py_Finalize.
+ */
+
 PyStatus
 Py_InitializeFromConfig(const PyConfig *src_config)
 {
@@ -1176,9 +1138,29 @@ Py_InitializeFromConfig(const PyConfig *src_config)
         runtime->core_initialized = 1;
     }
     else {
-        status = pyinit_core_reconfigure(runtime, &config, &tstate);
+        /* Reconfigure!
+         *
+         * Locking: you must hold the interpreter lock while calling these APIs.
+         * (If the lock has not yet been initialized, that's equivalent to
+         * having the lock, but you cannot use multiple threads.)
+        */
+        tstate = _PyThreadState_GET();
+        if (!tstate) {
+            status = _PyStatus_ERR("failed to read thread state");
+            goto done;
+        }
+        assert(tstate->interp != NULL);
+
+        status = _PyConfig_Copy(&tstate->interp->config, &config);
         if (_PyStatus_EXCEPTION(status)) {
             goto done;
+        }
+
+        if (tstate->interp->config._install_importlib) {
+            status = _PyPathConfig_UpdateGlobal(&tstate->interp->config);
+            if (_PyStatus_EXCEPTION(status)) {
+                goto done;
+            }
         }
     }
 
@@ -1205,8 +1187,6 @@ Py_InitializeFromConfig(const PyConfig *src_config)
             goto done;
         }
     }
-
-    status = _PyStatus_OK();
 
 done:
     PyConfig_Clear(&config);
