@@ -862,59 +862,6 @@ _Py_PreInitializeFromConfig(const PyConfig *config,
 }
 
 
-static PyStatus new_interpreter(_PyRuntimeState *, const PyConfig *, int isolated,
-                                PyThreadState **);
-
-/* Begin runtime initialization */
-static PyStatus
-pyinit_core(_PyRuntimeState *runtime,
-            const PyConfig *config,
-            PyThreadState **tstate_p)
-{
-    /* Py_Finalize leaves _Py_Finalizing set in order to help daemon
-     * threads behave a little more gracefully at interpreter shutdown.
-     * We clobber it here so the new interpreter can start with a clean
-     * slate.
-     *
-     * However, this may still lead to misbehaviour if there are daemon
-     * threads still hanging around from a previous Py_Initialize/Finalize
-     * pair :(
-     */
-    _PyRuntimeState_SetFinalizing(runtime, NULL);
-
-    PyStatus status = _Py_HashRandomization_Init(config);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
-
-    status = _PyInterpreterState_Enable(runtime);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
-
-    /* Auto-thread-state API */
-    status = _PyGILState_Init(runtime);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
-
-    /* Create the main interpreter. */
-    PyThreadState *tstate;
-    status = new_interpreter(runtime, config, 0, &tstate);
-    if (_PyStatus_EXCEPTION(status)) {
-        if (status.code == 1) {
-            status = _PyStatus_ERR_CODE("can't make main interpreter", 1);
-        }
-        return status;
-    }
-    assert(_Py_IsMainInterpreter(tstate->interp));
-
-    (void) PyThreadState_Swap(tstate);
-    *tstate_p = tstate;
-    return _PyStatus_OK();
-}
-
-
 /* Py_Initialize() has already been called: update the main interpreter
    configuration. Example of bpo-34008: Py_Main() called after
    Py_Initialize(). */
@@ -1086,6 +1033,9 @@ pyinit_main(PyThreadState *tstate)
  * must have a corresponding call to Py_Finalize.
  */
 
+static PyStatus new_interpreter(_PyRuntimeState *, const PyConfig *, int isolated,
+                                PyThreadState **);
+
 PyStatus
 Py_InitializeFromConfig(const PyConfig *src_config)
 {
@@ -1126,15 +1076,50 @@ Py_InitializeFromConfig(const PyConfig *src_config)
     /* Initialize the runtime using the readied config. */
     PyThreadState *tstate = NULL;
     if (!runtime->core_initialized) {
+        /* Initialize for the first time! */
         if (runtime->initialized) {
             status = _PyStatus_ERR("main interpreter already initialized");
             goto done;
         }
 
-        status = pyinit_core(runtime, &config, &tstate);
+        /* Py_Finalize leaves _Py_Finalizing set in order to help daemon
+         * threads behave a little more gracefully at interpreter shutdown.
+         * We clobber it here so the new interpreter can start with a clean
+         * slate.
+         *
+         * However, this may still lead to misbehaviour if there are daemon
+         * threads still hanging around from a previous Py_Initialize/Finalize
+         * pair :(
+         */
+        _PyRuntimeState_SetFinalizing(runtime, NULL);
+
+        PyStatus status = _Py_HashRandomization_Init(&config);
         if (_PyStatus_EXCEPTION(status)) {
             goto done;
         }
+
+        status = _PyInterpreterState_Enable(runtime);
+        if (_PyStatus_EXCEPTION(status)) {
+            goto done;
+        }
+
+        /* Auto-thread-state API */
+        status = _PyGILState_Init(runtime);
+        if (_PyStatus_EXCEPTION(status)) {
+            goto done;
+        }
+
+        /* Create the main interpreter. */
+        status = new_interpreter(runtime, &config, 0, &tstate);
+        if (_PyStatus_EXCEPTION(status)) {
+            if (status.code == 1) {
+                status = _PyStatus_ERR_CODE("can't make main interpreter", 1);
+            }
+            goto done;
+        }
+        assert(_Py_IsMainInterpreter(tstate->interp));
+        (void) PyThreadState_Swap(tstate);
+
         runtime->core_initialized = 1;
     }
     else {
