@@ -127,6 +127,16 @@ typedef struct pyruntimestate {
     int do_debug_checks;
     int print_import_time;
     int code_debug_ranges;
+    int bytes_warning;
+    int warn_default_encoding;
+    int interactive;
+    int optimization_level;
+    int parser_debug;
+    int verbose;
+#ifdef MS_WINDOWS
+    int legacy_windows_stdio;
+#endif
+    int use_frozen_modules;
 
     // Audit values must be preserved when Py_Initialize()/Py_Finalize()
     // is called multiple times.

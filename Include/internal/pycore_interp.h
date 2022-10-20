@@ -147,17 +147,6 @@ struct _is {
     int dlopenflags;
 #endif
 
-    int bytes_warning;
-    int warn_default_encoding;
-    int interactive;
-    int optimization_level;
-    int parser_debug;
-    int verbose;
-#ifdef MS_WINDOWS
-    int legacy_windows_stdio;
-#endif
-    int use_frozen_modules;
-
     PyObject *check_hash_pycs_mode;
 
     PyObject *dict;  /* Stores per-interpreter state */
