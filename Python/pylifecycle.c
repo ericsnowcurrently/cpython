@@ -538,8 +538,8 @@ done:
 
 static PyStatus
 pyinit_core_reconfigure(_PyRuntimeState *runtime,
-                        PyThreadState **tstate_p,
-                        const PyConfig *config)
+                        const PyConfig *config,
+                        PyThreadState **tstate_p)
 {
     PyStatus status;
     PyThreadState *tstate = _PyThreadState_GET();
@@ -638,7 +638,7 @@ init_interp_create_gil(PyThreadState *tstate)
 
 static PyStatus
 pycore_create_main_interpreter(_PyRuntimeState *runtime,
-                               const PyConfig *config,
+                               const PyConfig *src_config,
                                PyThreadState **tstate_p)
 {
     /* Auto-thread-state API */
@@ -653,7 +653,7 @@ pycore_create_main_interpreter(_PyRuntimeState *runtime,
     }
     assert(_Py_IsMainInterpreter(interp));
 
-    status = _PyConfig_Copy(&interp->config, config);
+    status = _PyConfig_Copy(&interp->config, src_config);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
@@ -882,8 +882,8 @@ done:
 
 static PyStatus
 pyinit_config(_PyRuntimeState *runtime,
-              PyThreadState **tstate_p,
-              const PyConfig *config)
+              const PyConfig *config,
+              PyThreadState **tstate_p)
 {
     PyStatus status = pycore_init_runtime(runtime, config);
     if (_PyStatus_EXCEPTION(status)) {
@@ -1060,10 +1060,10 @@ pyinit_core(_PyRuntimeState *runtime,
     }
 
     if (!runtime->core_initialized) {
-        status = pyinit_config(runtime, tstate_p, &config);
+        status = pyinit_config(runtime, &config, tstate_p);
     }
     else {
-        status = pyinit_core_reconfigure(runtime, tstate_p, &config);
+        status = pyinit_core_reconfigure(runtime, &config, tstate_p);
     }
     if (_PyStatus_EXCEPTION(status)) {
         goto done;
@@ -1961,7 +1961,10 @@ Py_Finalize(void)
 */
 
 static PyStatus
-new_interpreter(PyThreadState **tstate_p, int isolated_subinterpreter)
+new_interpreter(_PyRuntimeState *runtime,
+                PyConfig *src_config,
+                int isolated_subinterpreter,
+                PyThreadState **tstate_p)
 {
     PyStatus status;
 
@@ -1969,7 +1972,6 @@ new_interpreter(PyThreadState **tstate_p, int isolated_subinterpreter)
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
-    _PyRuntimeState *runtime = &_PyRuntime;
 
     if (!runtime->initialized) {
         return _PyStatus_ERR("Py_Initialize must be called first");
@@ -1991,23 +1993,9 @@ new_interpreter(PyThreadState **tstate_p, int isolated_subinterpreter)
         *tstate_p = NULL;
         return _PyStatus_OK();
     }
-
     PyThreadState *save_tstate = PyThreadState_Swap(tstate);
 
-    /* Copy the current interpreter config into the new interpreter */
-    const PyConfig *config;
-    if (save_tstate != NULL) {
-        config = _PyInterpreterState_GetConfig(save_tstate->interp);
-    }
-    else
-    {
-        /* No current thread state, copy from the main interpreter */
-        PyInterpreterState *main_interp = _PyInterpreterState_Main();
-        config = _PyInterpreterState_GetConfig(main_interp);
-    }
-
-
-    status = _PyConfig_Copy(&interp->config, config);
+    status = _PyConfig_Copy(&interp->config, src_config);
     if (_PyStatus_EXCEPTION(status)) {
         goto error;
     }
@@ -2047,8 +2035,23 @@ error:
 PyThreadState *
 _Py_NewInterpreter(int isolated_subinterpreter)
 {
+    PyInterpreterState *parent;
+    PyThreadState *current = _PyThreadState_GET();
+    if (current != NULL) {
+        parent = current->interp;
+    }
+    else {
+        /* No current thread state found so use the main interpreter. */
+        parent = _PyInterpreterState_Main();
+        assert(parent != NULL);
+    }
+
     PyThreadState *tstate = NULL;
-    PyStatus status = new_interpreter(&tstate, isolated_subinterpreter);
+    /* We will copy the parent interpreter config into the new interpreter */
+    PyStatus status = new_interpreter(parent->runtime,
+                                      &parent->config,
+                                      isolated_subinterpreter,
+                                      &tstate);
     if (_PyStatus_EXCEPTION(status)) {
         Py_ExitStatusException(status);
     }
