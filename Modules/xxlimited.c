@@ -394,6 +394,7 @@ xx_modexec(PyObject *m)
 
 static PyModuleDef_Slot xx_slots[] = {
     {Py_mod_exec, xx_modexec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

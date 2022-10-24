@@ -1880,6 +1880,7 @@ marshal_module_exec(PyObject *mod)
 
 static PyModuleDef_Slot marshalmodule_slots[] = {
     {Py_mod_exec, marshal_module_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

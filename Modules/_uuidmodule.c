@@ -106,6 +106,7 @@ static PyMethodDef uuid_methods[] = {
 
 static PyModuleDef_Slot uuid_slots[] = {
     {Py_mod_exec, uuid_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

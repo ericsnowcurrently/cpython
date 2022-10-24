@@ -6159,6 +6159,8 @@ static PyModuleDef_Slot sslmodule_slots[] = {
     {Py_mod_exec, sslmodule_init_constants},
     {Py_mod_exec, sslmodule_init_versioninfo},
     {Py_mod_exec, sslmodule_init_strings},
+    // We can use Py_mod_subinterpreters once all globals are removed.
+    {Py_mod_no_subinterpreters, NULL},
     {0, NULL}
 };
 

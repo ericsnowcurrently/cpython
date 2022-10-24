@@ -12290,6 +12290,7 @@ astmodule_exec(PyObject *m)
 
 static PyModuleDef_Slot astmodule_slots[] = {
     {Py_mod_exec, astmodule_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

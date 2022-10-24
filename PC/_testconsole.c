@@ -31,6 +31,7 @@ static int execfunc(PyObject *m)
 
 PyModuleDef_Slot testconsole_slots[] = {
     {Py_mod_exec, execfunc},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL},
 };
 

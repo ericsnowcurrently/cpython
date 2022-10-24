@@ -949,6 +949,7 @@ _abcmodule_free(void *module)
 
 static PyModuleDef_Slot _abcmodule_slots[] = {
     {Py_mod_exec, _abcmodule_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

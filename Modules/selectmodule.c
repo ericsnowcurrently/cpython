@@ -2650,6 +2650,7 @@ _select_exec(PyObject *m)
 
 static PyModuleDef_Slot _select_slots[] = {
     {Py_mod_exec, _select_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

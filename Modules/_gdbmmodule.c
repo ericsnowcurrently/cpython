@@ -797,6 +797,7 @@ _gdbm_module_free(void *module)
 
 static PyModuleDef_Slot _gdbm_module_slots[] = {
     {Py_mod_exec, _gdbm_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

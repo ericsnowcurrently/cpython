@@ -2699,7 +2699,11 @@ error:
 }
 
 static PyModuleDef_Slot zoneinfomodule_slots[] = {
-    {Py_mod_exec, zoneinfomodule_exec}, {0, NULL}};
+    {Py_mod_exec, zoneinfomodule_exec},
+    // We can use Py_mod_subinterpreters once all globals are removed.
+    {Py_mod_no_subinterpreters, NULL},
+    {0, NULL},
+};
 
 static struct PyModuleDef zoneinfomodule = {
     PyModuleDef_HEAD_INIT,

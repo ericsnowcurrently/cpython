@@ -44,6 +44,7 @@ _contextvars_exec(PyObject *m)
 
 static struct PyModuleDef_Slot _contextvars_slots[] = {
     {Py_mod_exec, _contextvars_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

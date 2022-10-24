@@ -1976,6 +1976,7 @@ audioop_exec(PyObject* module)
 
 static PyModuleDef_Slot audioop_slots[] = {
     {Py_mod_exec, audioop_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

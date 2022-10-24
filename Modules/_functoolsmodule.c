@@ -1543,6 +1543,7 @@ _functools_free(void *module)
 
 static struct PyModuleDef_Slot _functools_slots[] = {
     {Py_mod_exec, _functools_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

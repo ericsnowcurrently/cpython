@@ -16028,6 +16028,7 @@ posixmodule_exec(PyObject *m)
 
 static PyModuleDef_Slot posixmodile_slots[] = {
     {Py_mod_exec, posixmodule_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

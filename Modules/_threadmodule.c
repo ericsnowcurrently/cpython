@@ -1703,6 +1703,7 @@ The 'threading' module provides a more convenient interface.");
 
 static PyModuleDef_Slot thread_module_slots[] = {
     {Py_mod_exec, thread_module_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

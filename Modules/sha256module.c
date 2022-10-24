@@ -734,6 +734,7 @@ static int sha256_exec(PyObject *module)
 
 static PyModuleDef_Slot _sha256_slots[] = {
     {Py_mod_exec, sha256_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

@@ -64,9 +64,13 @@ struct PyModuleDef_Slot {
 
 #define Py_mod_create 1
 #define Py_mod_exec 2
+/* opt in to supporting use in subinterpreters */
+#define Py_mod_subinterpreters 3
+/* opt out of supporting use in subinterpreters */
+#define Py_mod_no_subinterpreters 4
 
 #ifndef Py_LIMITED_API
-#define _Py_mod_LAST_SLOT 2
+#define _Py_mod_LAST_SLOT 4
 #endif
 
 #endif /* New in 3.5 */

@@ -449,6 +449,7 @@ bisect_modexec(PyObject *m)
 
 static PyModuleDef_Slot bisect_slots[] = {
     {Py_mod_exec, bisect_modexec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

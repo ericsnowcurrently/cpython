@@ -1599,6 +1599,7 @@ static PyMethodDef lzma_methods[] = {
 
 static PyModuleDef_Slot lzma_slots[] = {
     {Py_mod_exec, lzma_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

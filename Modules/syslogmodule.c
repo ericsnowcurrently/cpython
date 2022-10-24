@@ -382,6 +382,8 @@ syslog_exec(PyObject *module)
 
 static PyModuleDef_Slot syslog_slots[] = {
     {Py_mod_exec, syslog_exec},
+    // We can use Py_mod_subinterpreters once all globals are removed.
+    {Py_mod_no_subinterpreters, NULL},
     {0, NULL}
 };
 

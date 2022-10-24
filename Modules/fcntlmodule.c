@@ -686,6 +686,7 @@ fcntl_exec(PyObject *module)
 
 static PyModuleDef_Slot fcntl_slots[] = {
     {Py_mod_exec, fcntl_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

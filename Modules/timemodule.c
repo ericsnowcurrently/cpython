@@ -2087,6 +2087,7 @@ time_module_free(void *module)
 
 static struct PyModuleDef_Slot time_slots[] = {
     {Py_mod_exec, time_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

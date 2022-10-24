@@ -293,6 +293,8 @@ xxsubtype_exec(PyObject* m)
 
 static struct PyModuleDef_Slot xxsubtype_slots[] = {
     {Py_mod_exec, xxsubtype_exec},
+    // We can use Py_mod_subinterpreters once all globals are removed.
+    {Py_mod_no_subinterpreters, NULL},
     {0, NULL},
 };
 

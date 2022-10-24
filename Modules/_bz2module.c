@@ -789,6 +789,7 @@ _bz2_exec(PyObject *module)
 
 static struct PyModuleDef_Slot _bz2_slots[] = {
     {Py_mod_exec, _bz2_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

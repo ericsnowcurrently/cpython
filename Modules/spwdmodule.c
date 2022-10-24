@@ -224,6 +224,7 @@ spwdmodule_exec(PyObject *module)
 
 static PyModuleDef_Slot spwdmodule_slots[] = {
     {Py_mod_exec, spwdmodule_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

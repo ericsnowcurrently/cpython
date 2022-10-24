@@ -699,6 +699,8 @@ _curses_panel_exec(PyObject *mod)
 
 static PyModuleDef_Slot _curses_slots[] = {
     {Py_mod_exec, _curses_panel_exec},
+    // We can use Py_mod_subinterpreters once all globals are removed.
+    {Py_mod_no_subinterpreters, NULL},
     {0, NULL}
 };
 

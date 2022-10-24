@@ -151,6 +151,7 @@ static PyMethodDef tokenize_methods[] = {
 
 static PyModuleDef_Slot tokenizemodule_slots[] = {
     {Py_mod_exec, tokenizemodule_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

@@ -601,6 +601,7 @@ md5_exec(PyObject *m)
 
 static PyModuleDef_Slot _md5_slots[] = {
     {Py_mod_exec, md5_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

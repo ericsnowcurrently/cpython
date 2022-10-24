@@ -327,6 +327,7 @@ grpmodule_exec(PyObject *module)
 
 static PyModuleDef_Slot grpmodule_slots[] = {
     {Py_mod_exec, grpmodule_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

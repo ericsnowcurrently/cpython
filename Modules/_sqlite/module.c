@@ -737,6 +737,7 @@ error:
 
 static struct PyModuleDef_Slot module_slots[] = {
     {Py_mod_exec, module_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL},
 };
 

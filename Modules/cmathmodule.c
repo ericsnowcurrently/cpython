@@ -1411,6 +1411,7 @@ cmath_exec(PyObject *mod)
 
 static PyModuleDef_Slot cmath_slots[] = {
     {Py_mod_exec, cmath_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

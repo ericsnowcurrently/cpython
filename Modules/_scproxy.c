@@ -232,6 +232,7 @@ static PyMethodDef mod_methods[] = {
 };
 
 static PyModuleDef_Slot _scproxy_slots[] = {
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

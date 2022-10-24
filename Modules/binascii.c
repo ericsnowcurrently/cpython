@@ -1291,6 +1291,7 @@ binascii_exec(PyObject *module) {
 
 static PyModuleDef_Slot binascii_slots[] = {
     {Py_mod_exec, binascii_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

@@ -798,6 +798,7 @@ _sha512_exec(PyObject *m)
 
 static PyModuleDef_Slot _sha512_slots[] = {
     {Py_mod_exec, _sha512_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

@@ -503,6 +503,8 @@ nis_exec(PyObject *module)
 
 static PyModuleDef_Slot nis_slots[] = {
     {Py_mod_exec, nis_exec},
+    // We can use Py_mod_subinterpreters once all globals are removed.
+    {Py_mod_no_subinterpreters, NULL},
     {0, NULL}
 };
 

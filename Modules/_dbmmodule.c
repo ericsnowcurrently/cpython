@@ -585,6 +585,7 @@ _dbm_module_free(void *module)
 
 static PyModuleDef_Slot _dbmmodule_slots[] = {
     {Py_mod_exec, _dbm_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

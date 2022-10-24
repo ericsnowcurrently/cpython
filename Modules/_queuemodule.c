@@ -431,6 +431,7 @@ queuemodule_exec(PyObject *module)
 
 static PyModuleDef_Slot queuemodule_slots[] = {
     {Py_mod_exec, queuemodule_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

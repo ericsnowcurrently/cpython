@@ -872,6 +872,7 @@ _locale_exec(PyObject *module)
 
 static struct PyModuleDef_Slot _locale_slots[] = {
     {Py_mod_exec, _locale_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

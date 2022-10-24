@@ -1549,9 +1549,9 @@ class SubinterpImportTests(unittest.TestCase):
         with self.subTest(f'{module}: not strict'):
             self.check_compatible_shared(module, strict=False)
         with self.subTest(f'{module}: strict, shared'):
-            self.check_compatible_shared(module, strict=True)
+            self.check_incompatible_shared(module)
         with self.subTest(f'{module}: strict, isolated'):
-            self.check_compatible_isolated(module, strict=True)
+            self.check_incompatible_isolated(module)
 
     def test_python_compat(self):
         module = 'threading'

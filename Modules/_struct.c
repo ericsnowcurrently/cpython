@@ -2504,6 +2504,7 @@ _structmodule_exec(PyObject *m)
 
 static PyModuleDef_Slot _structmodule_slots[] = {
     {Py_mod_exec, _structmodule_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

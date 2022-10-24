@@ -1735,6 +1735,7 @@ _signal_module_free(void *module)
 
 static PyModuleDef_Slot signal_slots[] = {
     {Py_mod_exec, signal_module_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

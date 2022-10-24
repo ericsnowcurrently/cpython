@@ -1526,6 +1526,7 @@ unicodedata_exec(PyObject *module)
 
 static PyModuleDef_Slot unicodedata_slots[] = {
     {Py_mod_exec, unicodedata_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

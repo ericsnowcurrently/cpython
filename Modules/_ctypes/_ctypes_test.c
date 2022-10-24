@@ -1048,6 +1048,7 @@ EXPORT(long) _test_i38748_runCallback(_test_i38748_funcType callback, int a, int
 #endif
 
 static struct PyModuleDef_Slot _ctypes_test_slots[] = {
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

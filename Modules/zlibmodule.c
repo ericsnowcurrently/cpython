@@ -2120,6 +2120,7 @@ zlib_exec(PyObject *mod)
 
 static PyModuleDef_Slot zlib_slots[] = {
     {Py_mod_exec, zlib_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

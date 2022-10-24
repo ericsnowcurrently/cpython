@@ -1116,6 +1116,7 @@ static PyMethodDef module_methods[] = {
 };
 
 static PyModuleDef_Slot _posixsubprocess_slots[] = {
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

@@ -2220,6 +2220,7 @@ static int winapi_exec(PyObject *m)
 
 static PyModuleDef_Slot winapi_slots[] = {
     {Py_mod_exec, winapi_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

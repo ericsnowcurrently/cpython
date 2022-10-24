@@ -640,6 +640,7 @@ _sha3_exec(PyObject *m)
 
 static PyModuleDef_Slot _sha3_slots[] = {
     {Py_mod_exec, _sha3_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

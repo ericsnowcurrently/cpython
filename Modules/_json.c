@@ -1809,6 +1809,7 @@ _json_exec(PyObject *module)
 
 static PyModuleDef_Slot _json_slots[] = {
     {Py_mod_exec, _json_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

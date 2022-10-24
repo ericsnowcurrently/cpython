@@ -1835,6 +1835,7 @@ operator_exec(PyObject *module)
 
 static struct PyModuleDef_Slot operator_slots[] = {
     {Py_mod_exec, operator_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

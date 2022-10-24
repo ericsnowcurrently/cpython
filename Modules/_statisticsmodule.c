@@ -129,6 +129,7 @@ PyDoc_STRVAR(statistics_doc,
 "Accelerators for the statistics module.\n");
 
 static struct PyModuleDef_Slot _statisticsmodule_slots[] = {
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

@@ -1189,6 +1189,7 @@ termios_exec(PyObject *mod)
 
 static PyModuleDef_Slot termios_slots[] = {
     {Py_mod_exec, termios_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

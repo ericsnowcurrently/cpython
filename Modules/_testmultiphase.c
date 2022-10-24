@@ -444,6 +444,7 @@ static int execfunc(PyObject *m)
 
 static PyModuleDef_Slot main_slots[] = {
     {Py_mod_exec, execfunc},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL},
 };
 
@@ -488,6 +489,7 @@ createfunc_nonmodule(PyObject *spec, PyModuleDef *def)
 
 static PyModuleDef_Slot slots_create_nonmodule[] = {
     {Py_mod_create, createfunc_nonmodule},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL},
 };
 
@@ -590,6 +592,7 @@ PyInit__testmultiphase_null_slots(void)
 /**** Problematic modules ****/
 
 static PyModuleDef_Slot slots_bad_large[] = {
+    {Py_mod_subinterpreters, NULL},
     {_Py_mod_LAST_SLOT + 1, NULL},
     {0, NULL},
 };
@@ -604,6 +607,7 @@ PyInit__testmultiphase_bad_slot_large(void)
 }
 
 static PyModuleDef_Slot slots_bad_negative[] = {
+    {Py_mod_subinterpreters, NULL},
     {-1, NULL},
     {0, NULL},
 };
@@ -691,6 +695,7 @@ createfunc_null(PyObject *spec, PyModuleDef *def)
 
 static PyModuleDef_Slot slots_create_null[] = {
     {Py_mod_create, createfunc_null},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL},
 };
 
@@ -712,6 +717,7 @@ createfunc_raise(PyObject *spec, PyModuleDef *def)
 
 static PyModuleDef_Slot slots_create_raise[] = {
     {Py_mod_create, createfunc_raise},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL},
 };
 
@@ -733,6 +739,7 @@ createfunc_unreported_exception(PyObject *spec, PyModuleDef *def)
 
 static PyModuleDef_Slot slots_create_unreported_exception[] = {
     {Py_mod_create, createfunc_unreported_exception},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL},
 };
 
@@ -748,6 +755,7 @@ PyInit__testmultiphase_create_unreported_exception(void)
 static PyModuleDef_Slot slots_nonmodule_with_exec_slots[] = {
     {Py_mod_create, createfunc_nonmodule},
     {Py_mod_exec, execfunc},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL},
 };
 
@@ -768,6 +776,7 @@ execfunc_err(PyObject *mod)
 
 static PyModuleDef_Slot slots_exec_err[] = {
     {Py_mod_exec, execfunc_err},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL},
 };
 
@@ -789,6 +798,7 @@ execfunc_raise(PyObject *spec)
 
 static PyModuleDef_Slot slots_exec_raise[] = {
     {Py_mod_exec, execfunc_raise},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL},
 };
 
@@ -810,6 +820,7 @@ execfunc_unreported_exception(PyObject *mod)
 
 static PyModuleDef_Slot slots_exec_unreported_exception[] = {
     {Py_mod_exec, execfunc_unreported_exception},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL},
 };
 
@@ -848,6 +859,7 @@ meth_state_access_exec(PyObject *m)
 
 static PyModuleDef_Slot meth_state_access_slots[] = {
     {Py_mod_exec, meth_state_access_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

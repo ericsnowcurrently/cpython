@@ -1328,6 +1328,7 @@ PyExec_faulthandler(PyObject *module) {
 
 static PyModuleDef_Slot faulthandler_slots[] = {
     {Py_mod_exec, PyExec_faulthandler},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

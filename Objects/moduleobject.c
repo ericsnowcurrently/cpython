@@ -3,6 +3,7 @@
 
 #include "Python.h"
 #include "pycore_call.h"          // _PyObject_CallNoArgs()
+#include "pycore_import.h"        // _PyImport_CheckSubinterpIncompatibleExtensionAllowed()
 #include "pycore_interp.h"        // PyInterpreterState.importlib
 #include "pycore_object.h"        // _PyType_AllocNoTrack
 #include "pycore_pystate.h"       // _PyInterpreterState_GET()
@@ -264,6 +265,7 @@ PyModule_FromDefAndSpec2(PyModuleDef* def, PyObject *spec, int module_api_versio
     PyObject *nameobj;
     PyObject *m = NULL;
     int has_execution_slots = 0;
+    int supports_subinterpreters = -1;
     const char *name;
     int ret;
 
@@ -305,6 +307,26 @@ PyModule_FromDefAndSpec2(PyModuleDef* def, PyObject *spec, int module_api_versio
             case Py_mod_exec:
                 has_execution_slots = 1;
                 break;
+            case Py_mod_subinterpreters:
+                if (supports_subinterpreters != -1) {
+                    PyErr_Format(
+                        PyExc_SystemError,
+                        "module %s has multiple subinterpreters slots",
+                        name);
+                    goto error;
+                }
+                supports_subinterpreters = 1;
+                break;
+            case Py_mod_no_subinterpreters:
+                if (supports_subinterpreters != -1) {
+                    PyErr_Format(
+                        PyExc_SystemError,
+                        "module %s has multiple subinterpreters slots",
+                        name);
+                    goto error;
+                }
+                supports_subinterpreters = 0;
+                break;
             default:
                 assert(cur_slot->slot < 0 || cur_slot->slot > _Py_mod_LAST_SLOT);
                 PyErr_Format(
@@ -313,6 +335,15 @@ PyModule_FromDefAndSpec2(PyModuleDef* def, PyObject *spec, int module_api_versio
                     name, cur_slot->slot);
                 goto error;
         }
+    }
+
+    if (supports_subinterpreters < 0) {
+        // For now, we default to not supporting.
+        supports_subinterpreters = 0;
+    }
+    if (!supports_subinterpreters &&
+        (_PyImport_CheckSubinterpIncompatibleExtensionAllowed(name) < 0)) {
+        goto error;
     }
 
     if (create) {
@@ -437,6 +468,12 @@ PyModule_ExecDef(PyObject *module, PyModuleDef *def)
                         name);
                     return -1;
                 }
+                break;
+            case Py_mod_subinterpreters:
+                /* handled in PyModule_FromDefAndSpec2 */
+                break;
+            case Py_mod_no_subinterpreters:
+                /* handled in PyModule_FromDefAndSpec2 */
                 break;
             default:
                 PyErr_Format(

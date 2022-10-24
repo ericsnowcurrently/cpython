@@ -3951,6 +3951,7 @@ static PyMethodDef math_methods[] = {
 
 static PyModuleDef_Slot math_slots[] = {
     {Py_mod_exec, math_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

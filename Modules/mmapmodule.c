@@ -1705,6 +1705,7 @@ mmap_exec(PyObject *module)
 
 static PyModuleDef_Slot mmap_slots[] = {
     {Py_mod_exec, mmap_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 

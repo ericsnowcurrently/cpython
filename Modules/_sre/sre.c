@@ -3246,6 +3246,7 @@ error:
 
 static PyModuleDef_Slot sre_slots[] = {
     {Py_mod_exec, sre_exec},
+    {Py_mod_subinterpreters, NULL},
     {0, NULL},
 };
 

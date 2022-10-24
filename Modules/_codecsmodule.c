@@ -1049,6 +1049,7 @@ static PyMethodDef _codecs_functions[] = {
 };
 
 static PyModuleDef_Slot _codecs_slots[] = {
+    {Py_mod_subinterpreters, NULL},
     {0, NULL}
 };
 
