@@ -1553,6 +1553,9 @@ class SubinterpImportTests(unittest.TestCase):
         with self.subTest(f'{module}: strict, isolated'):
             self.check_incompatible_isolated(module)
 
+        # XXX Also check a module that explicitly opts in
+        # and one that opts out.
+
     def test_python_compat(self):
         module = 'threading'
         if __import__(module).__spec__.origin == 'frozen':
