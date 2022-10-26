@@ -634,6 +634,16 @@ init_interp_settings(PyInterpreterState *interp, const _PyInterpreterConfig *con
 
     if (config->check_multi_interp_extensions) {
         interp->feature_flags |= Py_RTFLAGS_MULTI_INTERP_EXTENSIONS;
+        /* For now, the regular default for multi-phase excentions
+         * is Py_mod_no_subinterpreters, meaning they must explicitly
+         * opt in.  We can change this as soon as we are confident that
+         * enough modules already support use in subinterpreters. */
+        if (config->check_multi_interp_extensions > 0) {
+            interp->feature_flags |= Py_RTFLAGS_MULTI_INTERP_EXTENSIONS_DEFAULT_OPT_IN;
+        }
+        else {
+            interp->feature_flags &= ~Py_RTFLAGS_MULTI_INTERP_EXTENSIONS_DEFAULT_OPT_IN;
+        }
     }
 }
 

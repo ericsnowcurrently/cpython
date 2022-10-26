@@ -338,8 +338,12 @@ PyModule_FromDefAndSpec2(PyModuleDef* def, PyObject *spec, int module_api_versio
     }
 
     if (supports_subinterpreters < 0) {
-        // For now, we default to not supporting.
-        supports_subinterpreters = 0;
+        // We set the default based on how the interpreter was configured.
+        PyInterpreterState *interp = _PyInterpreterState_GET();
+        supports_subinterpreters = (
+                interp->feature_flags &
+                Py_RTFLAGS_MULTI_INTERP_EXTENSIONS_DEFAULT_OPT_IN
+                ) == 0;
     }
     if (!supports_subinterpreters &&
         (_PyImport_CheckSubinterpIncompatibleExtensionAllowed(name) < 0)) {

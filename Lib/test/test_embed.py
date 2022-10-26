@@ -1652,7 +1652,8 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
                                        api=API_PYTHON, env=env)
 
     def test_init_main_interpreter_settings(self):
-        EXTENSIONS = 1<<8
+        EXTENSIONS = 1<<8  # not set
+        EXTENSIONS_OPTIN = 1<<9  # not set
         THREADS = 1<<10
         DAEMON_THREADS = 1<<11
         FORK = 1<<15

@@ -14,6 +14,11 @@ might not be allowed in the current interpreter (i.e. os.fork() would fail).
 /* Set if import should check a module for subinterpreter support. */
 #define Py_RTFLAGS_MULTI_INTERP_EXTENSIONS (1UL << 8)
 
+/* Set if extensions must opt in to subinterpreter support.
+ * otherwise they must opt out.
+ * Combines with Py_RTFLAGS_MULTI_INTERP_EXTENSIONS. */
+#define Py_RTFLAGS_MULTI_INTERP_EXTENSIONS_DEFAULT_OPT_IN (1UL << 9)
+
 /* Set if threads are allowed. */
 #define Py_RTFLAGS_THREADS (1UL << 10)
 
