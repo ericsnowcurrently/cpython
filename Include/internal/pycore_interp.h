@@ -16,6 +16,7 @@ extern "C" {
 #include "pycore_code.h"          // struct callable_cache
 #include "pycore_context.h"       // struct _Py_context_state
 #include "pycore_dict_state.h"    // struct _Py_dict_state
+#include "pycore_dtoa.h"          // struct _dtoa_runtime_state
 #include "pycore_exceptions.h"    // struct _Py_exc_state
 #include "pycore_floatobject.h"   // struct _Py_float_state
 #include "pycore_function.h"      // FUNC_MAX_WATCHERS
@@ -155,6 +156,8 @@ struct _is {
     PyObject *after_forkers_parent;
     PyObject *after_forkers_child;
 #endif
+
+    struct _dtoa_runtime_state dtoa;
 
     struct _warnings_runtime_state warnings;
     struct atexit_state atexit;

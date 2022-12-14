@@ -119,7 +119,8 @@
 
 #include "Python.h"
 #include "pycore_dtoa.h"          // _PY_SHORT_FLOAT_REPR
-#include "pycore_runtime.h"       // _PyRuntime
+#include "pycore_interp.h"        // PyInterpreterState
+#include "pycore_initconfig.h"    // _PyStatus_OK()
 #include <stdlib.h>               // exit()
 
 /* if _PY_SHORT_FLOAT_REPR == 0, then don't even try to compile
@@ -339,9 +340,9 @@ typedef struct Bigint Bigint;
    Bfree to PyMem_Free.  Investigate whether this has any significant
    performance on impact. */
 
-#define freelist _PyRuntime.dtoa.freelist
-#define private_mem _PyRuntime.dtoa.preallocated
-#define pmem_next _PyRuntime.dtoa.preallocated_next
+#define freelist interp->dtoa.freelist
+#define private_mem interp->dtoa.preallocated
+#define pmem_next interp->dtoa.preallocated_next
 
 /* Allocate space for a Bigint with up to 1<<k digits */
 
@@ -351,6 +352,7 @@ Balloc(int k)
     int x;
     Bigint *rv;
     unsigned int len;
+    PyInterpreterState *interp = _PyInterpreterState_Get();
 
     if (k <= Bigint_Kmax && (rv = freelist[k]))
         freelist[k] = rv->next;
@@ -385,6 +387,7 @@ Bfree(Bigint *v)
         if (v->k > Bigint_Kmax)
             FREE((void*)v);
         else {
+            PyInterpreterState *interp = _PyInterpreterState_Get();
             v->next = freelist[v->k];
             freelist[v->k] = v;
         }
@@ -683,6 +686,7 @@ pow5mult(Bigint *b, int k)
     Bigint *b1, *p5, *p51;
     int i;
     static const int p05[3] = { 5, 25, 125 };
+    PyInterpreterState *interp = _PyInterpreterState_Get();
 
     if ((i = k & 3)) {
         b = multadd(b, p05[i-1], 0);
@@ -692,7 +696,7 @@ pow5mult(Bigint *b, int k)
 
     if (!(k >>= 2))
         return b;
-    p5 = _PyRuntime.dtoa.p5s;
+    p5 = interp->dtoa.p5s;
     if (!p5) {
         /* first time */
         p5 = i2b(625);
@@ -700,7 +704,7 @@ pow5mult(Bigint *b, int k)
             Bfree(b);
             return NULL;
         }
-        _PyRuntime.dtoa.p5s = p5;
+        interp->dtoa.p5s = p5;
         p5->next = 0;
     }
     for(;;) {
@@ -2844,6 +2848,18 @@ _Py_dg_dtoa(double dd, int mode, int ndigits,
         _Py_dg_freedtoa(s0);
     return NULL;
 }
+
+
+PyStatus
+_Py_dg_Init(PyInterpreterState *interp)
+{
+#ifndef Py_USING_MEMORY_DEBUGGER
+    interp->dtoa.preallocated_next = interp->dtoa.preallocated;
+#endif
+    return _PyStatus_OK();
+}
+
+
 #ifdef __cplusplus
 }
 #endif

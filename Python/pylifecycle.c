@@ -895,6 +895,11 @@ pycore_interp_init(PyThreadState *tstate)
         return _PyStatus_ERR("failed to initialize deep-frozen modules");
     }
 
+    status = _Py_dg_Init(interp);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+
     status = pycore_init_types(interp);
     if (_PyStatus_EXCEPTION(status)) {
         goto done;
