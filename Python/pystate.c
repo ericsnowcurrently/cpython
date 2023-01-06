@@ -1201,11 +1201,13 @@ tstate_delete_common(PyThreadState *tstate,
     }
     HEAD_UNLOCK(runtime);
 
-    if (gilstate->autoInterpreterState &&
-        PyThread_tss_get(&gilstate->autoTSSkey) == tstate)
+    current_tss *current = CURRENT_TSS(runtime);
+    if (current_tss_initialized(current) &&
+        current_tss_get(current) == tstate)
     {
-        PyThread_tss_set(&gilstate->autoTSSkey, NULL);
+        current_tss_clear(current);
     }
+
     _PyStackChunk *chunk = tstate->datastack_chunk;
     tstate->datastack_chunk = NULL;
     while (chunk != NULL) {
