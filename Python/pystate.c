@@ -47,6 +47,64 @@ extern "C" {
 static PyThreadState *_PyGILState_GetThisThreadState(struct _gilstate_runtime_state *gilstate);
 static void _PyThreadState_Delete(PyThreadState *tstate, int check_current);
 
+
+/* the current thread state */
+
+typedef Py_tss_t current_tss;
+
+#define CURRENT_TSS(runtime) (&(runtime)->gilstate.autoTSSkey)
+
+static inline int
+current_tss_initialized(current_tss *current)
+{
+    Py_tss_t *key = current;
+    return PyThread_tss_is_created(key);
+}
+
+static inline int
+current_tss_init(current_tss *current)
+{
+    assert(!current_tss_initialized(current));
+    Py_tss_t *key = current;
+    return PyThread_tss_create(key);
+}
+
+static inline void
+current_tss_fini(current_tss *current)
+{
+    assert(current_tss_initialized(current));
+    Py_tss_t *key = current;
+    PyThread_tss_delete(key);
+}
+
+static inline PyThreadState *
+current_tss_get(current_tss *current)
+{
+    assert(current_tss_initialized(current));
+    Py_tss_t *key = current;
+    return (PyThreadState *)PyThread_tss_get(key);
+}
+
+static inline int
+current_tss_set(current_tss *current, PyThreadState* tstate)
+{
+    assert(tstate != NULL);
+    assert(current_tss_initialized(current));
+    Py_tss_t *key = current;
+    return PyThread_tss_set(key, (void *)tstate);
+}
+
+static inline void
+current_tss_clear(current_tss *current)
+{
+    assert(current_tss_initialized(current));
+    Py_tss_t *key = current;
+    PyThread_tss_set(key, NULL);
+}
+
+
+/* the global runtime */
+
 /* Suppress deprecation warning for PyBytesObject.ob_shash */
 _Py_COMP_DIAG_PUSH
 _Py_COMP_DIAG_IGNORE_DEPR_DECLS
