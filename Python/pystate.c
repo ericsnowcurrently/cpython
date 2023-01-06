@@ -195,6 +195,10 @@ init_runtime(_PyRuntimeState *runtime,
     // Set it to the ID of the main thread of the main interpreter.
     runtime->main_thread = PyThread_get_thread_ident();
 
+    if (current_tss_init(CURRENT_TSS(runtime)) != 0) {
+        Py_FatalError("could not initialize the \"current\" TSS key");
+    }
+
     runtime->unicode_state.ids.next_index = unicode_next_index;
     runtime->unicode_state.ids.lock = unicode_ids_mutex;
 
@@ -233,6 +237,11 @@ _PyRuntimeState_Init(_PyRuntimeState *runtime)
 void
 _PyRuntimeState_Fini(_PyRuntimeState *runtime)
 {
+    /* Apparently the runtime can be finalized without a matching init. */
+    if (current_tss_initialized(CURRENT_TSS(runtime))) {
+        current_tss_fini(CURRENT_TSS(runtime));
+    }
+
     /* Force the allocator used by _PyRuntimeState_Init(). */
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
@@ -259,6 +268,25 @@ _PyRuntimeState_ReInitThreads(_PyRuntimeState *runtime)
 {
     // This was initially set in _PyRuntimeState_Init().
     runtime->main_thread = PyThread_get_thread_ident();
+
+    /* Reset the TSS key.
+     * This should not be necessary, but some - buggy - pthread implementations
+     * don't reset TSS upon fork(), see issue #10517.
+     */
+    current_tss *current = CURRENT_TSS(runtime);
+    PyThreadState *tstate = NULL;
+    if (current_tss_initialized(current)) {
+        tstate = current_tss_get(current);
+        current_tss_fini(current);
+    }
+    if (current_tss_init(current) != 0) {
+        return _PyStatus_NO_MEMORY();
+    }
+    /* If the thread had an associated auto thread state, reassociate it with
+     * the new key. */
+    if (tstate && (current_tss_set(current, tstate) != 0)) {
+        return _PyStatus_ERR("failed to set autoTSSkey");
+    }
 
     /* Force default allocator, since _PyRuntimeState_Fini() must
        use the same allocator than this function. */
@@ -1600,13 +1628,9 @@ PyThreadState_IsCurrent(PyThreadState *tstate)
 PyStatus
 _PyGILState_Init(_PyRuntimeState *runtime)
 {
-    struct _gilstate_runtime_state *gilstate = &runtime->gilstate;
-    if (PyThread_tss_create(&gilstate->autoTSSkey) != 0) {
-        return _PyStatus_NO_MEMORY();
-    }
     // PyThreadState_New() calls _PyGILState_NoteThreadState() which does
     // nothing before autoInterpreterState is set.
-    assert(gilstate->autoInterpreterState == NULL);
+    assert(runtime->gilstate.autoInterpreterState == NULL);
     return _PyStatus_OK();
 }
 
@@ -1644,36 +1668,8 @@ void
 _PyGILState_Fini(PyInterpreterState *interp)
 {
     struct _gilstate_runtime_state *gilstate = &interp->runtime->gilstate;
-    PyThread_tss_delete(&gilstate->autoTSSkey);
     gilstate->autoInterpreterState = NULL;
 }
-
-#ifdef HAVE_FORK
-/* Reset the TSS key - called by PyOS_AfterFork_Child().
- * This should not be necessary, but some - buggy - pthread implementations
- * don't reset TSS upon fork(), see issue #10517.
- */
-PyStatus
-_PyGILState_Reinit(_PyRuntimeState *runtime)
-{
-    struct _gilstate_runtime_state *gilstate = &runtime->gilstate;
-    PyThreadState *tstate = _PyGILState_GetThisThreadState(gilstate);
-
-    PyThread_tss_delete(&gilstate->autoTSSkey);
-    if (PyThread_tss_create(&gilstate->autoTSSkey) != 0) {
-        return _PyStatus_NO_MEMORY();
-    }
-
-    /* If the thread had an associated auto thread state, reassociate it with
-     * the new key. */
-    if (tstate &&
-        PyThread_tss_set(&gilstate->autoTSSkey, (void *)tstate) != 0)
-    {
-        return _PyStatus_ERR("failed to set autoTSSkey");
-    }
-    return _PyStatus_OK();
-}
-#endif
 
 /* When a thread state is created for a thread by some mechanism other than
    PyGILState_Ensure, it's important that the GILState machinery knows about
