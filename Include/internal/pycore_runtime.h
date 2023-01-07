@@ -49,7 +49,6 @@ struct _gilstate_runtime_state {
     */
     /* TODO: Given interp_main, it may be possible to kill this ref */
     PyInterpreterState *autoInterpreterState;
-    Py_tss_t autoTSSkey;
 };
 
 /* Runtime audit hook state */
@@ -123,6 +122,8 @@ typedef struct pyruntimestate {
     } xidregistry;
 
     unsigned long main_thread;
+
+    Py_tss_t autoTSSkey;
 
     PyWideStringList orig_argv;
 

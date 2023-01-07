@@ -51,7 +51,7 @@ static void _PyThreadState_Delete(PyThreadState *tstate, int check_current);
 
 typedef Py_tss_t current_tss;
 
-#define CURRENT_TSS(runtime) (&(runtime)->gilstate.autoTSSkey)
+#define CURRENT_TSS(runtime) (&(runtime)->autoTSSkey)
 
 static inline int
 current_tss_initialized(current_tss *current)
