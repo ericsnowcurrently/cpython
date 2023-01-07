@@ -44,7 +44,6 @@ extern "C" {
                              (uintptr_t)(value))
 
 /* Forward declarations */
-static PyThreadState *_PyGILState_GetThisThreadState(struct _gilstate_runtime_state *gilstate);
 static void _PyThreadState_Delete(PyThreadState *tstate, int check_current);
 
 
@@ -1327,12 +1326,13 @@ _PyThreadState_Swap(struct _gilstate_runtime_state *gilstate, PyThreadState *new
        builds.
     */
 #if defined(Py_DEBUG)
-    if (newts) {
+    current_tss *current = CURRENT_TSS(&_PyRuntime);
+    if (newts && current_tss_initialized(current)) {
         /* This can be called from PyEval_RestoreThread(). Similar
            to it, we need to ensure errno doesn't change.
         */
         int err = errno;
-        PyThreadState *check = _PyGILState_GetThisThreadState(gilstate);
+        PyThreadState *check = current_tss_get(current);
         if (check && check->interp == newts->interp && check != newts)
             Py_FatalError("Invalid thread state for this thread");
         errno = err;
@@ -1620,7 +1620,8 @@ PyThreadState_IsCurrent(PyThreadState *tstate)
 {
     /* Must be the tstate for this thread */
     struct _gilstate_runtime_state *gilstate = &_PyRuntime.gilstate;
-    assert(_PyGILState_GetThisThreadState(gilstate) == tstate);
+    assert(tstate == NULL ||
+           current_tss_get(CURRENT_TSS(&_PyRuntime)) == tstate);
     return tstate == _PyRuntimeGILState_GetThreadState(gilstate);
 }
 
@@ -1653,7 +1654,7 @@ _PyGILState_SetTstate(PyThreadState *tstate)
     struct _gilstate_runtime_state *gilstate = &tstate->interp->runtime->gilstate;
 
     gilstate->autoInterpreterState = tstate->interp;
-    assert(PyThread_tss_get(&gilstate->autoTSSkey) == NULL);
+    assert(current_tss_get(CURRENT_TSS(tstate->interp->runtime)) == NULL);
     assert(tstate->gilstate_counter == 0);
 
     _PyGILState_NoteThreadState(gilstate, tstate);
@@ -1681,9 +1682,15 @@ _PyGILState_Fini(PyInterpreterState *interp)
 static void
 _PyGILState_NoteThreadState(struct _gilstate_runtime_state *gilstate, PyThreadState* tstate)
 {
+    assert(tstate != NULL);
+    current_tss *current = CURRENT_TSS(tstate->interp->runtime);
+
     /* If autoTSSkey isn't initialized, this must be the very first
        threadstate created in Py_Initialize().  Don't do anything for now
        (we'll be back here when _PyGILState_Init is called). */
+    if (!current_tss_initialized(current)) {
+        return;
+    }
     if (!gilstate->autoInterpreterState) {
         return;
     }
@@ -1700,8 +1707,8 @@ _PyGILState_NoteThreadState(struct _gilstate_runtime_state *gilstate, PyThreadSt
        The first thread state created for that given OS level thread will
        "win", which seems reasonable behaviour.
     */
-    if (PyThread_tss_get(&gilstate->autoTSSkey) == NULL) {
-        if ((PyThread_tss_set(&gilstate->autoTSSkey, (void *)tstate)) != 0) {
+    if (current_tss_get(current) == NULL) {
+        if (current_tss_set(current, tstate) != 0) {
             Py_FatalError("Couldn't create autoTSSkey mapping");
         }
     }
@@ -1711,18 +1718,15 @@ _PyGILState_NoteThreadState(struct _gilstate_runtime_state *gilstate, PyThreadSt
 }
 
 /* The public functions */
-static PyThreadState *
-_PyGILState_GetThisThreadState(struct _gilstate_runtime_state *gilstate)
-{
-    if (gilstate->autoInterpreterState == NULL)
-        return NULL;
-    return (PyThreadState *)PyThread_tss_get(&gilstate->autoTSSkey);
-}
 
 PyThreadState *
 PyGILState_GetThisThreadState(void)
 {
-    return _PyGILState_GetThisThreadState(&_PyRuntime.gilstate);
+    current_tss *current = CURRENT_TSS(&_PyRuntime);
+    if (!current_tss_initialized(current)) {
+        return NULL;
+    }
+    return current_tss_get(current);
 }
 
 int
@@ -1733,7 +1737,8 @@ PyGILState_Check(void)
         return 1;
     }
 
-    if (!PyThread_tss_is_created(&gilstate->autoTSSkey)) {
+    current_tss *current = CURRENT_TSS(&_PyRuntime);
+    if (!current_tss_initialized(current)) {
         return 1;
     }
 
@@ -1742,7 +1747,7 @@ PyGILState_Check(void)
         return 0;
     }
 
-    return (tstate == _PyGILState_GetThisThreadState(gilstate));
+    return (tstate == current_tss_get(current));
 }
 
 PyGILState_STATE
@@ -1761,8 +1766,9 @@ PyGILState_Ensure(void)
     assert(_PyEval_ThreadsInitialized(runtime));
     assert(gilstate->autoInterpreterState);
 
-    PyThreadState *tcur = (PyThreadState *)PyThread_tss_get(&gilstate->autoTSSkey);
-    int current;
+    current_tss *current = CURRENT_TSS(runtime);
+    PyThreadState *tcur = current_tss_get(current);
+    int holds_gil;
     if (tcur == NULL) {
         /* Create a new Python thread state for this thread */
         tcur = PyThreadState_New(gilstate->autoInterpreterState);
@@ -1773,13 +1779,13 @@ PyGILState_Ensure(void)
         /* This is our thread state!  We'll need to delete it in the
            matching call to PyGILState_Release(). */
         tcur->gilstate_counter = 0;
-        current = 0; /* new thread state is never current */
+        holds_gil = 0; /* new thread state is never current */
     }
     else {
-        current = PyThreadState_IsCurrent(tcur);
+        holds_gil = PyThreadState_IsCurrent(tcur);
     }
 
-    if (current == 0) {
+    if (!holds_gil) {
         PyEval_RestoreThread(tcur);
     }
 
@@ -1790,14 +1796,15 @@ PyGILState_Ensure(void)
     */
     ++tcur->gilstate_counter;
 
-    return current ? PyGILState_LOCKED : PyGILState_UNLOCKED;
+    return holds_gil ? PyGILState_LOCKED : PyGILState_UNLOCKED;
 }
 
 void
 PyGILState_Release(PyGILState_STATE oldstate)
 {
     _PyRuntimeState *runtime = &_PyRuntime;
-    PyThreadState *tstate = PyThread_tss_get(&runtime->gilstate.autoTSSkey);
+    current_tss *current = CURRENT_TSS(runtime);
+    PyThreadState *tstate = current_tss_get(current);
     if (tstate == NULL) {
         Py_FatalError("auto-releasing thread-state, "
                       "but no thread-state for this thread");
