@@ -64,7 +64,8 @@ _Py_ThreadCanHandlePendingCalls(void)
 /* Variable and macro for in-line access to current thread
    and interpreter state */
 
-extern thread_local PyThreadState *_Py_tss_tstate;
+// XXX We only export the symbol for the sake of the math module.
+PyAPI_DATA(thread_local PyThreadState *) _Py_tss_tstate;
 
 static inline PyThreadState*
 _PyRuntimeState_GetThreadState(_PyRuntimeState *runtime)
