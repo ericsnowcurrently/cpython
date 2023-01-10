@@ -1162,6 +1162,7 @@ _PyThreadState_DeleteCurrent(PyThreadState *tstate)
     struct _gilstate_runtime_state *gilstate = &tstate->interp->runtime->gilstate;
     tstate_delete_common(tstate, gilstate);
     _PyRuntimeGILState_SetThreadState(gilstate, NULL);
+    _Py_tss_tstate = NULL;
     _PyEval_ReleaseLock(tstate);
     free_threadstate(tstate);
 }
@@ -1239,6 +1240,7 @@ _PyThreadState_Swap(struct _gilstate_runtime_state *gilstate, PyThreadState *new
     PyThreadState *oldts = _PyRuntimeGILState_GetThreadState(gilstate);
 
     _PyRuntimeGILState_SetThreadState(gilstate, newts);
+    _Py_tss_tstate = newts;
     /* It should not be possible for more than one thread state
        to be used for a thread.  Check this the best we can in debug
        builds.

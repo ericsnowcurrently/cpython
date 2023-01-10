@@ -70,7 +70,7 @@ PyAPI_DATA(thread_local PyThreadState *) _Py_tss_tstate;
 static inline PyThreadState*
 _PyRuntimeState_GetThreadState(_PyRuntimeState *runtime)
 {
-    return (PyThreadState*)_Py_atomic_load_relaxed(&runtime->gilstate.tstate_current);
+    return _Py_tss_tstate;
 }
 
 /* Get the current Python thread state.
