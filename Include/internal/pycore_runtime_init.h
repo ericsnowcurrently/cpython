@@ -49,9 +49,6 @@ extern "C" {
         }, \
         .gilstate = { \
             .check_enabled = 1, \
-            /* A TSS key must be initialized with Py_tss_NEEDS_INIT \
-               in accordance with the specification. */ \
-            .autoTSSkey = Py_tss_NEEDS_INIT, \
         }, \
         .dtoa = _dtoa_runtime_state_INIT(runtime), \
         .fileutils = { \
