@@ -766,17 +766,8 @@ Py_AddPendingCall(int (*func)(void *), void *arg)
 {
     /* Best-effort to support subinterpreters and calls with the GIL released.
 
-       First attempt _PyThreadState_GET() since it supports subinterpreters.
-
-       If the GIL is released, _PyThreadState_GET() returns NULL . In this
-       case, use _PyThreadState_GET_TSS() which works even if the GIL
-       is released.
-
        Py_AddPendingCall() doesn't require the caller to hold the GIL. */
-    PyThreadState *tstate = _PyThreadState_GET();
-    if (tstate == NULL) {
-        tstate = _PyThreadState_GET_TSS();
-    }
+    PyThreadState *tstate = _PyThreadState_GET_TSS();
 
     PyInterpreterState *interp;
     if (tstate != NULL) {
