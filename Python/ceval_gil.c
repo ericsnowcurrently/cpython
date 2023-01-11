@@ -546,8 +546,7 @@ _PyEval_Fini(void)
 void
 PyEval_AcquireLock(void)
 {
-    _PyRuntimeState *runtime = &_PyRuntime;
-    PyThreadState *tstate = _PyRuntimeState_GetThreadState(runtime);
+    PyThreadState *tstate = _PyThreadState_GET();
     _Py_EnsureTstateNotNULL(tstate);
 
     take_gil(tstate);
@@ -557,10 +556,10 @@ void
 PyEval_ReleaseLock(void)
 {
     _PyRuntimeState *runtime = &_PyRuntime;
-    PyThreadState *tstate = _PyRuntimeState_GetThreadState(runtime);
     /* This function must succeed when the current thread state is NULL.
        We therefore avoid PyThreadState_Get() which dumps a fatal error
        in debug mode. */
+    PyThreadState *tstate = _PyThreadState_GET();
     struct _ceval_runtime_state *ceval = &runtime->ceval;
     struct _ceval_state *ceval2 = &tstate->interp->ceval;
     drop_gil(ceval, ceval2, tstate);
