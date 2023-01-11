@@ -1631,7 +1631,7 @@ done:
      change until we yield the lock.
 */
 static int
-PyThreadState_IsCurrent(PyThreadState *tstate)
+tstate_holds_gil(PyThreadState *tstate)
 {
     /* Must be the tstate for this thread */
     assert(tstate == NULL ||
@@ -1796,7 +1796,7 @@ PyGILState_Ensure(void)
         holds_gil = 0; /* new thread state is never current */
     }
     else {
-        holds_gil = PyThreadState_IsCurrent(tcur);
+        holds_gil = tstate_holds_gil(tcur);
     }
 
     if (!holds_gil) {
@@ -1829,12 +1829,12 @@ PyGILState_Release(PyGILState_STATE oldstate)
        but while this is very new (April 2003), the extra check
        by release-only users can't hurt.
     */
-    if (!PyThreadState_IsCurrent(tstate)) {
+    if (!tstate_holds_gil(tstate)) {
         _Py_FatalErrorFormat(__func__,
                              "thread state %p must be current when releasing",
                              tstate);
     }
-    assert(PyThreadState_IsCurrent(tstate));
+    assert(tstate_holds_gil(tstate));
     --tstate->gilstate_counter;
     assert(tstate->gilstate_counter >= 0); /* illegal counter value */
 
