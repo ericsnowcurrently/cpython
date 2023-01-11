@@ -3,6 +3,7 @@
 #include "pycore_gc.h"            // PyGC_Head
 #include "pycore_hashtable.h"     // _Py_hashtable_t
 #include "pycore_pymem.h"         // _Py_tracemalloc_config
+#include "pycore_pystate.h"       // _PyThreadState_GET_TSS()
 #include "pycore_runtime.h"       // _Py_ID()
 #include "pycore_traceback.h"
 #include <pycore_frame.h>
@@ -339,7 +340,8 @@ traceback_hash(traceback_t *traceback)
 static void
 traceback_get_frames(traceback_t *traceback)
 {
-    PyThreadState *tstate = PyGILState_GetThisThreadState();
+    /* We can't use _PyThreadState_GET() because the GIL might not be held. */
+    PyThreadState *tstate = _PyThreadState_GET_TSS();
     if (tstate == NULL) {
 #ifdef TRACE_DEBUG
         tracemalloc_error("failed to get the current thread state");

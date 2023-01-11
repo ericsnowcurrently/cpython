@@ -64,6 +64,23 @@ _Py_ThreadCanHandlePendingCalls(void)
 /* Variable and macro for in-line access to current thread
    and interpreter state */
 
+/* Get the current Python thread state from a thread-local.
+
+   The macro is unsafe: it does not check for error and it can
+   return NULL.
+
+   The runtime must be initialized already.
+
+   See also PyGILState_GetThisThreadState(). */
+static inline PyThreadState*
+_PyThreadState_GET_TSS(void)
+{
+    /* pystate.c:current_tss_initialized() */
+    assert(PyThread_tss_is_created(&_PyRuntime.autoTSSkey));
+    /* pystate.c:current_tss_get() */
+    return (PyThreadState *)PyThread_tss_get(&_PyRuntime.autoTSSkey);
+}
+
 /* Get the current Python thread state.
 
    Efficient macro reading directly the 'gilstate.tstate_current' atomic

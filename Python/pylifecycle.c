@@ -2821,7 +2821,7 @@ fatal_error(int fd, int header, const char *prefix, const char *msg,
        */
     PyThreadState *tstate = _PyThreadState_GET();
     PyInterpreterState *interp = NULL;
-    PyThreadState *tss_tstate = PyGILState_GetThisThreadState();
+    PyThreadState *tss_tstate = _PyThreadState_GET_TSS();
     if (tstate != NULL) {
         interp = tstate->interp;
     }
