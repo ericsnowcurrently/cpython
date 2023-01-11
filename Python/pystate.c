@@ -607,7 +607,7 @@ PyInterpreterState_Delete(PyInterpreterState *interp)
     _PyEval_FiniState(&interp->ceval);
 
     /* Delete current thread. After this, many C API calls become crashy. */
-    _PyThreadState_Swap(&runtime->gilstate, NULL);
+    _PyThreadState_Swap(runtime, NULL);
 
     HEAD_LOCK(runtime);
     PyInterpreterState **p;
@@ -647,10 +647,9 @@ PyInterpreterState_Delete(PyInterpreterState *interp)
 PyStatus
 _PyInterpreterState_DeleteExceptMain(_PyRuntimeState *runtime)
 {
-    struct _gilstate_runtime_state *gilstate = &runtime->gilstate;
     struct pyinterpreters *interpreters = &runtime->interpreters;
 
-    PyThreadState *tstate = _PyThreadState_Swap(gilstate, NULL);
+    PyThreadState *tstate = _PyThreadState_Swap(runtime, NULL);
     if (tstate != NULL && tstate->interp != interpreters->main) {
         return _PyStatus_ERR("not main interpreter");
     }
@@ -680,7 +679,7 @@ _PyInterpreterState_DeleteExceptMain(_PyRuntimeState *runtime)
     if (interpreters->head == NULL) {
         return _PyStatus_ERR("missing main interpreter");
     }
-    _PyThreadState_Swap(gilstate, tstate);
+    _PyThreadState_Swap(runtime, tstate);
     return _PyStatus_OK();
 }
 #endif
@@ -781,7 +780,6 @@ _PyInterpreterState_IDDecref(PyInterpreterState *interp)
 {
     assert(interp->id_mutex != NULL);
 
-    struct _gilstate_runtime_state *gilstate = &_PyRuntime.gilstate;
     PyThread_acquire_lock(interp->id_mutex, WAIT_LOCK);
     assert(interp->id_refcount != 0);
     interp->id_refcount -= 1;
@@ -789,12 +787,13 @@ _PyInterpreterState_IDDecref(PyInterpreterState *interp)
     PyThread_release_lock(interp->id_mutex);
 
     if (refcount == 0 && interp->requires_idref) {
+        _PyRuntimeState *runtime = interp->runtime;
         // XXX Using the "head" thread isn't strictly correct.
         PyThreadState *tstate = PyInterpreterState_ThreadHead(interp);
         // XXX Possible GILState issues?
-        PyThreadState *save_tstate = _PyThreadState_Swap(gilstate, tstate);
+        PyThreadState *save_tstate = _PyThreadState_Swap(runtime, tstate);
         Py_EndInterpreter(tstate);
-        _PyThreadState_Swap(gilstate, save_tstate);
+        _PyThreadState_Swap(runtime, save_tstate);
     }
 }
 
@@ -1315,8 +1314,10 @@ PyThreadState_Get(void)
 
 
 PyThreadState *
-_PyThreadState_Swap(struct _gilstate_runtime_state *gilstate, PyThreadState *newts)
+_PyThreadState_Swap(_PyRuntimeState *runtime, PyThreadState *newts)
 {
+    assert(runtime && runtime == &_PyRuntime);
+    struct _gilstate_runtime_state *gilstate = &runtime->gilstate;
     PyThreadState *oldts = _PyRuntimeGILState_GetThreadState(gilstate);
 
     _PyRuntimeGILState_SetThreadState(gilstate, newts);
@@ -1343,7 +1344,7 @@ _PyThreadState_Swap(struct _gilstate_runtime_state *gilstate, PyThreadState *new
 PyThreadState *
 PyThreadState_Swap(PyThreadState *newts)
 {
-    return _PyThreadState_Swap(&_PyRuntime.gilstate, newts);
+    return _PyThreadState_Swap(&_PyRuntime, newts);
 }
 
 /* An extension mechanism to store arbitrary additional per-thread state.
@@ -2014,19 +2015,20 @@ _PyCrossInterpreterData_NewObject(_PyCrossInterpreterData *data)
 typedef void (*releasefunc)(PyInterpreterState *, void *);
 
 static void
-_call_in_interpreter(struct _gilstate_runtime_state *gilstate,
-                     PyInterpreterState *interp, releasefunc func, void *arg)
+_call_in_interpreter(PyInterpreterState *interp, releasefunc func, void *arg)
 {
     /* We would use Py_AddPendingCall() if it weren't specific to the
      * main interpreter (see bpo-33608).  In the meantime we take a
      * naive approach.
      */
     PyThreadState *save_tstate = NULL;
+    _PyRuntimeState *runtime = interp->runtime;
+    struct _gilstate_runtime_state *gilstate = &runtime->gilstate;
     if (interp != _PyRuntimeGILState_GetThreadState(gilstate)->interp) {
         // XXX Using the "head" thread isn't strictly correct.
         PyThreadState *tstate = PyInterpreterState_ThreadHead(interp);
         // XXX Possible GILState issues?
-        save_tstate = _PyThreadState_Swap(gilstate, tstate);
+        save_tstate = _PyThreadState_Swap(runtime, tstate);
     }
 
     // XXX Once the GIL is per-interpreter, this should be called with the
@@ -2035,7 +2037,7 @@ _call_in_interpreter(struct _gilstate_runtime_state *gilstate,
 
     // Switch back.
     if (save_tstate != NULL) {
-        _PyThreadState_Swap(gilstate, save_tstate);
+        _PyThreadState_Swap(runtime, save_tstate);
     }
 }
 
@@ -2059,8 +2061,7 @@ _PyCrossInterpreterData_Release(_PyCrossInterpreterData *data)
     }
 
     // "Release" the data and/or the object.
-    struct _gilstate_runtime_state *gilstate = &_PyRuntime.gilstate;
-    _call_in_interpreter(gilstate, interp,
+    _call_in_interpreter(interp,
                          (releasefunc)_PyCrossInterpreterData_Clear, data);
     return 0;
 }
