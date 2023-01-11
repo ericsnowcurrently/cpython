@@ -98,21 +98,20 @@ current_tss_clear(current_tss *current)
 static inline PyThreadState *
 current_with_gil_get(_PyRuntimeState *runtime)
 {
-    return (PyThreadState*)_Py_atomic_load_relaxed(&runtime->gilstate.tstate_current);
+    return (PyThreadState*)_Py_atomic_load_relaxed(&runtime->tstate_current);
 }
 
 static inline void
 current_with_gil_set(_PyRuntimeState *runtime, PyThreadState *tstate)
 {
     assert(tstate != NULL);
-    _Py_atomic_store_relaxed(&runtime->gilstate.tstate_current,
-                             (uintptr_t)(tstate));
+    _Py_atomic_store_relaxed(&runtime->tstate_current, (uintptr_t)(tstate));
 }
 
 static inline void
 current_with_gil_clear(_PyRuntimeState *runtime)
 {
-    _Py_atomic_store_relaxed(&runtime->gilstate.tstate_current, 0);
+    _Py_atomic_store_relaxed(&runtime->tstate_current, 0);
 }
 
 
