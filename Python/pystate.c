@@ -1236,6 +1236,8 @@ PyThreadState_Clear(PyThreadState *tstate)
     // The GIL must be held by the current thread,
     // which must not be the target.
     // XXX Enforce that (check current_fast_get()).
+    assert(tstate->_status == PyThreadState_INITIALIZED ||
+           tstate->_status == PyThreadState_UNBOUND);
 
     int verbose = _PyInterpreterState_GetConfig(tstate->interp)->verbose;
 
@@ -1293,6 +1295,8 @@ PyThreadState_Clear(PyThreadState *tstate)
         tstate->on_delete(tstate->on_delete_data);
     }
 
+    tstate->_status = PyThreadState_CLEARED;
+
     // XXX Call _PyThreadStateSwap(runtime, NULL) here if "current".
     // XXX Do it as early in the function as possible.
 }
@@ -1302,6 +1306,7 @@ PyThreadState_Clear(PyThreadState *tstate)
 static void
 tstate_delete_common(PyThreadState *tstate)
 {
+    assert(tstate->_status == PyThreadState_CLEARED);
     PyInterpreterState *interp = tstate->interp;
     if (interp == NULL) {
         Py_FatalError("NULL interpreter");
@@ -1487,6 +1492,23 @@ PyThreadState_GetID(PyThreadState *tstate)
 }
 
 
+static inline void
+tstate_activate(PyThreadState *tstate)
+{
+    assert(tstate != NULL);
+    assert(tstate->_status == PyThreadState_BOUND);
+    tstate->_status = PyThreadState_ACTIVE;
+}
+
+static inline void
+tstate_deactivate(PyThreadState *tstate)
+{
+    assert(tstate != NULL);
+    assert(tstate->_status == PyThreadState_ACTIVE);
+    tstate->_status = PyThreadState_BOUND;
+}
+
+
 //----------
 // other API
 //----------
@@ -1563,13 +1585,18 @@ PyThreadState *
 _PyThreadState_Swap(_PyRuntimeState *runtime, PyThreadState *newts)
 {
     PyThreadState *oldts = current_fast_get(runtime);
+    if (oldts != NULL) {
+        tstate_deactivate(oldts);
+    }
 
     if (newts == NULL) {
         current_fast_clear(runtime);
     }
     else {
         current_fast_set(runtime, newts);
+        tstate_activate(newts);
     }
+
     /* It should not be possible for more than one thread state
        to be used for a thread.  Check this the best we can in debug
        builds.

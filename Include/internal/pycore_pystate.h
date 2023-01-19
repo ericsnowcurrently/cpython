@@ -139,6 +139,8 @@ _PyThreadState_UpdateTracingState(PyThreadState *tstate)
 
 /* PyThreadState status */
 
+// See PyThreadState._status.
+
 #define PyThreadState_UNINITIALIZED 0
 /* Has been initialized to a safe state.
 
@@ -146,7 +148,9 @@ _PyThreadState_UpdateTracingState(PyThreadState *tstate)
    after allocation. */
 #define PyThreadState_INITIALIZED 1
 #define PyThreadState_BOUND 2
-#define PyThreadState_UNBOUND 3
+#define PyThreadState_ACTIVE 3
+#define PyThreadState_UNBOUND 4
+#define PyThreadState_CLEARED 5
 
 
 /* Other */
