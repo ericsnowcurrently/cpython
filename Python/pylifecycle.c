@@ -1825,6 +1825,9 @@ Py_FinalizeEx(void)
     assert(_Py_IsMainInterpreter(tstate->interp));
     assert(_Py_IsMainThread());
 
+    // Block some operations.
+    interp->finalizing = 1;
+
     // Wrap up existing "threading"-module-created, non-daemon threads.
     wait_for_thread_shutdown(tstate);
 
