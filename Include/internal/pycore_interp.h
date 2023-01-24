@@ -135,6 +135,8 @@ struct _is {
 #endif
     unsigned long feature_flags;
 
+    Py_tss_t autoTSSkey;
+
     PyObject *dict;  /* Stores per-interpreter state */
 
     PyObject *builtins_copy;

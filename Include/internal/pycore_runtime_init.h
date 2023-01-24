@@ -114,6 +114,9 @@ extern "C" {
     { \
         .id_refcount = -1, \
         DLOPENFLAGS_INIT \
+        /* A TSS key must be initialized with Py_tss_NEEDS_INIT \
+           in accordance with the specification. */ \
+        .autoTSSkey = Py_tss_NEEDS_INIT, \
         .ceval = { \
             .recursion_limit = Py_DEFAULT_RECURSION_LIMIT, \
         }, \

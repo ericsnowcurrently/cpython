@@ -164,6 +164,39 @@ tstate_tss_reinit(Py_tss_t *key)
    The GIL does no need to be held for these.
   */
 
+#define interp_tss_initialized(interp) \
+    tstate_tss_initialized(&(interp)->autoTSSkey)
+#define interp_tss_init(interp) \
+    tstate_tss_init(&(interp)->autoTSSkey)
+#define interp_tss_fini(interp) \
+    tstate_tss_fini(&(interp)->autoTSSkey)
+#define interp_tss_get(interp) \
+    tstate_tss_get(&(interp)->autoTSSkey)
+#define _interp_tss_set(interp, tstate) \
+    tstate_tss_set(&(interp)->autoTSSkey, tstate)
+#define _interp_tss_clear(interp) \
+    tstate_tss_clear(&(interp)->autoTSSkey)
+#define interp_tss_reinit(interp) \
+    tstate_tss_reinit(&(interp)->autoTSSkey)
+
+static inline void
+interp_tss_set(PyInterpreterState *interp, PyThreadState *tstate)
+{
+    assert(tstate != NULL && tstate->interp == interp);
+    if (_interp_tss_set(interp, tstate) != 0) {
+        Py_FatalError("failed to set interpreter tstate (TSS)");
+    }
+}
+
+static inline void
+interp_tss_clear(PyInterpreterState *interp)
+{
+    if (_interp_tss_clear(interp) != 0) {
+        Py_FatalError("failed to clear interpreter tstate (TSS)");
+    }
+}
+
+
 #define gilstate_tss_initialized(runtime) \
     tstate_tss_initialized(&(runtime)->autoTSSkey)
 #define gilstate_tss_init(runtime) \
@@ -220,8 +253,9 @@ bind_tstate(PyThreadState *tstate)
     assert(tstate->thread_id == 0);
     assert(tstate->native_thread_id == 0);
 
-    // Currently we don't necessarily store the thread state
-    // in thread-local storage (e.g. per-interpreter).
+    /* Stick the thread state for this interpreter in TSS. */
+    assert(interp_tss_get(tstate->interp) == NULL);
+    interp_tss_set(tstate->interp, tstate);
 
     tstate->thread_id = PyThread_get_thread_ident();
 #ifdef PY_HAVE_THREAD_NATIVE_ID
@@ -244,6 +278,7 @@ unbind_tstate(PyThreadState *tstate)
     // XXX assert(tstate_is_alive(tstate));
     assert(tstate_is_bound(tstate));
     // XXX assert(!tstate->_status.active);
+    // XXX assert(tstate == interp_tss_get(tstate->interp));
     assert(tstate->thread_id > 0);
 #ifdef PY_HAVE_THREAD_NATIVE_ID
     assert(tstate->native_thread_id > 0);
@@ -251,6 +286,11 @@ unbind_tstate(PyThreadState *tstate)
 
     if (tstate->_status.bound_gilstate) {
         unbind_gilstate_tstate(tstate);
+    }
+
+    // XXX This check should be unnecessary.
+    if (interp_tss_initialized(tstate->interp)) {
+        interp_tss_clear(tstate->interp);
     }
 
     // We leave thread_id and native_thraed_id alone
@@ -272,6 +312,7 @@ bind_gilstate_tstate(PyThreadState *tstate)
     assert(tstate_is_bound(tstate));
     // XXX assert(!tstate->_status.active);
     // XXX assert(!tstate->_status.bound_gilstate);
+    assert(tstate == interp_tss_get(tstate->interp));
     _PyRuntimeState *runtime = tstate->interp->runtime;
 
     /* Stick the thread state for this thread in thread specific storage.
@@ -555,6 +596,11 @@ _PyRuntimeState_ReInitThreads(_PyRuntimeState *runtime)
         return status;
     }
 
+    status = interp_tss_reinit(current_fast_get(runtime)->interp);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+
     if (PyThread_tss_is_created(&runtime->trashTSSkey)) {
         PyThread_tss_delete(&runtime->trashTSSkey);
     }
@@ -648,6 +694,8 @@ init_interpreter(PyInterpreterState *interp,
     assert(next != NULL || (interp == runtime->interpreters.main));
     interp->next = next;
 
+    assert(interp_tss_initialized(interp));
+
     _PyEval_InitState(&interp->ceval, pending_lock);
     _PyGC_InitState(&interp->gc);
     PyConfig_InitPythonConfig(&interp->config);
@@ -724,6 +772,11 @@ PyInterpreterState_New(void)
         }
     }
     interpreters->head = interp;
+
+    if (interp_tss_init(interp) != 0) {
+        _PyErr_NoMemory(tstate);
+        goto error;
+    }
 
     init_interpreter(interp, runtime, id, old_head, pending_lock);
 
@@ -836,6 +889,10 @@ interpreter_clear(PyInterpreterState *interp, PyThreadState *tstate)
     // XXX Once we have one allocator per interpreter (i.e.
     // per-interpreter GC) we must ensure that all of the interpreter's
     // objects have been cleaned up at the point.
+
+    if (interp_tss_initialized(interp)) {
+        interp_tss_fini(interp);
+    }
 }
 
 
@@ -1430,7 +1487,7 @@ tstate_delete_common(PyThreadState *tstate)
     }
     HEAD_UNLOCK(runtime);
 
-    // XXX Do this in PyThreadState_Swap() (and assert not-equal here)?
+    // XXX Do this in PyThreadState_Swap() (and assert not-bound here)?
     unbind_tstate(tstate);
 
     // XXX Move to PyThreadState_Clear()?
