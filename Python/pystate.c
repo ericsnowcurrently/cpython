@@ -248,6 +248,7 @@ bind_tstate(PyThreadState *tstate)
     assert(tstate_is_alive(tstate) && !tstate->_status.bound);
     assert(!tstate->_status.unbound);  // just in case
     assert(!tstate->_status.bound_gilstate);
+    assert(interp_tss_get(tstate->interp) == NULL);
     assert(tstate != gilstate_tss_get(tstate->interp->runtime));
     assert(!tstate->_status.active);
     assert(tstate->thread_id == 0);
@@ -277,6 +278,8 @@ unbind_tstate(PyThreadState *tstate)
     assert(tstate != NULL);
     // XXX assert(tstate_is_alive(tstate));
     assert(tstate_is_bound(tstate));
+    assert(!interp_tss_initialized(tstate->interp) ||
+           tstate == interp_tss_get(tstate->interp));
     // XXX assert(!tstate->_status.active);
     // XXX assert(tstate == interp_tss_get(tstate->interp));
     assert(tstate->thread_id > 0);
@@ -1768,6 +1771,7 @@ _PyThreadState_Swap(_PyRuntimeState *runtime, PyThreadState *newts)
         // XXX assert(tstate_is_alive(oldts) && tstate_is_bound(oldts));
         tstate_deactivate(oldts);
     }
+
     if (newts != NULL) {
         assert(tstate_is_alive(newts) && tstate_is_bound(newts));
         current_fast_set(runtime, newts);
