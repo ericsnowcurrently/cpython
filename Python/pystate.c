@@ -276,6 +276,12 @@ unbind_gilstate_tstate(PyThreadState *tstate)
 // a highly efficient lookup for the current thread
 //-------------------------------------------------
 
+static inline _Py_atomic_address *
+get_tstate_current_ptr(_PyRuntimeState *runtime)
+{
+    return &runtime->tstate_current;
+}
+
 /*
    The stored thread state is set by PyThreadState_Swap().
 
@@ -285,20 +291,28 @@ unbind_gilstate_tstate(PyThreadState *tstate)
 static inline PyThreadState *
 current_fast_get(_PyRuntimeState *runtime)
 {
-    return (PyThreadState*)_Py_atomic_load_relaxed(&runtime->tstate_current);
+    _Py_atomic_address *tstate_current_p = get_tstate_current_ptr(runtime);
+    if (tstate_current_p == NULL) {
+        return NULL;
+    }
+    return (PyThreadState*)_Py_atomic_load_relaxed(tstate_current_p);
 }
 
 static inline void
 current_fast_set(_PyRuntimeState *runtime, PyThreadState *tstate)
 {
     assert(tstate != NULL);
-    _Py_atomic_store_relaxed(&runtime->tstate_current, (uintptr_t)tstate);
+    _Py_atomic_address *tstate_current_p = get_tstate_current_ptr(runtime);
+    assert(tstate_current_p != NULL);
+    _Py_atomic_store_relaxed(tstate_current_p, (uintptr_t)tstate);
 }
 
 static inline void
 current_fast_clear(_PyRuntimeState *runtime)
 {
-    _Py_atomic_store_relaxed(&runtime->tstate_current, (uintptr_t)NULL);
+    _Py_atomic_address *tstate_current_p = get_tstate_current_ptr(runtime);
+    assert(tstate_current_p != NULL);
+    _Py_atomic_store_relaxed(tstate_current_p, (uintptr_t)NULL);
 }
 
 #define tstate_verify_not_active(tstate) \
