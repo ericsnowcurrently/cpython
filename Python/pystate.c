@@ -49,41 +49,6 @@ extern "C" {
    - holds the GIL
  */
 
-//-------------------------------------------------
-// a highly efficient lookup for the current thread
-//-------------------------------------------------
-
-/*
-   The stored thread state is set by PyThreadState_Swap().
-
-   For each of these functions, the GIL must be held by the current thread.
- */
-
-static inline PyThreadState *
-current_fast_get(_PyRuntimeState *runtime)
-{
-    return (PyThreadState*)_Py_atomic_load_relaxed(&runtime->tstate_current);
-}
-
-static inline void
-current_fast_set(_PyRuntimeState *runtime, PyThreadState *tstate)
-{
-    assert(tstate != NULL);
-    _Py_atomic_store_relaxed(&runtime->tstate_current, (uintptr_t)tstate);
-}
-
-static inline void
-current_fast_clear(_PyRuntimeState *runtime)
-{
-    _Py_atomic_store_relaxed(&runtime->tstate_current, (uintptr_t)NULL);
-}
-
-#define tstate_verify_not_active(tstate) \
-    if (tstate == current_fast_get((tstate)->interp->runtime)) { \
-        _Py_FatalErrorFormat(__func__, "tstate %p is still current", tstate); \
-    }
-
-
 //------------------------------------------------
 // the thread state bound to the current OS thread
 //------------------------------------------------
@@ -305,6 +270,41 @@ unbind_gilstate_tstate(PyThreadState *tstate)
     gilstate_tss_clear(tstate->interp->runtime);
     tstate->_status.bound_gilstate = 0;
 }
+
+
+//-------------------------------------------------
+// a highly efficient lookup for the current thread
+//-------------------------------------------------
+
+/*
+   The stored thread state is set by PyThreadState_Swap().
+
+   For each of these functions, the GIL must be held by the current thread.
+ */
+
+static inline PyThreadState *
+current_fast_get(_PyRuntimeState *runtime)
+{
+    return (PyThreadState*)_Py_atomic_load_relaxed(&runtime->tstate_current);
+}
+
+static inline void
+current_fast_set(_PyRuntimeState *runtime, PyThreadState *tstate)
+{
+    assert(tstate != NULL);
+    _Py_atomic_store_relaxed(&runtime->tstate_current, (uintptr_t)tstate);
+}
+
+static inline void
+current_fast_clear(_PyRuntimeState *runtime)
+{
+    _Py_atomic_store_relaxed(&runtime->tstate_current, (uintptr_t)NULL);
+}
+
+#define tstate_verify_not_active(tstate) \
+    if (tstate == current_fast_get((tstate)->interp->runtime)) { \
+        _Py_FatalErrorFormat(__func__, "tstate %p is still current", tstate); \
+    }
 
 
 //----------------------------------------------
