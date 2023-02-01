@@ -64,6 +64,7 @@ _Py_ThreadCanHandlePendingCalls(void)
 /* Variable and macro for in-line access to current thread
    and interpreter state */
 
+/* This is an inline version of _PyThreadState_UncheckedGet(). */
 static inline PyThreadState*
 _PyRuntimeState_GetThreadState(_PyRuntimeState *runtime)
 {
