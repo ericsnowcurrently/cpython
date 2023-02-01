@@ -285,8 +285,15 @@ unbind_gilstate_tstate(PyThreadState *tstate)
 static inline PyThreadState *
 current_slow_get(_PyRuntimeState *runtime)
 {
-    _Py_atomic_address *tstate_current_p = &_PyRuntime.tstate_current;
-    return (PyThreadState*)_Py_atomic_load_relaxed(tstate_current_p);
+    if (!tstate_tss_initialized(&runtime->autoTSSkey)) {
+        return NULL;
+    }
+    PyThreadState *auto_tstate = tstate_tss_get(&runtime->autoTSSkey);
+    if (auto_tstate == NULL) {
+        return NULL;
+    }
+    return (PyThreadState*)_Py_atomic_load_relaxed(
+                    &auto_tstate->interp->runtime->tstate_current);
 }
 
 #define GET_CURRENT_PTR(interp) \

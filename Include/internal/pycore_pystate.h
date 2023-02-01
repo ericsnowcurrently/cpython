@@ -68,7 +68,16 @@ _Py_ThreadCanHandlePendingCalls(void)
 static inline PyThreadState*
 _PyRuntimeState_GetThreadState(_PyRuntimeState *runtime)
 {
-    return (PyThreadState*)_Py_atomic_load_relaxed(&runtime->tstate_current);
+    if (!PyThread_tss_is_created(&_PyRuntime.autoTSSkey)) {
+        return NULL;
+    }
+    PyThreadState *auto_tstate = (PyThreadState *)PyThread_tss_get(
+                                        &_PyRuntime.autoTSSkey);
+    if (auto_tstate == NULL) {
+        return NULL;
+    }
+    return (PyThreadState*)_Py_atomic_load_relaxed(
+                &auto_tstate->interp->runtime->tstate_current);
 }
 
 /* Get the current Python thread state.
