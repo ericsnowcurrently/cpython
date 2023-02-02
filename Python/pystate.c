@@ -1720,10 +1720,9 @@ _PyThreadState_Swap(_PyRuntimeState *runtime, PyThreadState *newts)
 #endif
     PyThreadState *oldts = current_fast_get(runtime);
 
-    current_fast_clear(runtime);
-
     if (oldts != NULL) {
         // XXX assert(tstate_is_alive(oldts) && tstate_is_bound(oldts));
+        current_fast_clear(runtime);
         tstate_deactivate(oldts);
     }
 
