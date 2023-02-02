@@ -77,7 +77,7 @@ _PyRuntimeState_GetThreadState(_PyRuntimeState *runtime)
         return NULL;
     }
     return (PyThreadState*)_Py_atomic_load_relaxed(
-                &auto_tstate->interp->runtime->tstate_current);
+                &auto_tstate->interp->tstate_current);
 }
 
 /* Get the current Python thread state.

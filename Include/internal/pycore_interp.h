@@ -89,6 +89,10 @@ struct _is {
     int _initialized;
     int finalizing;
 
+    /* Assuming the current thread holds the GIL, this is the
+       PyThreadState for the current thread. */
+    _Py_atomic_address tstate_current;
+
     struct _ceval_state ceval;
     struct _gc_runtime_state gc;
 

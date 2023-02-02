@@ -293,11 +293,11 @@ current_slow_get(_PyRuntimeState *runtime)
         return NULL;
     }
     return (PyThreadState*)_Py_atomic_load_relaxed(
-                    &auto_tstate->interp->runtime->tstate_current);
+                    &auto_tstate->interp->tstate_current);
 }
 
 #define GET_CURRENT_PTR(interp) \
-    &(interp)->runtime->tstate_current
+    &(interp)->tstate_current
 
 static inline PyThreadState *
 current_fast_get(PyInterpreterState *interp)
