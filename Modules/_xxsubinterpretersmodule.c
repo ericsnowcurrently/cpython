@@ -2231,23 +2231,34 @@ _run_script_in_interpreter(PyObject *mod, PyInterpreterState *interp,
     }
 
     // Switch to interpreter.
+    int result = -1;
     PyThreadState *save_tstate = NULL;
+    PyThreadState *temp_tstate = NULL;
     if (interp != PyInterpreterState_Get()) {
         PyThreadState *tstate = _PyInterpreterState_GetCurrentTstate(interp);
         if (tstate == NULL) {
-            // XXX Using the "head" thread isn't strictly correct.
-            tstate = PyInterpreterState_ThreadHead(interp);
+            tstate = PyThreadState_New(interp);
+            if (tstate == NULL) {
+                goto finally;
+            }
+            // We will clean this tstate up when we are done.
+            temp_tstate = tstate;
         }
         save_tstate = PyThreadState_Swap(tstate);
     }
 
     // Run the script.
     _sharedexception *exc = NULL;
-    int result = _run_script(interp, codestr, shared, needs_import, &exc);
+    result = _run_script(interp, codestr, shared, needs_import, &exc);
 
     // Switch back.
     if (save_tstate != NULL) {
         PyThreadState_Swap(save_tstate);
+    }
+
+    if (temp_tstate != NULL) {
+        PyThreadState_Clear(temp_tstate);
+        PyThreadState_Delete(temp_tstate);
     }
 
     // Propagate any exception out to the caller.
@@ -2261,6 +2272,7 @@ _run_script_in_interpreter(PyObject *mod, PyInterpreterState *interp,
         PyErr_NoMemory();
     }
 
+finally:
     if (shared != NULL) {
         _sharedns_free(shared);
     }
