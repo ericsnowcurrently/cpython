@@ -130,7 +130,7 @@ struct _ts {
         unsigned int bound:1;
         /* Has been unbound from its OS thread. */
         unsigned int unbound:1;
-        /* Has been bound aa current for the GILState API. */
+        /* Has been bound as current for the GILState API. */
         unsigned int bound_gilstate:1;
         /* Currently in use (maybe holds the GIL). */
         unsigned int active:1;
@@ -320,6 +320,7 @@ PyAPI_FUNC(PyInterpreterState *) PyInterpreterState_Next(PyInterpreterState *);
 PyAPI_FUNC(PyThreadState *) PyInterpreterState_ThreadHead(PyInterpreterState *);
 PyAPI_FUNC(PyThreadState *) PyThreadState_Next(PyThreadState *);
 PyAPI_FUNC(void) PyThreadState_DeleteCurrent(void);
+PyAPI_FUNC(int) _PyThreadState_IsRunning(PyThreadState *);
 
 /* Get the current thread's thread state for an interpreter. */
 PyAPI_FUNC(PyThreadState *) _PyInterpreterState_GetCurrentTstate(

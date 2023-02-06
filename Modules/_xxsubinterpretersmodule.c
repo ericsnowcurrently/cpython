@@ -2122,11 +2122,7 @@ _is_running(PyInterpreterState *interp)
     }
 
     assert(!PyErr_Occurred());
-    _PyInterpreterFrame *frame = tstate->cframe->current_frame;
-    if (frame == NULL) {
-        return 0;
-    }
-    return 1;
+    return _PyThreadState_IsRunning(tstate);
 }
 
 static int

@@ -1703,6 +1703,14 @@ PyThreadState_SetAsyncExc(unsigned long id, PyObject *exc)
 }
 
 
+int
+_PyThreadState_IsRunning(PyThreadState *tstate)
+{
+    assert(tstate != NULL);
+    return tstate->cframe->current_frame != NULL;
+}
+
+
 //---------------------------------
 // API for the current thread state
 //---------------------------------
