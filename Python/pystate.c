@@ -1012,6 +1012,22 @@ _PyInterpreterState_DeleteExceptMain(_PyRuntimeState *runtime)
 #endif
 
 
+void
+_PyInterpreterState_ClearInactiveTstates(PyInterpreterState *interp)
+{
+    PyThreadState *tcur = PyInterpreterState_ThreadHead(interp);
+    while (tcur != NULL) {
+        PyThreadState *tstate = tcur;
+        tcur = tcur->next;
+        if (!_PyThreadState_IsRunning(tstate) &&
+                tstate != &interp->_initial_thread) {
+            PyThreadState_Clear(tstate);
+            PyThreadState_Delete(tstate);
+        }
+    }
+}
+
+
 // Used by finalize_modules()
 void
 _PyInterpreterState_ClearModules(PyInterpreterState *interp)

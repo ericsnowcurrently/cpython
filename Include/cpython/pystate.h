@@ -321,6 +321,7 @@ PyAPI_FUNC(PyThreadState *) PyInterpreterState_ThreadHead(PyInterpreterState *);
 PyAPI_FUNC(PyThreadState *) PyThreadState_Next(PyThreadState *);
 PyAPI_FUNC(void) PyThreadState_DeleteCurrent(void);
 PyAPI_FUNC(int) _PyThreadState_IsRunning(PyThreadState *);
+PyAPI_FUNC(void) _PyInterpreterState_ClearInactiveTstates(PyInterpreterState *);
 
 /* Get the current thread's thread state for an interpreter. */
 PyAPI_FUNC(PyThreadState *) _PyInterpreterState_GetCurrentTstate(

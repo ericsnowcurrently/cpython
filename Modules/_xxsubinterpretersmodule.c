@@ -2389,6 +2389,8 @@ interp_destroy(PyObject *self, PyObject *args, PyObject *kwds)
         return NULL;
     }
 
+    _PyInterpreterState_ClearInactiveTstates(interp);
+
     // Ensure the interpreter isn't running.
     /* XXX We *could* support destroying a running interpreter but
        aren't going to worry about it for now. */
@@ -2398,7 +2400,6 @@ interp_destroy(PyObject *self, PyObject *args, PyObject *kwds)
 
     // Destroy the interpreter.
     PyThreadState *tstate = PyInterpreterState_ThreadHead(interp);
-    // XXX Possible GILState issues?
     PyThreadState *save_tstate = PyThreadState_Swap(tstate);
     Py_EndInterpreter(tstate);
     PyThreadState_Swap(save_tstate);
