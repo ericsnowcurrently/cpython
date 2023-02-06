@@ -2229,7 +2229,6 @@ _run_script_in_interpreter(PyObject *mod, PyInterpreterState *interp,
     // Switch to interpreter.
     int result = -1;
     PyThreadState *save_tstate = NULL;
-    PyThreadState *temp_tstate = NULL;
     if (interp != PyInterpreterState_Get()) {
         PyThreadState *tstate = _PyInterpreterState_GetCurrentTstate(interp);
         if (tstate == NULL) {
@@ -2237,8 +2236,7 @@ _run_script_in_interpreter(PyObject *mod, PyInterpreterState *interp,
             if (tstate == NULL) {
                 goto finally;
             }
-            // We will clean this tstate up when we are done.
-            temp_tstate = tstate;
+            // We will clean this tstate up when the interpreter is destroyed.
         }
         save_tstate = PyThreadState_Swap(tstate);
     }
@@ -2250,11 +2248,6 @@ _run_script_in_interpreter(PyObject *mod, PyInterpreterState *interp,
     // Switch back.
     if (save_tstate != NULL) {
         PyThreadState_Swap(save_tstate);
-    }
-
-    if (temp_tstate != NULL) {
-        PyThreadState_Clear(temp_tstate);
-        PyThreadState_Delete(temp_tstate);
     }
 
     // Propagate any exception out to the caller.
