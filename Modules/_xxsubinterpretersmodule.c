@@ -2233,9 +2233,11 @@ _run_script_in_interpreter(PyObject *mod, PyInterpreterState *interp,
     // Switch to interpreter.
     PyThreadState *save_tstate = NULL;
     if (interp != PyInterpreterState_Get()) {
-        // XXX Using the "head" thread isn't strictly correct.
-        PyThreadState *tstate = PyInterpreterState_ThreadHead(interp);
-        // XXX Possible GILState issues?
+        PyThreadState *tstate = _PyInterpreterState_GetCurrentTstate(interp);
+        if (tstate == NULL) {
+            // XXX Using the "head" thread isn't strictly correct.
+            tstate = PyInterpreterState_ThreadHead(interp);
+        }
         save_tstate = PyThreadState_Swap(tstate);
     }
 

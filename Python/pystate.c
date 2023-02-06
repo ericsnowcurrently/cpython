@@ -1078,6 +1078,12 @@ PyInterpreterState_GetDict(PyInterpreterState *interp)
     return interp->dict;
 }
 
+PyThreadState *
+_PyInterpreterState_GetCurrentTstate(PyInterpreterState *interp)
+{
+    // XXX Using the "head" thread isn't strictly correct.
+    return PyInterpreterState_ThreadHead(interp);
+}
 
 //-----------------------------
 // look up an interpreter state

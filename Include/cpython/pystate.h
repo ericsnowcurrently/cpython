@@ -321,6 +321,10 @@ PyAPI_FUNC(PyThreadState *) PyInterpreterState_ThreadHead(PyInterpreterState *);
 PyAPI_FUNC(PyThreadState *) PyThreadState_Next(PyThreadState *);
 PyAPI_FUNC(void) PyThreadState_DeleteCurrent(void);
 
+/* Get the current thread's thread state for an interpreter. */
+PyAPI_FUNC(PyThreadState *) _PyInterpreterState_GetCurrentTstate(
+    PyInterpreterState *interp);
+
 /* Frame evaluation API */
 
 typedef PyObject* (*_PyFrameEvalFunction)(PyThreadState *tstate, struct _PyInterpreterFrame *, int);
