@@ -70,6 +70,9 @@ struct _is {
            or the size specified by the THREAD_STACK_SIZE macro. */
         /* Used in Python/thread.c. */
         size_t stacksize;
+
+        /* Used for the thread state bound to the current thread. */
+        Py_tss_t autoTSSkey;
     } threads;
 
     /* Reference to the _PyRuntime global variable. This field exists

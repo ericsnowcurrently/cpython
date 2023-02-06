@@ -161,8 +161,25 @@ tstate_tss_reinit(Py_tss_t *key)
 /*
    The stored thread state is set by bind_tstate() (AKA PyThreadState_Bind().
 
-   The GIL does no need to be held for these.
+   The GIL does not need to be held for these.
   */
+
+#if defined(Py_DEBUG)
+#define interp_tss_initialized(interp) \
+    tstate_tss_initialized(&(interp)->threads.autoTSSkey)
+#define interp_tss_init(interp) \
+    tstate_tss_init(&(interp)->threads.autoTSSkey)
+#define interp_tss_fini(interp) \
+    tstate_tss_fini(&(interp)->threads.autoTSSkey)
+#define interp_tss_get(interp) \
+    tstate_tss_get(&(interp)->threads.autoTSSkey)
+#define interp_tss_set(interp, tstate) \
+    tstate_tss_set(&(interp)->threads.autoTSSkey, tstate)
+#define interp_tss_clear(interp) \
+    tstate_tss_clear(&(interp)->threads.autoTSSkey)
+#define interp_tss_reinit(interp) \
+    tstate_tss_reinit(&(interp)->threads.autoTSSkey)
+#endif
 
 #define gilstate_tss_initialized(runtime) \
     tstate_tss_initialized(&(runtime)->autoTSSkey)
@@ -220,8 +237,18 @@ bind_tstate(PyThreadState *tstate)
     assert(tstate->thread_id == 0);
     assert(tstate->native_thread_id == 0);
 
-    // Currently we don't necessarily store the thread state
-    // in thread-local storage (e.g. per-interpreter).
+    /* It should not be possible for more than one thread state
+       to be used for a thread. Check this the best we can in debug
+       builds
+     */
+#if defined(Py_DEBUG)
+    if (interp_tss_get(tstate->interp) != NULL) {
+        Py_FatalError("interp current tstate (TSS) already set");
+    }
+    if (interp_tss_set(tstate->interp, tstate) != 0) {
+        Py_FatalError("failed to set interp current tstate (TSS)");
+    }
+#endif
 
     tstate->thread_id = PyThread_get_thread_ident();
 #ifdef PY_HAVE_THREAD_NATIVE_ID
@@ -241,6 +268,16 @@ unbind_tstate(PyThreadState *tstate)
     assert(tstate->thread_id > 0);
 #ifdef PY_HAVE_THREAD_NATIVE_ID
     assert(tstate->native_thread_id > 0);
+#endif
+
+#if defined(Py_DEBUG)
+    if (interp_tss_get(tstate->interp) != tstate) {
+        assert(interp_tss_get(tstate->interp) != NULL);
+        Py_FatalError("interp current tstate (TSS) mismatch");
+    }
+    if (interp_tss_clear(tstate->interp) != 0) {
+        Py_FatalError("failed to clear interp current tstate (TSS)");
+    }
 #endif
 
     // We leave thread_id and native_thread_id alone
@@ -284,6 +321,14 @@ bind_gilstate_tstate(PyThreadState *tstate)
     _PyRuntimeState *runtime = tstate->interp->runtime;
     PyThreadState *tcur = gilstate_tss_get(runtime);
     assert(tstate != tcur);
+
+#if defined(Py_DEBUG)
+    PyThreadState *interp_current = interp_tss_get(tstate->interp);
+    if (tstate != interp_current) {
+        assert(interp_current != NULL);
+        Py_FatalError("interp current tstate (TSS) mismatch");
+    }
+#endif
 
     if (tcur != NULL) {
         tcur->_status.bound_gilstate = 0;
@@ -540,7 +585,17 @@ _PyRuntimeState_ReInitThreads(_PyRuntimeState *runtime)
 
     }
 
-    PyStatus status = gilstate_tss_reinit(runtime);
+    PyStatus status;
+#if defined(Py_DEBUG)
+    PyInterpreterState *interp = runtime->interpreters.main;
+    assert(interp != NULL);
+    status = interp_tss_reinit(interp);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+#endif
+
+    status = gilstate_tss_reinit(runtime);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
@@ -642,6 +697,12 @@ init_interpreter(PyInterpreterState *interp,
     _PyGC_InitState(&interp->gc);
     PyConfig_InitPythonConfig(&interp->config);
     _PyType_InitCache(interp);
+
+#if defined(Py_DEBUG)
+    if (interp_tss_init(interp) != 0) {
+        Py_FatalError("could not init TSS key");
+    }
+#endif
 
     interp->_initialized = 1;
 }
@@ -866,6 +927,12 @@ PyInterpreterState_Delete(PyInterpreterState *interp)
     zapthreads(interp);
 
     _PyEval_FiniState(&interp->ceval);
+
+#if defined(Py_DEBUG)
+    if (interp_tss_initialized(interp)) {
+        interp_tss_fini(interp);
+    }
+#endif
 
     HEAD_LOCK(runtime);
     PyInterpreterState **p;

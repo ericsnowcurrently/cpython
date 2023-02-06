@@ -112,6 +112,11 @@ extern "C" {
 
 #define _PyInterpreterState_INIT \
     { \
+        .threads = { \
+            /* A TSS key must be initialized with Py_tss_NEEDS_INIT \
+               in accordance with the specification. */ \
+            .autoTSSkey = Py_tss_NEEDS_INIT, \
+        }, \
         .id_refcount = -1, \
         DLOPENFLAGS_INIT \
         .ceval = { \
