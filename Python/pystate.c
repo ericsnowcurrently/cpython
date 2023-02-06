@@ -1082,7 +1082,15 @@ PyThreadState *
 _PyInterpreterState_GetCurrentTstate(PyInterpreterState *interp)
 {
     // XXX Using the "head" thread isn't strictly correct.
-    return PyInterpreterState_ThreadHead(interp);
+    unsigned long tid = PyThread_get_thread_ident();
+    PyThreadState *tcur = PyInterpreterState_ThreadHead(interp);
+    while (tcur != NULL) {
+        if (tcur->thread_id == tid) {
+            return tcur;
+        }
+        tcur = tcur->next;
+    }
+    return NULL;
 }
 
 //-----------------------------
