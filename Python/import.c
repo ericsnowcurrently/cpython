@@ -2842,6 +2842,137 @@ PyImport_AppendInittab(const char *name, PyObject* (*initfunc)(void))
 }
 
 
+/* module state */
+
+// Used by finalize_modules()
+void
+_PyState_ClearModules(PyInterpreterState *interp)
+{
+    if (!MODULES_BY_INDEX(interp)) {
+        return;
+    }
+
+    Py_ssize_t i;
+    for (i = 0; i < PyList_GET_SIZE(MODULES_BY_INDEX(interp)); i++) {
+        PyObject *m = PyList_GET_ITEM(MODULES_BY_INDEX(interp), i);
+        if (PyModule_Check(m)) {
+            /* cleanup the saved copy of module dicts */
+            PyModuleDef *md = PyModule_GetDef(m);
+            if (md) {
+                Py_CLEAR(md->m_base.m_copy);
+            }
+        }
+    }
+
+    /* Setting modules_by_index to NULL could be dangerous, so we
+       clear the list instead. */
+    if (PyList_SetSlice(MODULES_BY_INDEX(interp),
+                        0, PyList_GET_SIZE(MODULES_BY_INDEX(interp)),
+                        NULL)) {
+        PyErr_WriteUnraisable(MODULES_BY_INDEX(interp));
+    }
+}
+
+PyObject*
+PyState_FindModule(PyModuleDef* module)
+{
+    Py_ssize_t index = module->m_base.m_index;
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    PyObject *res;
+    if (module->m_slots) {
+        return NULL;
+    }
+    if (index == 0)
+        return NULL;
+    if (MODULES_BY_INDEX(interp) == NULL)
+        return NULL;
+    if (index >= PyList_GET_SIZE(MODULES_BY_INDEX(interp)))
+        return NULL;
+    res = PyList_GET_ITEM(MODULES_BY_INDEX(interp), index);
+    return res==Py_None ? NULL : res;
+}
+
+int
+_PyState_AddModule(PyThreadState *tstate, PyObject* module, PyModuleDef* def)
+{
+    if (!def) {
+        assert(_PyErr_Occurred(tstate));
+        return -1;
+    }
+    if (def->m_slots) {
+        _PyErr_SetString(tstate,
+                         PyExc_SystemError,
+                         "PyState_AddModule called on module with slots");
+        return -1;
+    }
+
+    PyInterpreterState *interp = tstate->interp;
+    if (!MODULES_BY_INDEX(interp)) {
+        MODULES_BY_INDEX(interp) = PyList_New(0);
+        if (!MODULES_BY_INDEX(interp)) {
+            return -1;
+        }
+    }
+
+    while (PyList_GET_SIZE(MODULES_BY_INDEX(interp)) <= def->m_base.m_index) {
+        if (PyList_Append(MODULES_BY_INDEX(interp), Py_None) < 0) {
+            return -1;
+        }
+    }
+
+    return PyList_SetItem(MODULES_BY_INDEX(interp),
+                          def->m_base.m_index, Py_NewRef(module));
+}
+
+int
+PyState_AddModule(PyObject* module, PyModuleDef* def)
+{
+    if (!def) {
+        Py_FatalError("module definition is NULL");
+        return -1;
+    }
+
+    PyThreadState *tstate = _PyThreadState_GET();
+    PyInterpreterState *interp = tstate->interp;
+    Py_ssize_t index = def->m_base.m_index;
+    if (MODULES_BY_INDEX(interp) &&
+        index < PyList_GET_SIZE(MODULES_BY_INDEX(interp)) &&
+        module == PyList_GET_ITEM(MODULES_BY_INDEX(interp), index))
+    {
+        _Py_FatalErrorFormat(__func__, "module %p already added", module);
+        return -1;
+    }
+    return _PyState_AddModule(tstate, module, def);
+}
+
+int
+PyState_RemoveModule(PyModuleDef* def)
+{
+    PyThreadState *tstate = _PyThreadState_GET();
+    PyInterpreterState *interp = tstate->interp;
+
+    if (def->m_slots) {
+        _PyErr_SetString(tstate,
+                         PyExc_SystemError,
+                         "PyState_RemoveModule called on module with slots");
+        return -1;
+    }
+
+    Py_ssize_t index = def->m_base.m_index;
+    if (index == 0) {
+        Py_FatalError("invalid module index");
+    }
+    if (MODULES_BY_INDEX(interp) == NULL) {
+        Py_FatalError("Interpreters module-list not accessible.");
+    }
+    if (index > PyList_GET_SIZE(MODULES_BY_INDEX(interp))) {
+        Py_FatalError("Module index out of bounds.");
+    }
+
+    return PyList_SetItem(MODULES_BY_INDEX(interp), index, Py_NewRef(Py_None));
+}
+
+
 /* other API */
 
 PyObject *
