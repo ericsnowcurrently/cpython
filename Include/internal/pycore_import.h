@@ -57,6 +57,12 @@ extern Py_ssize_t _PyImport_GetNextModuleIndex(void);
 extern const char * _PyImport_SwapPackageContext(const char *newcontext);
 extern const char * _PyImport_ResolvePackageContext(const char *basename);
 
+#ifdef HAVE_DLOPEN
+extern int _PyImport_GetDLOpenFlags(PyInterpreterState *interp);
+extern void _PyImport_SetDLOpenFlags(
+        PyInterpreterState *interp, int dlopenflags);
+#endif
+
 
 #ifdef __cplusplus
 }

@@ -70,6 +70,19 @@ _PyImport_GetNextModuleIndex(void)
     return LAST_MODULE_INDEX;
 }
 
+#ifdef HAVE_DLOPEN
+int
+_PyImport_GetDLOpenFlags(PyInterpreterState *interp)
+{
+    return DLOPEN_FLAGS(interp);
+}
+
+void
+_PyImport_SetDLOpenFlags(PyInterpreterState *interp, int dlopenflags)
+{
+    DLOPEN_FLAGS(interp) = dlopenflags;
+}
+#endif
 
 /* Initialize things */
 

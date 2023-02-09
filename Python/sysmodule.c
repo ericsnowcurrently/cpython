@@ -1650,8 +1650,7 @@ static PyObject *
 sys_setdlopenflags_impl(PyObject *module, int new_val)
 /*[clinic end generated code: output=ec918b7fe0a37281 input=4c838211e857a77f]*/
 {
-    PyInterpreterState *interp = _PyInterpreterState_GET();
-    interp->dlopenflags = new_val;
+    _PyImport_SetDLOpenFlags(_PyInterpreterState_GET(), new_val);
     Py_RETURN_NONE;
 }
 
@@ -1668,8 +1667,8 @@ static PyObject *
 sys_getdlopenflags_impl(PyObject *module)
 /*[clinic end generated code: output=e92cd1bc5005da6e input=dc4ea0899c53b4b6]*/
 {
-    PyInterpreterState *interp = _PyInterpreterState_GET();
-    return PyLong_FromLong(interp->dlopenflags);
+    return PyLong_FromLong(
+        _PyImport_GetDLOpenFlags(_PyInterpreterState_GET()));
 }
 
 #endif  /* HAVE_DLOPEN */
