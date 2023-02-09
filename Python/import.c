@@ -27,16 +27,6 @@ extern "C" {
 /* Forward references */
 static PyObject *import_add_module(PyThreadState *tstate, PyObject *name);
 
-/* This table is defined in config.c: */
-extern struct _inittab _PyImport_Inittab[];
-
-// This is not used after Py_Initialize() is called.
-// (See _PyRuntimeState.imports.inittab.)
-struct _inittab *PyImport_Inittab = _PyImport_Inittab;
-// When we dynamically allocate a larger table for PyImport_ExtendInittab(),
-// we track the pointer here so we can deallocate it during finalization.
-static struct _inittab *inittab_copy = NULL;
-
 /*[clinic input]
 module _imp
 [clinic start generated code]*/
@@ -46,6 +36,16 @@ module _imp
 
 
 /* import state */
+
+/* This table is defined in config.c: */
+extern struct _inittab _PyImport_Inittab[];
+
+// This is not used after Py_Initialize() is called.
+// (See _PyRuntimeState.imports.inittab.)
+struct _inittab *PyImport_Inittab = _PyImport_Inittab;
+// When we dynamically allocate a larger table for PyImport_ExtendInittab(),
+// we track the pointer here so we can deallocate it during finalization.
+static struct _inittab *inittab_copy = NULL;
 
 #define INITTAB _PyRuntime.imports.inittab
 #define LAST_MODULE_INDEX _PyRuntime.imports.last_module_index
