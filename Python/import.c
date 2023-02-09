@@ -63,6 +63,66 @@ _PyImport_GetNextModuleIndex(void)
 
 /* Initialize things */
 
+static int builtin_modules_table_init(void);
+
+PyStatus
+_PyImport_Init(void)
+{
+    if (INITTAB != NULL) {
+        return _PyStatus_ERR("global import state already initialized");
+    }
+    PyStatus status = _PyStatus_OK();
+
+    /* Force default raw memory allocator to get a known allocator to be able
+       to release the memory in _PyImport_Fini() */
+    PyMemAllocatorEx old_alloc;
+    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+
+    if (builtin_modules_table_init() < 0) {
+        status = PyStatus_NoMemory();
+        goto done;
+    }
+
+done:
+    PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+    return status;
+}
+
+static inline void _extensions_cache_clear(void);
+static void import_lock_fini(void);
+static void builtin_modules_table_fini(void);
+
+void
+_PyImport_Fini(void)
+{
+    _extensions_cache_clear();
+
+    import_lock_fini();
+
+    /* Use the same memory allocator as _PyImport_Init(). */
+    PyMemAllocatorEx old_alloc;
+    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+
+    /* Free memory allocated by _PyImport_Init() */
+    builtin_modules_table_fini();
+
+    PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+}
+
+static void builtin_modules_table_fini_api(void);
+
+void
+_PyImport_Fini2(void)
+{
+    /* Use the same memory allocator than PyImport_ExtendInittab(). */
+    PyMemAllocatorEx old_alloc;
+    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+
+    builtin_modules_table_fini_api();
+
+    PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+}
+
 PyStatus
 _PyImportZip_Init(PyThreadState *tstate)
 {
@@ -107,6 +167,9 @@ _PyImportZip_Init(PyThreadState *tstate)
     return _PyStatus_ERR("initializing zipimport failed");
 }
 
+
+/* the import lock */
+
 /* Locking primitives to prevent parallel imports of the same module
    in different threads to return with a partially loaded module.
    These calls are serialized by the global interpreter lock. */
@@ -114,6 +177,15 @@ _PyImportZip_Init(PyThreadState *tstate)
 #define import_lock IMPORT_LOCK.mutex
 #define import_lock_thread IMPORT_LOCK.thread
 #define import_lock_level IMPORT_LOCK.level
+
+static void
+import_lock_fini(void)
+{
+    if (import_lock != NULL) {
+        PyThread_free_lock(import_lock);
+        import_lock = NULL;
+    }
+}
 
 void
 _PyImport_AcquireLock(void)
@@ -239,67 +311,6 @@ _imp_release_lock_impl(PyObject *module)
     Py_RETURN_NONE;
 }
 
-static int builtin_modules_table_init(void);
-
-PyStatus
-_PyImport_Init(void)
-{
-    if (INITTAB != NULL) {
-        return _PyStatus_ERR("global import state already initialized");
-    }
-    PyStatus status = _PyStatus_OK();
-
-    /* Force default raw memory allocator to get a known allocator to be able
-       to release the memory in _PyImport_Fini() */
-    PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
-
-    if (builtin_modules_table_init() < 0) {
-        status = PyStatus_NoMemory();
-        goto done;
-    }
-
-done:
-    PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
-    return status;
-}
-
-static inline void _extensions_cache_clear(void);
-static void builtin_modules_table_fini(void);
-
-void
-_PyImport_Fini(void)
-{
-    _extensions_cache_clear();
-
-    if (import_lock != NULL) {
-        PyThread_free_lock(import_lock);
-        import_lock = NULL;
-    }
-
-    /* Use the same memory allocator as _PyImport_Init(). */
-    PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
-
-    /* Free memory allocated by _PyImport_Init() */
-    builtin_modules_table_fini();
-
-    PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
-}
-
-static void builtin_modules_table_fini_api(void);
-
-void
-_PyImport_Fini2(void)
-{
-    /* Use the same memory allocator than PyImport_ExtendInittab(). */
-    PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
-
-    builtin_modules_table_fini_api();
-
-    PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
-}
 
 /* Helper for sys */
 
