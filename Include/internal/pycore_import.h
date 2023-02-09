@@ -52,6 +52,12 @@ PyAPI_DATA(const struct _frozen *) _PyImport_FrozenStdlib;
 PyAPI_DATA(const struct _frozen *) _PyImport_FrozenTest;
 extern const struct _module_alias * _PyImport_FrozenAliases;
 
+extern PyObject * _PyImport_GetBuiltinModuleNames(void);
+extern Py_ssize_t _PyImport_GetNextModuleIndex(void);
+extern const char * _PyImport_SwapPackageContext(const char *newcontext);
+extern const char * _PyImport_ResolvePackageContext(const char *basename);
+
+
 #ifdef __cplusplus
 }
 #endif

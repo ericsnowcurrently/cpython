@@ -44,6 +44,23 @@ module _imp
 
 #include "clinic/import.c.h"
 
+/* import state */
+
+#define INITTAB _PyRuntime.imports.inittab
+#define LAST_MODULE_INDEX _PyRuntime.imports.last_module_index
+#define EXTENSIONS _PyRuntime.imports.extensions
+#define IMPORT_LOCK _PyRuntime.imports.lock
+#define FIND_AND_LOAD _PyRuntime.imports.find_and_load
+#define PKG_CONTEXT _PyRuntime.imports.pkgcontext
+
+Py_ssize_t
+_PyImport_GetNextModuleIndex(void)
+{
+    LAST_MODULE_INDEX++;
+    return LAST_MODULE_INDEX;
+}
+
+
 /* Initialize things */
 
 PyStatus
@@ -94,9 +111,9 @@ _PyImportZip_Init(PyThreadState *tstate)
    in different threads to return with a partially loaded module.
    These calls are serialized by the global interpreter lock. */
 
-#define import_lock _PyRuntime.imports.lock.mutex
-#define import_lock_thread _PyRuntime.imports.lock.thread
-#define import_lock_level _PyRuntime.imports.lock.level
+#define import_lock IMPORT_LOCK.mutex
+#define import_lock_thread IMPORT_LOCK.thread
+#define import_lock_level IMPORT_LOCK.level
 
 void
 _PyImport_AcquireLock(void)
@@ -222,32 +239,25 @@ _imp_release_lock_impl(PyObject *module)
     Py_RETURN_NONE;
 }
 
+static int builtin_modules_table_init(void);
+
 PyStatus
 _PyImport_Init(void)
 {
-    if (_PyRuntime.imports.inittab != NULL) {
+    if (INITTAB != NULL) {
         return _PyStatus_ERR("global import state already initialized");
     }
     PyStatus status = _PyStatus_OK();
-
-    size_t size;
-    for (size = 0; PyImport_Inittab[size].name != NULL; size++)
-        ;
-    size++;
 
     /* Force default raw memory allocator to get a known allocator to be able
        to release the memory in _PyImport_Fini() */
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
 
-    /* Make the copy. */
-    struct _inittab *copied = PyMem_RawMalloc(size * sizeof(struct _inittab));
-    if (copied == NULL) {
+    if (builtin_modules_table_init() < 0) {
         status = PyStatus_NoMemory();
         goto done;
     }
-    memcpy(copied, PyImport_Inittab, size * sizeof(struct _inittab));
-    _PyRuntime.imports.inittab = copied;
 
 done:
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
@@ -255,11 +265,13 @@ done:
 }
 
 static inline void _extensions_cache_clear(void);
+static void builtin_modules_table_fini(void);
 
 void
 _PyImport_Fini(void)
 {
     _extensions_cache_clear();
+
     if (import_lock != NULL) {
         PyThread_free_lock(import_lock);
         import_lock = NULL;
@@ -270,12 +282,12 @@ _PyImport_Fini(void)
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
 
     /* Free memory allocated by _PyImport_Init() */
-    struct _inittab *inittab = _PyRuntime.imports.inittab;
-    _PyRuntime.imports.inittab = NULL;
-    PyMem_RawFree(inittab);
+    builtin_modules_table_fini();
 
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
 }
+
+static void builtin_modules_table_fini_api(void);
 
 void
 _PyImport_Fini2(void)
@@ -284,12 +296,7 @@ _PyImport_Fini2(void)
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
 
-    // Reset PyImport_Inittab
-    PyImport_Inittab = _PyImport_Inittab;
-
-    /* Free memory allocated by PyImport_ExtendInittab() */
-    PyMem_RawFree(inittab_copy);
-    inittab_copy = NULL;
+    builtin_modules_table_fini_api();
 
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
 }
@@ -447,7 +454,7 @@ PyImport_GetMagicTag(void)
 static PyModuleDef *
 _extensions_cache_get(PyObject *filename, PyObject *name)
 {
-    PyObject *extensions = _PyRuntime.imports.extensions;
+    PyObject *extensions = EXTENSIONS;
     if (extensions == NULL) {
         return NULL;
     }
@@ -463,13 +470,13 @@ _extensions_cache_get(PyObject *filename, PyObject *name)
 static int
 _extensions_cache_set(PyObject *filename, PyObject *name, PyModuleDef *def)
 {
-    PyObject *extensions = _PyRuntime.imports.extensions;
+    PyObject *extensions = EXTENSIONS;
     if (extensions == NULL) {
         extensions = PyDict_New();
         if (extensions == NULL) {
             return -1;
         }
-        _PyRuntime.imports.extensions = extensions;
+        EXTENSIONS = extensions;
     }
     PyObject *key = PyTuple_Pack(2, filename, name);
     if (key == NULL) {
@@ -486,7 +493,38 @@ _extensions_cache_set(PyObject *filename, PyObject *name, PyModuleDef *def)
 static void
 _extensions_cache_clear(void)
 {
-    Py_CLEAR(_PyRuntime.imports.extensions);
+    Py_CLEAR(EXTENSIONS);
+}
+
+const char *
+_PyImport_SwapPackageContext(const char *newcontext)
+{
+    const char *oldcontext = PKG_CONTEXT;
+    PKG_CONTEXT = newcontext;
+    return oldcontext;
+}
+
+const char *
+_PyImport_ResolvePackageContext(const char *basename)
+{
+    /* Make sure name is fully qualified.
+
+       This is a bit of a hack: when the shared library is loaded,
+       the module name is "package.module", but the module calls
+       PyModule_Create*() with just "module" for the name.  The shared
+       library loader squirrels away the true name of the module in
+       _Py_PackageContext, and PyModule_Create*() will substitute this
+       (if the name actually matches).
+    */
+    const char *name = basename;
+    if (PKG_CONTEXT != NULL) {
+        const char *p = strrchr(PKG_CONTEXT, '.');
+        if (p != NULL && strcmp(basename, p+1) == 0) {
+            name = PKG_CONTEXT;
+            PKG_CONTEXT = NULL;
+        }
+    }
+    return name;
 }
 
 int
@@ -935,7 +973,7 @@ static int
 is_builtin(PyObject *name)
 {
     int i;
-    struct _inittab *inittab = _PyRuntime.imports.inittab;
+    struct _inittab *inittab = INITTAB;
     for (i = 0; inittab[i].name != NULL; i++) {
         if (_PyUnicode_EqualToASCIIString(name, inittab[i].name)) {
             if (inittab[i].initfunc == NULL)
@@ -1031,7 +1069,7 @@ create_builtin(PyThreadState *tstate, PyObject *name, PyObject *spec)
     }
 
     PyObject *modules = tstate->interp->modules;
-    for (struct _inittab *p = _PyRuntime.imports.inittab; p->name != NULL; p++) {
+    for (struct _inittab *p = INITTAB; p->name != NULL; p++) {
         if (_PyUnicode_EqualToASCIIString(name, p->name)) {
             if (p->initfunc == NULL) {
                 /* Cannot re-init internal module ("sys" or "builtins") */
@@ -1759,8 +1797,8 @@ import_find_and_load(PyThreadState *tstate, PyObject *abs_name)
     PyObject *mod = NULL;
     PyInterpreterState *interp = tstate->interp;
     int import_time = _PyInterpreterState_GetConfig(interp)->import_time;
-#define import_level _PyRuntime.imports.find_and_load.import_level
-#define accumulated _PyRuntime.imports.find_and_load.accumulated
+#define import_level FIND_AND_LOAD.import_level
+#define accumulated FIND_AND_LOAD.accumulated
 
     _PyTime_t t1 = 0, accumulated_copy = accumulated;
 
@@ -1781,7 +1819,7 @@ import_find_and_load(PyThreadState *tstate, PyObject *abs_name)
      * _PyDict_GetItemIdWithError().
      */
     if (import_time) {
-#define header _PyRuntime.imports.find_and_load.header
+#define header FIND_AND_LOAD.header
         if (header) {
             fputs("import time: self [us] | cumulative | imported package\n",
                   stderr);
@@ -2629,6 +2667,72 @@ error:
 }
 
 
+/* the builtin modules table, AKA inittab */
+
+static int
+builtin_modules_table_init(void)
+{
+    assert(INITTAB == NULL);
+
+    size_t size;
+    for (size = 0; PyImport_Inittab[size].name != NULL; size++) {
+        ;
+    }
+    size++;
+
+    /* Make the copy. */
+    struct _inittab *copied = PyMem_RawMalloc(size * sizeof(struct _inittab));
+    if (copied == NULL) {
+        return -1;
+    }
+    memcpy(copied, PyImport_Inittab, size * sizeof(struct _inittab));
+
+    INITTAB = copied;
+    return 0;
+}
+
+static void
+builtin_modules_table_fini(void)
+{
+    struct _inittab *inittab = INITTAB;
+    INITTAB = NULL;
+    PyMem_RawFree(inittab);
+}
+
+static void
+builtin_modules_table_fini_api(void)
+{
+    // Reset PyImport_Inittab
+    PyImport_Inittab = _PyImport_Inittab;
+
+    /* Free memory allocated by PyImport_ExtendInittab() */
+    PyMem_RawFree(inittab_copy);
+    inittab_copy = NULL;
+}
+
+PyObject *
+_PyImport_GetBuiltinModuleNames(void)
+{
+    PyObject *list = PyList_New(0);
+    if (list == NULL) {
+        return NULL;
+    }
+    for (Py_ssize_t i = 0; INITTAB[i].name != NULL; i++) {
+        PyObject *name = PyUnicode_FromString(INITTAB[i].name);
+        if (name == NULL) {
+            Py_DECREF(list);
+            return NULL;
+        }
+        int res = PyList_Append(list, name);
+        Py_DECREF(name);
+        if (res < 0) {
+            Py_DECREF(list);
+            return NULL;
+        }
+    }
+    return list;
+}
+
 /* API for embedding applications that want to add their own entries
    to the table of built-in modules.  This should normally be called
    *before* Py_Initialize().  When the table resize fails, -1 is
@@ -2643,7 +2747,7 @@ PyImport_ExtendInittab(struct _inittab *newtab)
     size_t i, n;
     int res = 0;
 
-    if (_PyRuntime.imports.inittab != NULL) {
+    if (INITTAB != NULL) {
         Py_FatalError("PyImport_ExtendInittab() may be be called after Py_Initialize()");
     }
 
@@ -2691,7 +2795,7 @@ PyImport_AppendInittab(const char *name, PyObject* (*initfunc)(void))
 {
     struct _inittab newtab[2];
 
-    if (_PyRuntime.imports.inittab != NULL) {
+    if (INITTAB != NULL) {
         Py_FatalError("PyImport_AppendInittab() may be be called after Py_Initialize()");
     }
 
@@ -2703,6 +2807,8 @@ PyImport_AppendInittab(const char *name, PyObject* (*initfunc)(void))
     return PyImport_ExtendInittab(newtab);
 }
 
+
+/* other API */
 
 PyObject *
 _PyImport_GetModuleAttr(PyObject *modname, PyObject *attrname)
