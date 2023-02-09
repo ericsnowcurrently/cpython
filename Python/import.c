@@ -54,6 +54,7 @@ static struct _inittab *inittab_copy = NULL;
 #define FIND_AND_LOAD _PyRuntime.imports.find_and_load
 #define PKG_CONTEXT _PyRuntime.imports.pkgcontext
 
+// XXX Some of these fields are still leaking out of this file.
 #define MODULES(interp) (interp)->modules
 #define MODULES_BY_INDEX(interp) (interp)->modules_by_index
 #define IMPORTLIB(interp) (interp)->importlib
