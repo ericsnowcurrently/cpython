@@ -44,6 +44,7 @@ module _imp
 
 #include "clinic/import.c.h"
 
+
 /* import state */
 
 #define INITTAB _PyRuntime.imports.inittab
@@ -52,6 +53,15 @@ module _imp
 #define IMPORT_LOCK _PyRuntime.imports.lock
 #define FIND_AND_LOAD _PyRuntime.imports.find_and_load
 #define PKG_CONTEXT _PyRuntime.imports.pkgcontext
+
+#define MODULES(interp) (interp)->modules
+#define MODULES_BY_INDEX(interp) (interp)->modules_by_index
+#define IMPORTLIB(interp) (interp)->importlib
+#define OVERRIDE_FROZEN_MODULES(interp) (interp)->override_frozen_modules
+#ifdef HAVE_DLOPEN
+#  define DLOPEN_FLAGS(interp) (interp)->dlopenflags
+#endif
+#define IMPORT_FUNC(interp) (interp)->import_func
 
 Py_ssize_t
 _PyImport_GetNextModuleIndex(void)
@@ -318,10 +328,10 @@ PyObject *
 PyImport_GetModuleDict(void)
 {
     PyInterpreterState *interp = _PyInterpreterState_GET();
-    if (interp->modules == NULL) {
+    if (MODULES(interp) == NULL) {
         Py_FatalError("interpreter has no modules dictionary");
     }
-    return interp->modules;
+    return MODULES(interp);
 }
 
 /* In some corner cases it is important to be sure that the import
@@ -331,7 +341,7 @@ PyImport_GetModuleDict(void)
 int
 _PyImport_IsInitialized(PyInterpreterState *interp)
 {
-    if (interp->modules == NULL)
+    if (MODULES(interp) == NULL)
         return 0;
     return 1;
 }
@@ -350,7 +360,7 @@ int
 _PyImport_SetModule(PyObject *name, PyObject *m)
 {
     PyInterpreterState *interp = _PyInterpreterState_GET();
-    PyObject *modules = interp->modules;
+    PyObject *modules = MODULES(interp);
     return PyObject_SetItem(modules, name, m);
 }
 
@@ -358,14 +368,14 @@ int
 _PyImport_SetModuleString(const char *name, PyObject *m)
 {
     PyInterpreterState *interp = _PyInterpreterState_GET();
-    PyObject *modules = interp->modules;
+    PyObject *modules = MODULES(interp);
     return PyMapping_SetItemString(modules, name, m);
 }
 
 static PyObject *
 import_get_module(PyThreadState *tstate, PyObject *name)
 {
-    PyObject *modules = tstate->interp->modules;
+    PyObject *modules = MODULES(tstate->interp);
     if (modules == NULL) {
         _PyErr_SetString(tstate, PyExc_RuntimeError,
                          "unable to get sys.modules");
@@ -405,7 +415,7 @@ import_ensure_initialized(PyInterpreterState *interp, PyObject *mod, PyObject *n
     if (busy) {
         /* Wait until module is done importing. */
         PyObject *value = _PyObject_CallMethodOneArg(
-            interp->importlib, &_Py_ID(_lock_unlock_module), name);
+            IMPORTLIB(interp), &_Py_ID(_lock_unlock_module), name);
         if (value == NULL) {
             return -1;
         }
@@ -424,7 +434,7 @@ PyImport_GetMagicNumber(void)
     PyInterpreterState *interp = _PyInterpreterState_GET();
     PyObject *external, *pyc_magic;
 
-    external = PyObject_GetAttrString(interp->importlib, "_bootstrap_external");
+    external = PyObject_GetAttrString(IMPORTLIB(interp), "_bootstrap_external");
     if (external == NULL)
         return -1;
     pyc_magic = PyObject_GetAttrString(external, "_RAW_MAGIC_NUMBER");
@@ -613,7 +623,7 @@ import_find_extension(PyThreadState *tstate, PyObject *name,
     }
 
     PyObject *mod, *mdict;
-    PyObject *modules = tstate->interp->modules;
+    PyObject *modules = MODULES(tstate->interp);
 
     if (def->m_size == -1) {
         /* Module does not support repeated initialization */
@@ -665,7 +675,7 @@ import_find_extension(PyThreadState *tstate, PyObject *name,
 static PyObject *
 import_add_module(PyThreadState *tstate, PyObject *name)
 {
-    PyObject *modules = tstate->interp->modules;
+    PyObject *modules = MODULES(tstate->interp);
     if (modules == NULL) {
         _PyErr_SetString(tstate, PyExc_RuntimeError,
                          "no import module dictionary");
@@ -744,7 +754,7 @@ remove_module(PyThreadState *tstate, PyObject *name)
     PyObject *type, *value, *traceback;
     _PyErr_Fetch(tstate, &type, &value, &traceback);
 
-    PyObject *modules = tstate->interp->modules;
+    PyObject *modules = MODULES(tstate->interp);
     if (PyDict_CheckExact(modules)) {
         PyObject *mod = _PyDict_Pop(modules, name, Py_None);
         Py_XDECREF(mod);
@@ -815,7 +825,7 @@ PyImport_ExecCodeModuleWithPathnames(const char *name, PyObject *co,
             Py_FatalError("no current interpreter");
         }
 
-        external= PyObject_GetAttrString(interp->importlib,
+        external= PyObject_GetAttrString(IMPORTLIB(interp),
                                          "_bootstrap_external");
         if (external != NULL) {
             pathobj = _PyObject_CallMethodOneArg(
@@ -900,7 +910,7 @@ PyImport_ExecCodeModuleObject(PyObject *name, PyObject *co, PyObject *pathname,
     if (pathname == NULL) {
         pathname = ((PyCodeObject *)co)->co_filename;
     }
-    external = PyObject_GetAttrString(tstate->interp->importlib,
+    external = PyObject_GetAttrString(IMPORTLIB(tstate->interp),
                                       "_bootstrap_external");
     if (external == NULL) {
         Py_DECREF(d);
@@ -1079,7 +1089,7 @@ create_builtin(PyThreadState *tstate, PyObject *name, PyObject *spec)
         return mod;
     }
 
-    PyObject *modules = tstate->interp->modules;
+    PyObject *modules = MODULES(tstate->interp);
     for (struct _inittab *p = INITTAB; p->name != NULL; p++) {
         if (_PyUnicode_EqualToASCIIString(name, p->name)) {
             if (p->initfunc == NULL) {
@@ -1181,7 +1191,7 @@ static bool
 use_frozen(void)
 {
     PyInterpreterState *interp = _PyInterpreterState_GET();
-    int override = interp->override_frozen_modules;
+    int override = OVERRIDE_FROZEN_MODULES(interp);
     if (override > 0) {
         return true;
     }
@@ -1846,8 +1856,8 @@ import_find_and_load(PyThreadState *tstate, PyObject *abs_name)
     if (PyDTrace_IMPORT_FIND_LOAD_START_ENABLED())
         PyDTrace_IMPORT_FIND_LOAD_START(PyUnicode_AsUTF8(abs_name));
 
-    mod = PyObject_CallMethodObjArgs(interp->importlib, &_Py_ID(_find_and_load),
-                                     abs_name, interp->import_func, NULL);
+    mod = PyObject_CallMethodObjArgs(IMPORTLIB(interp), &_Py_ID(_find_and_load),
+                                     abs_name, IMPORT_FUNC(interp), NULL);
 
     if (PyDTrace_IMPORT_FIND_LOAD_DONE_ENABLED())
         PyDTrace_IMPORT_FIND_LOAD_DONE(PyUnicode_AsUTF8(abs_name),
@@ -2016,8 +2026,8 @@ PyImport_ImportModuleLevelObject(PyObject *name, PyObject *globals,
         if (path) {
             Py_DECREF(path);
             final_mod = PyObject_CallMethodObjArgs(
-                        interp->importlib, &_Py_ID(_handle_fromlist),
-                        mod, fromlist, interp->import_func, NULL);
+                        IMPORTLIB(interp), &_Py_ID(_handle_fromlist),
+                        mod, fromlist, IMPORT_FUNC(interp), NULL);
         }
         else {
             final_mod = Py_NewRef(mod);
@@ -2416,7 +2426,7 @@ _imp__override_frozen_modules_for_tests_impl(PyObject *module, int override)
 /*[clinic end generated code: output=36d5cb1594160811 input=8f1f95a3ef21aec3]*/
 {
     PyInterpreterState *interp = _PyInterpreterState_GET();
-    interp->override_frozen_modules = override;
+    OVERRIDE_FROZEN_MODULES(interp) = override;
     Py_RETURN_NONE;
 }
 
