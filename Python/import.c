@@ -163,6 +163,9 @@ void
 _PyImport_FiniCore(PyInterpreterState *interp)
 {
     Py_CLEAR(MODULES(interp));
+    // modules_by_index should have been cleared already
+    // by _PyState_ClearModules().
+    assert(PyList_GET_SIZE(MODULES_BY_INDEX(interp)) == 0);
     Py_CLEAR(MODULES_BY_INDEX(interp));
     Py_CLEAR(IMPORTLIB(interp));
     Py_CLEAR(IMPORT_FUNC(interp));
