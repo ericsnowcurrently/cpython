@@ -772,11 +772,14 @@ interpreter_clear(PyInterpreterState *interp, PyThreadState *tstate)
     Py_CLEAR(interp->codec_search_path);
     Py_CLEAR(interp->codec_search_cache);
     Py_CLEAR(interp->codec_error_registry);
+
+    // These should have been cleared already by _PyImport_FiniCore().
     Py_CLEAR(interp->modules);
     Py_CLEAR(interp->modules_by_index);
-    Py_CLEAR(interp->builtins_copy);
     Py_CLEAR(interp->importlib);
     Py_CLEAR(interp->import_func);
+
+    Py_CLEAR(interp->builtins_copy);
     Py_CLEAR(interp->dict);
 #ifdef HAVE_FORK
     Py_CLEAR(interp->before_forkers);

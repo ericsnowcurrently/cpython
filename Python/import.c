@@ -147,6 +147,15 @@ _PyImport_Fini2(void)
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
 }
 
+void
+_PyImport_FiniCore(PyInterpreterState *interp)
+{
+    Py_CLEAR(MODULES(interp));
+    Py_CLEAR(MODULES_BY_INDEX(interp));
+    Py_CLEAR(IMPORTLIB(interp));
+    Py_CLEAR(IMPORT_FUNC(interp));
+}
+
 PyStatus
 _PyImportZip_Init(PyThreadState *tstate)
 {

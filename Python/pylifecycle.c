@@ -1915,6 +1915,7 @@ Py_FinalizeEx(void)
 
     /* Destroy all modules */
     finalize_modules(tstate);
+    _PyImport_FiniCore(tstate->interp);
 
     /* Print debug stats if any */
     _PyEval_Fini();
@@ -2188,6 +2189,7 @@ Py_EndInterpreter(PyThreadState *tstate)
     }
 
     finalize_modules(tstate);
+    _PyImport_FiniCore(tstate->interp);
 
     finalize_interp_clear(tstate);
     finalize_interp_delete(tstate->interp);
