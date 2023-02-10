@@ -2,7 +2,7 @@
 
 #include "Python.h"
 
-#include "pycore_import.h"        // _PyImport_BootstrapImp()
+#include "pycore_import.h"
 #include "pycore_initconfig.h"    // _PyStatus_OK()
 #include "pycore_interp.h"        // _PyInterpreterState_ClearModules()
 #include "pycore_namespace.h"     // _PyNamespace_Type
@@ -147,14 +147,92 @@ _PyImport_Fini2(void)
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
 }
 
+#define INIT_MOD_ATTR(moddict, key, value)                 \
+    do {                                                   \
+        PyObject *v = (value);                             \
+        if (v == NULL) {                                   \
+            goto error;                                    \
+        }                                                  \
+        int res = PyDict_SetItemString(moddict, key, v);   \
+        Py_DECREF(v);                                      \
+        if (res < 0) {                                     \
+            goto error;                                    \
+        }                                                  \
+    } while (0)
+#define CLEAR_MOD_ATTR(moddict, key)                       \
+    if (PyDict_GetItemString(moddict, key) != NULL) {      \
+        PyDict_DelItemString(moddict, key);                \
+    }
+
+static int fix_up_builtin(PyThreadState *tstate,
+                          PyObject *mod, const char *name);
+static int init_importlib(PyThreadState *tstate, PyObject *sysmod);
+
 PyStatus
-_PyImport_InitCore(PyInterpreterState *interp)
+_PyImport_InitCore(PyThreadState *tstate, PyObject *sysmod, PyObject *bimod,
+                   int importlib)
 {
+    PyInterpreterState *interp = tstate->interp;
     PyObject *modules = PyDict_New();
     if (modules == NULL) {
         return _PyStatus_ERR("failed to initialize sys.modules");
     }
     MODULES(interp) = modules;
+
+    INIT_MOD_ATTR(interp->sysdict, "modules", modules);
+    INIT_MOD_ATTR(interp->sysdict, "meta_path", PyList_New(0));
+
+    if (fix_up_builtin(tstate, sysmod, "sys") < 0) {
+        goto error;
+    }
+    if (fix_up_builtin(tstate, bimod, "builtins") < 0) {
+        goto error;
+    }
+
+    // Get the __import__ function
+    PyObject *import_func = _PyDict_GetItemStringWithError(interp->builtins,
+                                                           "__import__");
+    if (import_func == NULL) {
+        goto error;
+    }
+    IMPORT_FUNC(interp) = Py_NewRef(import_func);
+
+    if (importlib) {
+        /* This call sets up builtin and frozen import support */
+        if (init_importlib(tstate, sysmod) < 0) {
+            goto error;
+        }
+    }
+
+    return _PyStatus_OK();
+
+error:
+    Py_CLEAR(IMPORT_FUNC(interp));
+    CLEAR_MOD_ATTR(interp->sysdict, "modules");
+    CLEAR_MOD_ATTR(interp->sysdict, "meta_path");
+    Py_DECREF(modules);
+    return _PyStatus_ERR("failed to initialize the core import system");
+}
+
+static PyStatus init_importlib_external(PyThreadState *tstate);
+static PyStatus install_zip_importer(PyThreadState *tstate);
+
+PyStatus
+_PyImport_InitExternal(PyThreadState *tstate)
+{
+    PyStatus status;
+
+    // XXX Set sys.path_hooks and sys.path_importer_cache here.
+
+    status = init_importlib_external(tstate);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+
+    status = install_zip_importer(tstate);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
 
     return _PyStatus_OK();
 }
@@ -162,6 +240,8 @@ _PyImport_InitCore(PyInterpreterState *interp)
 void
 _PyImport_FiniCore(PyInterpreterState *interp)
 {
+    // XXX Delete sys.meta_path and sys.modules here?
+
     Py_CLEAR(MODULES(interp));
     // modules_by_index should have been cleared already
     // by _PyState_ClearModules().
@@ -171,8 +251,76 @@ _PyImport_FiniCore(PyInterpreterState *interp)
     Py_CLEAR(IMPORT_FUNC(interp));
 }
 
-PyStatus
-_PyImportZip_Init(PyThreadState *tstate)
+
+/* importlib */
+
+static PyObject* bootstrap_imp(PyThreadState *tstate);
+
+static int
+init_importlib(PyThreadState *tstate, PyObject *sysmod)
+{
+    assert(!_PyErr_Occurred(tstate));
+
+    PyInterpreterState *interp = tstate->interp;
+    int verbose = _PyInterpreterState_GetConfig(interp)->verbose;
+
+    // Import _importlib through its frozen version, _frozen_importlib.
+    if (verbose) {
+        PySys_FormatStderr("import _frozen_importlib # frozen\n");
+    }
+    if (PyImport_ImportFrozenModule("_frozen_importlib") <= 0) {
+        return -1;
+    }
+    PyObject *importlib = PyImport_AddModule("_frozen_importlib"); // borrowed
+    if (importlib == NULL) {
+        return -1;
+    }
+    IMPORTLIB(interp) = Py_NewRef(importlib);
+
+    // Import the _imp module
+    if (verbose) {
+        PySys_FormatStderr("import _imp # builtin\n");
+    }
+    PyObject *imp_mod = bootstrap_imp(tstate);
+    if (imp_mod == NULL) {
+        return -1;
+    }
+    if (_PyImport_SetModuleString("_imp", imp_mod) < 0) {
+        Py_DECREF(imp_mod);
+        return -1;
+    }
+
+    // Install importlib as the implementation of import
+    PyObject *value = PyObject_CallMethod(importlib, "_install",
+                                          "OO", sysmod, imp_mod);
+    Py_DECREF(imp_mod);
+    if (value == NULL) {
+        return -1;
+    }
+    Py_DECREF(value);
+
+    assert(!_PyErr_Occurred(tstate));
+    return 0;
+}
+
+
+static PyStatus
+init_importlib_external(PyThreadState *tstate)
+{
+    PyObject *value;
+    value = PyObject_CallMethod(IMPORTLIB(tstate->interp),
+                                "_install_external_importers", "");
+    if (value == NULL) {
+        _PyErr_Print(tstate);
+        return _PyStatus_ERR("external importer setup failed");
+    }
+    Py_DECREF(value);
+
+    return _PyStatus_OK();
+}
+
+static PyStatus
+install_zip_importer(PyThreadState *tstate)
 {
     PyObject *path_hooks;
     int err = 0;
@@ -586,9 +734,9 @@ _PyImport_ResolvePackageContext(const char *basename)
     return name;
 }
 
-int
-_PyImport_FixupExtensionObject(PyObject *mod, PyObject *name,
-                               PyObject *filename, PyObject *modules)
+static int
+fix_up_extension(PyThreadState *tstate,
+                 PyObject *mod, PyObject *name, PyObject *filename)
 {
     if (mod == NULL || !PyModule_Check(mod)) {
         PyErr_BadInternalCall();
@@ -601,12 +749,7 @@ _PyImport_FixupExtensionObject(PyObject *mod, PyObject *name,
         return -1;
     }
 
-    PyThreadState *tstate = _PyThreadState_GET();
-    if (PyObject_SetItem(modules, name, mod) < 0) {
-        return -1;
-    }
     if (_PyState_AddModule(tstate, mod, def) < 0) {
-        PyMapping_DelItem(modules, name);
         return -1;
     }
 
@@ -638,6 +781,47 @@ _PyImport_FixupExtensionObject(PyObject *mod, PyObject *name,
     return 0;
 }
 
+static int
+fix_up_builtin(PyThreadState *tstate, PyObject *mod, const char *name)
+{
+    PyObject *nameobj;
+    nameobj = PyUnicode_InternFromString(name);
+    if (nameobj == NULL) {
+        return -1;
+    }
+
+    int res = -1;
+    if (PyObject_SetItem(MODULES(tstate->interp), nameobj, mod) < 0) {
+        goto finally;
+    }
+    if (fix_up_extension(tstate, mod, nameobj, nameobj) < 0) {
+        PyMapping_DelItem(MODULES(tstate->interp), nameobj);
+        goto finally;
+    }
+    res = 0;
+
+finally:
+    Py_DECREF(nameobj);
+    return res;
+}
+
+// For backward compatibility:
+int
+_PyImport_FixupExtensionObject(PyObject *mod, PyObject *name,
+                               PyObject *filename, PyObject *modules)
+{
+    if (PyObject_SetItem(modules, name, mod) < 0) {
+        return -1;
+    }
+    PyThreadState *tstate = _PyThreadState_GET();
+    if (fix_up_extension(tstate, mod, name, filename) < 0) {
+        PyMapping_DelItem(modules, name);
+        return -1;
+    }
+    return 0;
+}
+
+// For backward compatibility:
 int
 _PyImport_FixupBuiltin(PyObject *mod, const char *name, PyObject *modules)
 {
@@ -2682,8 +2866,8 @@ PyInit__imp(void)
 // Import the _imp extension by calling manually _imp.create_builtin() and
 // _imp.exec_builtin() since importlib is not initialized yet. Initializing
 // importlib requires the _imp module: this function fix the bootstrap issue.
-PyObject*
-_PyImport_BootstrapImp(PyThreadState *tstate)
+static PyObject*
+bootstrap_imp(PyThreadState *tstate)
 {
     PyObject *name = PyUnicode_FromString("_imp");
     if (name == NULL) {

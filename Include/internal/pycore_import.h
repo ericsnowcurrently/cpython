@@ -36,14 +36,16 @@ struct _import_runtime_state {
     const char * pkgcontext;
 };
 
-extern PyStatus _PyImport_InitCore(PyInterpreterState *interp);
+extern PyStatus _PyImport_InitCore(
+        PyThreadState *tstate, PyObject *sysmod, PyObject *bimod,
+        int importlib);
+extern PyStatus _PyImport_InitExternal(PyThreadState *tstate);
 extern void _PyImport_FiniCore(PyInterpreterState *interp);
 
 
 #ifdef HAVE_FORK
 extern PyStatus _PyImport_ReInitLock(void);
 #endif
-extern PyObject* _PyImport_BootstrapImp(PyThreadState *tstate);
 
 struct _module_alias {
     const char *name;                 /* ASCII encoded string */

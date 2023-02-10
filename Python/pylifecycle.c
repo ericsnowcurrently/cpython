@@ -11,7 +11,7 @@
 #include "pycore_floatobject.h"   // _PyFloat_InitTypes()
 #include "pycore_genobject.h"     // _PyAsyncGen_Fini()
 #include "pycore_global_objects_fini_generated.h"  // "_PyStaticObjects_CheckRefcnt()
-#include "pycore_import.h"        // _PyImport_BootstrapImp()
+#include "pycore_import.h"        // _PyImport_InitCore()
 #include "pycore_initconfig.h"    // _PyStatus_OK()
 #include "pycore_list.h"          // _PyList_Fini()
 #include "pycore_long.h"          // _PyLong_InitTypes()
@@ -171,67 +171,6 @@ Py_IsInitialized(void)
    having the lock, but you cannot use multiple threads.)
 
 */
-static int
-init_importlib(PyThreadState *tstate, PyObject *sysmod)
-{
-    assert(!_PyErr_Occurred(tstate));
-
-    PyInterpreterState *interp = tstate->interp;
-    int verbose = _PyInterpreterState_GetConfig(interp)->verbose;
-
-    // Import _importlib through its frozen version, _frozen_importlib.
-    if (verbose) {
-        PySys_FormatStderr("import _frozen_importlib # frozen\n");
-    }
-    if (PyImport_ImportFrozenModule("_frozen_importlib") <= 0) {
-        return -1;
-    }
-    PyObject *importlib = PyImport_AddModule("_frozen_importlib"); // borrowed
-    if (importlib == NULL) {
-        return -1;
-    }
-    interp->importlib = Py_NewRef(importlib);
-
-    // Import the _imp module
-    if (verbose) {
-        PySys_FormatStderr("import _imp # builtin\n");
-    }
-    PyObject *imp_mod = _PyImport_BootstrapImp(tstate);
-    if (imp_mod == NULL) {
-        return -1;
-    }
-    if (_PyImport_SetModuleString("_imp", imp_mod) < 0) {
-        Py_DECREF(imp_mod);
-        return -1;
-    }
-
-    // Install importlib as the implementation of import
-    PyObject *value = PyObject_CallMethod(importlib, "_install",
-                                          "OO", sysmod, imp_mod);
-    Py_DECREF(imp_mod);
-    if (value == NULL) {
-        return -1;
-    }
-    Py_DECREF(value);
-
-    assert(!_PyErr_Occurred(tstate));
-    return 0;
-}
-
-
-static PyStatus
-init_importlib_external(PyThreadState *tstate)
-{
-    PyObject *value;
-    value = PyObject_CallMethod(tstate->interp->importlib,
-                                "_install_external_importers", "");
-    if (value == NULL) {
-        _PyErr_Print(tstate);
-        return _PyStatus_ERR("external importer setup failed");
-    }
-    Py_DECREF(value);
-    return _PyImportZip_Init(tstate);
-}
 
 /* Helper functions to better handle the legacy C locale
  *
@@ -809,16 +748,12 @@ static const _PyShimCodeDef INTERPRETER_TRAMPOLINE_CODEDEF = {
 };
 
 static PyStatus
-pycore_init_builtins(PyThreadState *tstate)
+pycore_init_builtins(PyThreadState *tstate, PyObject **bimod_p)
 {
     PyInterpreterState *interp = tstate->interp;
 
     PyObject *bimod = _PyBuiltin_Init(interp);
     if (bimod == NULL) {
-        goto error;
-    }
-
-    if (_PyImport_FixupBuiltin(bimod, "builtins", interp->modules) < 0) {
         goto error;
     }
 
@@ -831,19 +766,24 @@ pycore_init_builtins(PyThreadState *tstate)
     PyObject *isinstance = PyDict_GetItem(builtins_dict, &_Py_ID(isinstance));
     assert(isinstance);
     interp->callable_cache.isinstance = isinstance;
+
     PyObject *len = PyDict_GetItem(builtins_dict, &_Py_ID(len));
     assert(len);
     interp->callable_cache.len = len;
+
     PyObject *list_append = _PyType_Lookup(&PyList_Type, &_Py_ID(append));
     assert(list_append);
     interp->callable_cache.list_append = list_append;
+
     PyObject *object__getattribute__ = _PyType_Lookup(&PyBaseObject_Type, &_Py_ID(__getattribute__));
     assert(object__getattribute__);
     interp->callable_cache.object__getattribute__ = object__getattribute__;
+
     interp->interpreter_trampoline = _Py_MakeShimCode(&INTERPRETER_TRAMPOLINE_CODEDEF);
     if (interp->interpreter_trampoline == NULL) {
         return _PyStatus_ERR("failed to create interpreter trampoline.");
     }
+
     if (_PyBuiltins_AddExceptions(bimod) < 0) {
         return _PyStatus_ERR("failed to add exceptions to builtins");
     }
@@ -854,15 +794,10 @@ pycore_init_builtins(PyThreadState *tstate)
     }
     Py_DECREF(bimod);
 
-    // Get the __import__ function
-    PyObject *import_func = _PyDict_GetItemStringWithError(interp->builtins,
-                                                           "__import__");
-    if (import_func == NULL) {
-        goto error;
-    }
-    interp->import_func = Py_NewRef(import_func);
+    // interp->import_func is set in _PyImport_InitCore().
 
     assert(!_PyErr_Occurred(tstate));
+    *bimod_p = bimod;
     return _PyStatus_OK();
 
 error:
@@ -876,7 +811,7 @@ pycore_interp_init(PyThreadState *tstate)
 {
     PyInterpreterState *interp = tstate->interp;
     PyStatus status;
-    PyObject *sysmod = NULL;
+    PyObject *sysmod = NULL, *builtins = NULL;
 
     // Create singletons before the first PyType_Ready() call, since
     // PyType_Ready() uses singletons like the Unicode empty string (tp_doc)
@@ -911,27 +846,21 @@ pycore_interp_init(PyThreadState *tstate)
         return status;
     }
 
-    status = _PyImport_InitCore(tstate->interp);
-    if (_PyStatus_EXCEPTION(status)) {
-        goto done;
-    }
-
     status = _PySys_Create(tstate, &sysmod);
     if (_PyStatus_EXCEPTION(status)) {
         goto done;
     }
 
-    status = pycore_init_builtins(tstate);
+    status = pycore_init_builtins(tstate, &builtins);
     if (_PyStatus_EXCEPTION(status)) {
         goto done;
     }
 
     const PyConfig *config = _PyInterpreterState_GetConfig(interp);
-    if (config->_install_importlib) {
-        /* This call sets up builtin and frozen import support */
-        if (init_importlib(tstate, sysmod) < 0) {
-            return _PyStatus_ERR("failed to initialize importlib");
-        }
+    status = _PyImport_InitCore(tstate, sysmod, builtins,
+                                config->_install_importlib);
+    if (_PyStatus_EXCEPTION(status)) {
+        goto done;
     }
 
 done:
@@ -1181,7 +1110,7 @@ init_interp_main(PyThreadState *tstate)
         return _PyStatus_ERR("failed to update the Python config");
     }
 
-    status = init_importlib_external(tstate);
+    status = _PyImport_InitExternal(tstate);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
@@ -1920,6 +1849,7 @@ Py_FinalizeEx(void)
 
     /* Destroy all modules */
     finalize_modules(tstate);
+//    _PyImport_FiniExternal(interp);
     _PyImport_FiniCore(tstate->interp);
 
     /* Print debug stats if any */
@@ -2194,6 +2124,7 @@ Py_EndInterpreter(PyThreadState *tstate)
     }
 
     finalize_modules(tstate);
+//    _PyImport_FiniExternal(interp);
     _PyImport_FiniCore(tstate->interp);
 
     finalize_interp_clear(tstate);

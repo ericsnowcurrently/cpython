@@ -3135,6 +3135,7 @@ _PySys_InitCore(PyThreadState *tstate, PyObject *sysdict)
     }
     SET_SYS("hash_info", get_hash_info(tstate));
     SET_SYS("maxunicode", PyLong_FromLong(0x10FFFF));
+    // XXX Move these two to _PyImport_InitCore?
     SET_SYS("builtin_module_names", list_builtin_module_names());
     SET_SYS("stdlib_module_names", list_stdlib_module_names());
 #if PY_BIG_ENDIAN
@@ -3209,8 +3210,9 @@ _PySys_InitCore(PyThreadState *tstate, PyObject *sysdict)
     SET_SYS("_emscripten_info", make_emscripten_info());
 #endif
 
+    // The import state is added in _PyImport_InitCore().
     /* adding sys.path_hooks and sys.path_importer_cache */
-    SET_SYS("meta_path", PyList_New(0));
+    // XXX Set these in _PyImport_InitExternal().
     SET_SYS("path_importer_cache", PyDict_New());
     SET_SYS("path_hooks", PyList_New(0));
 
@@ -3407,10 +3409,6 @@ _PySys_Create(PyThreadState *tstate, PyObject **sysmod_p)
     }
     interp->sysdict = Py_NewRef(sysdict);
 
-    if (PyDict_SetItemString(sysdict, "modules", interp->modules) < 0) {
-        goto error;
-    }
-
     PyStatus status = _PySys_SetPreliminaryStderr(sysdict);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
@@ -3421,9 +3419,8 @@ _PySys_Create(PyThreadState *tstate, PyObject **sysmod_p)
         return status;
     }
 
-    if (_PyImport_FixupBuiltin(sysmod, "sys", interp->modules) < 0) {
-        goto error;
-    }
+    // The module will be "fixed up" (and import state added)
+    // in _PyImport_InitCore().
 
     assert(!_PyErr_Occurred(tstate));
 
