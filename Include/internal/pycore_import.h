@@ -36,6 +36,7 @@ struct _import_runtime_state {
     const char * pkgcontext;
 };
 
+extern PyStatus _PyImport_InitCore(PyInterpreterState *interp);
 extern void _PyImport_FiniCore(PyInterpreterState *interp);
 
 

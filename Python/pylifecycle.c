@@ -911,6 +911,11 @@ pycore_interp_init(PyThreadState *tstate)
         return status;
     }
 
+    status = _PyImport_InitCore(tstate->interp);
+    if (_PyStatus_EXCEPTION(status)) {
+        goto done;
+    }
+
     status = _PySys_Create(tstate, &sysmod);
     if (_PyStatus_EXCEPTION(status)) {
         goto done;

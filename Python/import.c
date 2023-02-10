@@ -147,6 +147,18 @@ _PyImport_Fini2(void)
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
 }
 
+PyStatus
+_PyImport_InitCore(PyInterpreterState *interp)
+{
+    PyObject *modules = PyDict_New();
+    if (modules == NULL) {
+        return _PyStatus_ERR("failed to initialize sys.modules");
+    }
+    MODULES(interp) = modules;
+
+    return _PyStatus_OK();
+}
+
 void
 _PyImport_FiniCore(PyInterpreterState *interp)
 {
