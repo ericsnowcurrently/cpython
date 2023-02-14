@@ -1840,9 +1840,11 @@ Py_FinalizeEx(void)
      */
     PyGC_Collect();
 
-    /* Destroy all modules */
+    /* Finalize the import state */
     _PyImport_FiniExternal(tstate->interp);
     finalize_modules(tstate);
+    _PyImport_FiniCore(tstate->interp);
+    _PyImport_Fini();
 
     /* Print debug stats if any */
     _PyEval_Fini();
@@ -1874,11 +1876,6 @@ Py_FinalizeEx(void)
     /* Disable tracemalloc after all Python objects have been destroyed,
        so it is possible to use tracemalloc in objects destructor. */
     _PyTraceMalloc_Fini();
-
-    /* Finalize any remaining import state */
-    // XXX Move these up to where finalize_modules() is currently.
-    _PyImport_FiniCore(tstate->interp);
-    _PyImport_Fini();
 
     /* unload faulthandler module */
     _PyFaulthandler_Fini();
@@ -2120,8 +2117,8 @@ Py_EndInterpreter(PyThreadState *tstate)
     // XXX Call something like _PyImport_Disable() here?
 
     _PyImport_FiniExternal(tstate->interp);
-    _PyImport_FiniCore(tstate->interp);
     finalize_modules(tstate);
+    _PyImport_FiniCore(tstate->interp);
 
     finalize_interp_clear(tstate);
     finalize_interp_delete(tstate->interp);
