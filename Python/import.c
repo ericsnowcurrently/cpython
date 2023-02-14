@@ -72,6 +72,8 @@ static struct _inittab *inittab_copy = NULL;
     (interp)->imports.modules
 #define MODULES_BY_INDEX(interp) \
     (interp)->imports.modules_by_index
+#define M_COPY_BY_INDEX(interp) \
+    (interp)->imports.m_copy_by_index
 #define IMPORTLIB(interp) \
     (interp)->imports.importlib
 #define OVERRIDE_FROZEN_MODULES(interp) \
@@ -755,6 +757,52 @@ _extensions_cache_clear(void)
     Py_CLEAR(EXTENSIONS);
 }
 
+
+static PyObject *
+_extensions_m_copy_get(PyInterpreterState *interp, PyModuleDef *def)
+{
+    /* _extensions_m_copy_set() must be called earlier. */
+    assert(def->m_slots == NULL);
+    assert(def->m_base.m_index > 0);
+    assert(def->m_base.m_copy != NULL);
+    assert(M_COPY_BY_INDEX(interp) != NULL);
+    assert(def->m_base.m_index < PyList_GET_SIZE(M_COPY_BY_INDEX(interp)));
+    PyObject *res = PyList_GET_ITEM(M_COPY_BY_INDEX(interp),
+                                    def->m_base.m_index);
+    assert(res != Py_None);
+    return res;
+}
+
+static int
+_extensions_m_copy_set(PyInterpreterState *interp, PyModuleDef* def)
+{
+    assert(def != NULL);
+    assert(def->m_slots == NULL);
+    assert(def->m_base.m_copy != NULL);
+    Py_ssize_t index = def->m_base.m_index;
+    PyObject *byindex = M_COPY_BY_INDEX(interp);
+    if (byindex == NULL) {
+        byindex = PyList_New(0);
+        if (byindex == NULL) {
+            return -1;
+        }
+        M_COPY_BY_INDEX(interp) = byindex;
+    }
+    while (PyList_GET_SIZE(byindex) <= index) {
+        if (PyList_Append(byindex, Py_None) < 0) {
+            return -1;
+        }
+    }
+    return PyList_SetItem(byindex, index, Py_NewRef(def->m_base.m_copy));
+}
+
+static void
+_extensions_m_copy_clear(PyInterpreterState *interp)
+{
+    Py_CLEAR(M_COPY_BY_INDEX(interp));
+}
+
+
 static int
 fix_up_extension(PyObject *mod, PyObject *name, PyObject *filename)
 {
@@ -791,6 +839,10 @@ fix_up_extension(PyObject *mod, PyObject *name, PyObject *filename)
             }
             def->m_base.m_copy = PyDict_Copy(dict);
             if (def->m_base.m_copy == NULL) {
+                return -1;
+            }
+            if (_extensions_m_copy_set(tstate->interp, def) < 0) {
+                Py_CLEAR(def->m_base.m_copy);
                 return -1;
             }
         }
@@ -843,7 +895,8 @@ import_find_extension(PyThreadState *tstate, PyObject *name,
             Py_DECREF(mod);
             return NULL;
         }
-        if (PyDict_Update(mdict, def->m_base.m_copy)) {
+        PyObject *m_copy = _extensions_m_copy_get(tstate->interp, def);
+        if (PyDict_Update(mdict, m_copy)) {
             Py_DECREF(mod);
             return NULL;
         }
@@ -2690,6 +2743,7 @@ _PyImport_ClearCore(PyInterpreterState *interp)
        by _PyImport_FiniCore(). */
     Py_CLEAR(MODULES(interp));
     Py_CLEAR(MODULES_BY_INDEX(interp));
+    Py_CLEAR(M_COPY_BY_INDEX(interp));
     Py_CLEAR(IMPORTLIB(interp));
     Py_CLEAR(IMPORT_FUNC(interp));
 }
@@ -2698,6 +2752,8 @@ void
 _PyImport_FiniCore(PyInterpreterState *interp)
 {
     int verbose = _PyInterpreterState_GetConfig(interp)->verbose;
+
+    _extensions_m_copy_clear(interp);
 
     if (_PySys_ClearAttrString(interp, "meta_path", verbose) < 0) {
         PyErr_WriteUnraisable(NULL);

@@ -775,6 +775,7 @@ interpreter_clear(PyInterpreterState *interp, PyThreadState *tstate)
 
     assert(interp->imports.modules == NULL);
     assert(interp->imports.modules_by_index == NULL);
+    assert(interp->imports.m_copy_by_index == NULL);
     assert(interp->imports.importlib == NULL);
     assert(interp->imports.import_func == NULL);
 

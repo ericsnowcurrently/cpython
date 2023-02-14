@@ -59,6 +59,9 @@ struct _import_state {
        This is initialized lazily in _PyState_AddModule(), which is also
        where modules get added. */
     PyObject *modules_by_index;
+    /* A list like modules_by_index, holding the per-interpreter m_copy
+       for each def. */
+    PyObject *m_copy_by_index;
     /* importlib module._bootstrap */
     PyObject *importlib;
     /* override for config->use_frozen_modules (for tests)
