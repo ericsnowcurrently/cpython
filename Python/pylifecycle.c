@@ -833,11 +833,13 @@ pycore_interp_init(PyThreadState *tstate)
         return status;
     }
 
+    /* This is not fully initialized until _PyImport_InitCore() is called. */
     status = _PySys_Create(tstate, &sysmod);
     if (_PyStatus_EXCEPTION(status)) {
         goto done;
     }
 
+    /* This is not fully initialized until _PyImport_InitCore() is called. */
     status = pycore_init_builtins(tstate, &bimod);
     if (_PyStatus_EXCEPTION(status)) {
         goto done;
