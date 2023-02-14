@@ -1565,20 +1565,6 @@ finalize_modules(PyThreadState *tstate)
 
     // Clear sys and builtins modules dict
     finalize_clear_sys_builtins_dict(interp, verbose);
-
-    // Clear module dict copies stored in the interpreter state:
-    // clear PyInterpreterState.modules_by_index and
-    // clear PyModuleDef.m_base.m_copy (of extensions not using the multi-phase
-    // initialization API)
-    _PyImport_ClearModulesByIndex(interp);
-
-    // Clear and delete the modules directory.  Actual modules will
-    // still be there only if imported during the execution of some
-    // destructor.
-    _PyImport_ClearModules(interp);
-
-    // Collect garbage once more
-    _PyGC_CollectNoFail(tstate);
 }
 
 
@@ -1840,6 +1826,7 @@ Py_FinalizeEx(void)
     _PyImport_FiniExternal(tstate->interp);
     finalize_modules(tstate);
     _PyImport_FiniCore(tstate->interp);
+    _PyGC_CollectNoFail(tstate);
     _PyImport_Fini();
 
     /* Print debug stats if any */
@@ -2115,6 +2102,7 @@ Py_EndInterpreter(PyThreadState *tstate)
     _PyImport_FiniExternal(tstate->interp);
     finalize_modules(tstate);
     _PyImport_FiniCore(tstate->interp);
+    _PyGC_CollectNoFail(tstate);
 
     finalize_interp_clear(tstate);
     finalize_interp_delete(tstate->interp);

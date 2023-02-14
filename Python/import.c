@@ -175,12 +175,6 @@ _PyImport_GetModules(PyInterpreterState *interp)
     return MODULES(interp);
 }
 
-void
-_PyImport_ClearModules(PyInterpreterState *interp)
-{
-    Py_SETREF(MODULES(interp), NULL);
-}
-
 PyObject *
 PyImport_GetModuleDict(void)
 {
@@ -500,9 +494,12 @@ PyState_RemoveModule(PyModuleDef* def)
 }
 
 
-// Used by finalize_modules()
-void
-_PyImport_ClearModulesByIndex(PyInterpreterState *interp)
+/* Clear module dict copies stored in the interpreter state:
+   1. clear PyInterpreterState.modules_by_index and
+   2. clear PyModuleDef.m_base.m_copy (only for single-phase init modules)
+ */
+static void
+clear_modules_by_index(PyInterpreterState *interp)
 {
     if (!MODULES_BY_INDEX(interp)) {
         return;
@@ -2741,9 +2738,16 @@ _PyImport_FiniCore(PyInterpreterState *interp)
 
     // XXX Pull in most of finalize_modules() in pylifecycle.c.
 
+    /* single-phase init modules */
+    clear_modules_by_index(interp);
+
+    /* sys.modules */
+    // Actual modules will still be there only if imported
+    // during the execution of some destructor.
     if (_PySys_ClearAttrString(interp, "modules", verbose) < 0) {
         PyErr_WriteUnraisable(NULL);
     }
+    Py_SETREF(MODULES(interp), NULL);
 
     _PyImport_ClearCore(interp);
 }

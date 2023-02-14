@@ -99,9 +99,6 @@ extern int _PyImport_GetDLOpenFlags(PyInterpreterState *interp);
 extern void _PyImport_SetDLOpenFlags(PyInterpreterState *interp, int new_val);
 
 extern PyObject * _PyImport_GetModules(PyInterpreterState *interp);
-extern void _PyImport_ClearModules(PyInterpreterState *interp);
-
-extern void _PyImport_ClearModulesByIndex(PyInterpreterState *interp);
 
 extern int _PyImport_IsDefaultImportFunc(
         PyInterpreterState *interp,
