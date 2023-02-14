@@ -2661,7 +2661,16 @@ _PyImport_InitCore(PyThreadState *tstate, PyObject *sysmod, PyObject *bimod,
         goto error;
     }
 
-    // XXX Initialize here: sys.meta_path.
+    // Initialize sys.meta_path.
+    PyObject *metapath = PyList_New(0);
+    if (metapath == NULL) {
+        status = _PyStatus_ERR("failed to create sys.meta_path");
+        goto error;
+    }
+    if (PyDict_SetItemString(interp->sysdict, "meta_path", metapath) < 0) {
+        status = _PyStatus_ERR("failed to set sys.meta_path");
+        goto error;
+    }
 
     /* Finish initializing the core builtin modules. */
     if (_PyImport_FixupBuiltin(sysmod, "sys", MODULES(interp)) < 0) {
