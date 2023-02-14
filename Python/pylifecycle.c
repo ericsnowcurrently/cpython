@@ -759,19 +759,26 @@ pycore_init_builtins(PyThreadState *tstate)
     PyObject *isinstance = PyDict_GetItem(builtins_dict, &_Py_ID(isinstance));
     assert(isinstance);
     interp->callable_cache.isinstance = isinstance;
+
     PyObject *len = PyDict_GetItem(builtins_dict, &_Py_ID(len));
     assert(len);
     interp->callable_cache.len = len;
+
     PyObject *list_append = _PyType_Lookup(&PyList_Type, &_Py_ID(append));
     assert(list_append);
     interp->callable_cache.list_append = list_append;
+
     PyObject *object__getattribute__ = _PyType_Lookup(&PyBaseObject_Type, &_Py_ID(__getattribute__));
     assert(object__getattribute__);
     interp->callable_cache.object__getattribute__ = object__getattribute__;
+
+    // XXX This function is an unexpected place to set the trampoline.
+    // Move this somewhere more appropriate (e.g. _PyEval_InitState())?
     interp->interpreter_trampoline = _Py_MakeShimCode(&INTERPRETER_TRAMPOLINE_CODEDEF);
     if (interp->interpreter_trampoline == NULL) {
         return _PyStatus_ERR("failed to create interpreter trampoline.");
     }
+
     if (_PyBuiltins_AddExceptions(bimod) < 0) {
         return _PyStatus_ERR("failed to add exceptions to builtins");
     }
@@ -781,10 +788,6 @@ pycore_init_builtins(PyThreadState *tstate)
         goto error;
     }
     Py_DECREF(bimod);
-
-    if (_PyImport_InitDefaultImportFunc(interp) < 0) {
-        goto error;
-    }
 
     assert(!_PyErr_Occurred(tstate));
     return _PyStatus_OK();
@@ -800,7 +803,7 @@ pycore_interp_init(PyThreadState *tstate)
 {
     PyInterpreterState *interp = tstate->interp;
     PyStatus status;
-    PyObject *sysmod = NULL;
+    PyObject *sysmod = NULL, *bimod = NULL;
 
     // Create singletons before the first PyType_Ready() call, since
     // PyType_Ready() uses singletons like the Unicode empty string (tp_doc)

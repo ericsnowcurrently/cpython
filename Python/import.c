@@ -1972,8 +1972,8 @@ PyImport_GetImporter(PyObject *path)
 /* importing modules */
 /*********************/
 
-int
-_PyImport_InitDefaultImportFunc(PyInterpreterState *interp)
+static int
+init_default_import_func(PyInterpreterState *interp)
 {
     // Get the __import__ function
     PyObject *import_func = _PyDict_GetItemStringWithError(interp->builtins,
@@ -2650,17 +2650,32 @@ _PyImport_Fini2(void)
 PyStatus
 _PyImport_InitCore(PyThreadState *tstate, PyObject *sysmod, int importlib)
 {
-    // XXX Initialize here: interp->modules and interp->import_func.
+    PyStatus status;
+
+    // XXX Initialize here: interp->modules.
+
+    /* Cache builtins.__import__. */
+    if (init_default_import_func(tstate->interp) < 0) {
+        status = _PyStatus_ERR("failed to initialize importlib");
+        goto error;
+    }
+
     // XXX Initialize here: sys.modules and sys.meta_path.
 
     if (importlib) {
         /* This call sets up builtin and frozen import support */
         if (init_importlib(tstate, sysmod) < 0) {
-            return _PyStatus_ERR("failed to initialize importlib");
+            status = _PyStatus_ERR("failed to initialize importlib");
+            goto error;
         }
     }
 
     return _PyStatus_OK();
+
+error:
+    Py_XDECREF(IMPORT_FUNC(tstate->interp));
+    Py_XDECREF(IMPORTLIB(tstate->interp));
+    return status;
 }
 
 /* In some corner cases it is important to be sure that the import
