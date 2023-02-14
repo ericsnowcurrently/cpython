@@ -170,17 +170,6 @@ _PyImport_ReInitLock(void)
 /***************/
 
 PyObject *
-_PyImport_InitModules(PyInterpreterState *interp)
-{
-    assert(MODULES(interp) == NULL);
-    MODULES(interp) = PyDict_New();
-    if (MODULES(interp) == NULL) {
-        return NULL;
-    }
-    return MODULES(interp);
-}
-
-PyObject *
 _PyImport_GetModules(PyInterpreterState *interp)
 {
     return MODULES(interp);
@@ -2654,21 +2643,33 @@ _PyImport_InitCore(PyThreadState *tstate, PyObject *sysmod, PyObject *bimod,
     PyStatus status;
     PyInterpreterState *interp = tstate->interp;
 
-    // XXX Initialize here: interp->modules.
+    /* Initialize sys.modules. */
+    assert(MODULES(interp) == NULL);
+    MODULES(interp) = PyDict_New();
+    if (MODULES(interp) == NULL) {
+        status = _PyStatus_ERR("failed to create sys.modules");
+        goto error;
+    }
+    if (PyDict_SetItemString(interp->sysdict, "modules", MODULES(interp)) < 0) {
+        status = _PyStatus_ERR("failed to set sys.modules");
+        goto error;
+    }
 
     /* Cache builtins.__import__. */
     if (init_default_import_func(interp) < 0) {
-        status = _PyStatus_ERR("failed to initialize importlib");
+        status = _PyStatus_ERR("failed to set default import func");
         goto error;
     }
 
-    // XXX Initialize here: sys.modules and sys.meta_path.
+    // XXX Initialize here: sys.meta_path.
 
     /* Finish initializing the core builtin modules. */
     if (_PyImport_FixupBuiltin(sysmod, "sys", MODULES(interp)) < 0) {
+        status = _PyStatus_ERR("failed to initialize sys module");
         goto error;
     }
     if (_PyImport_FixupBuiltin(bimod, "builtins", MODULES(interp)) < 0) {
+        status = _PyStatus_ERR("failed to initialize builtins module");
         goto error;
     }
 
@@ -2683,8 +2684,13 @@ _PyImport_InitCore(PyThreadState *tstate, PyObject *sysmod, PyObject *bimod,
     return _PyStatus_OK();
 
 error:
-    Py_XDECREF(IMPORT_FUNC(interp));
     Py_XDECREF(IMPORTLIB(interp));
+    Py_XDECREF(IMPORT_FUNC(interp));
+    int verbose = 0;
+    if (_PySys_ClearAttrString(interp, "modules", verbose) < 0) {
+        PyErr_WriteUnraisable(NULL);
+    }
+    Py_XDECREF(MODULES(interp));
     return status;
 }
 

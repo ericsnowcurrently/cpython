@@ -98,7 +98,6 @@ extern const char * _PyImport_SwapPackageContext(const char *newcontext);
 extern int _PyImport_GetDLOpenFlags(PyInterpreterState *interp);
 extern void _PyImport_SetDLOpenFlags(PyInterpreterState *interp, int new_val);
 
-extern PyObject * _PyImport_InitModules(PyInterpreterState *interp);
 extern PyObject * _PyImport_GetModules(PyInterpreterState *interp);
 extern void _PyImport_ClearModules(PyInterpreterState *interp);
 

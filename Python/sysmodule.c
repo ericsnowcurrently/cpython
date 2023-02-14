@@ -3415,11 +3415,6 @@ _PySys_Create(PyThreadState *tstate, PyObject **sysmod_p)
 
     PyInterpreterState *interp = tstate->interp;
 
-    PyObject *modules = _PyImport_InitModules(interp);
-    if (modules == NULL) {
-        goto error;
-    }
-
     PyObject *sysmod = _PyModule_CreateInitialized(&sysmodule, PYTHON_API_VERSION);
     if (sysmod == NULL) {
         return _PyStatus_ERR("failed to create a module object");
@@ -3430,10 +3425,6 @@ _PySys_Create(PyThreadState *tstate, PyObject **sysmod_p)
         goto error;
     }
     interp->sysdict = Py_NewRef(sysdict);
-
-    if (PyDict_SetItemString(sysdict, "modules", modules) < 0) {
-        goto error;
-    }
 
     PyStatus status = _PySys_SetPreliminaryStderr(sysdict);
     if (_PyStatus_EXCEPTION(status)) {
