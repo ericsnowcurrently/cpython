@@ -1308,10 +1308,6 @@ finalize_modules_delete_special(PyThreadState *tstate, int verbose)
         "path", "argv", "ps1", "ps2",
         "last_type", "last_value", "last_traceback",
         "__interactivehook__",
-        // path_hooks and path_importer_cache are cleared
-        // by _PyImport_FiniExternal().
-        // XXX Clear meta_path in _PyImport_FiniCore().
-        "meta_path",
         NULL
     };
 

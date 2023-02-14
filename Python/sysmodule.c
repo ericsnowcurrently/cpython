@@ -3228,11 +3228,6 @@ _PySys_InitCore(PyThreadState *tstate, PyObject *sysdict)
     SET_SYS("_emscripten_info", make_emscripten_info());
 #endif
 
-    /* adding sys.path_hooks and sys.path_importer_cache */
-    // XXX Do this in _PyImport_InitExternal().
-    SET_SYS("path_importer_cache", PyDict_New());
-    SET_SYS("path_hooks", PyList_New(0));
-
     if (_PyErr_Occurred(tstate)) {
         goto err_occurred;
     }

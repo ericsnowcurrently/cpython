@@ -2696,6 +2696,9 @@ error:
     Py_XDECREF(IMPORTLIB(interp));
     Py_XDECREF(IMPORT_FUNC(interp));
     int verbose = 0;
+    if (_PySys_ClearAttrString(interp, "meta_path", verbose) < 0) {
+        PyErr_WriteUnraisable(NULL);
+    }
     if (_PySys_ClearAttrString(interp, "modules", verbose) < 0) {
         PyErr_WriteUnraisable(NULL);
     }
@@ -2789,21 +2792,58 @@ init_zipimport(PyThreadState *tstate, int verbose)
 PyStatus
 _PyImport_InitExternal(PyThreadState *tstate)
 {
-    int verbose = _PyInterpreterState_GetConfig(tstate->interp)->verbose;
+    PyStatus status;
+    PyInterpreterState *interp = tstate->interp;
+    int verbose = _PyInterpreterState_GetConfig(interp)->verbose;
 
-    // XXX Initialize here: sys.path_hooks and sys.path_importer_cache.
-
-    if (init_importlib_external(tstate->interp) != 0) {
-        _PyErr_Print(tstate);
-        return _PyStatus_ERR("external importer setup failed");
+    /* sys.path_hooks */
+    PyObject *pathhooks = PyList_New(0);
+    if (pathhooks == NULL) {
+        status = _PyStatus_ERR("failed to create sys.path_hooks");
+        goto error;
+    }
+    if (PyDict_SetItemString(interp->sysdict, "path_hooks", pathhooks) < 0) {
+        status = _PyStatus_ERR("failed to set sys.path_hooks");
+        goto error;
     }
 
+    /* sys.path_importer_cache */
+    PyObject *path_importer_cache = PyDict_New();
+    if (path_importer_cache == NULL) {
+        status = _PyStatus_ERR("failed to create sys.path_importer_cache");
+        goto error;
+    }
+    if (PyDict_SetItemString(interp->sysdict, "path_importer_cache",
+                             path_importer_cache) < 0) {
+        status = _PyStatus_ERR("failed to set sys.path_importer_cache");
+        goto error;
+    }
+
+    /* the importlib._bootstrap_external importers */
+    if (init_importlib_external(interp) != 0) {
+        _PyErr_Print(tstate);
+        status = _PyStatus_ERR("external importer setup failed");
+        goto error;
+    }
+
+    /* the zipimport importer */
     if (init_zipimport(tstate, verbose) != 0) {
         PyErr_Print();
-        return _PyStatus_ERR("initializing zipimport failed");
+        status = _PyStatus_ERR("initializing zipimport failed");
+        goto error;
     }
 
     return _PyStatus_OK();
+
+error:
+    verbose = 0;
+    if (_PySys_ClearAttrString(interp, "path_importer_cache", verbose) < 0) {
+        PyErr_WriteUnraisable(NULL);
+    }
+    if (_PySys_ClearAttrString(interp, "path_hooks", verbose) < 0) {
+        PyErr_WriteUnraisable(NULL);
+    }
+    return status;
 }
 
 void
