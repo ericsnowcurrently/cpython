@@ -2648,19 +2648,29 @@ _PyImport_Fini2(void)
 /*************************/
 
 PyStatus
-_PyImport_InitCore(PyThreadState *tstate, PyObject *sysmod, int importlib)
+_PyImport_InitCore(PyThreadState *tstate, PyObject *sysmod, PyObject *bimod,
+                   int importlib)
 {
     PyStatus status;
+    PyInterpreterState *interp = tstate->interp;
 
     // XXX Initialize here: interp->modules.
 
     /* Cache builtins.__import__. */
-    if (init_default_import_func(tstate->interp) < 0) {
+    if (init_default_import_func(interp) < 0) {
         status = _PyStatus_ERR("failed to initialize importlib");
         goto error;
     }
 
     // XXX Initialize here: sys.modules and sys.meta_path.
+
+    /* Finish initializing the core builtin modules. */
+    if (_PyImport_FixupBuiltin(sysmod, "sys", MODULES(interp)) < 0) {
+        goto error;
+    }
+    if (_PyImport_FixupBuiltin(bimod, "builtins", MODULES(interp)) < 0) {
+        goto error;
+    }
 
     if (importlib) {
         /* This call sets up builtin and frozen import support */
@@ -2673,8 +2683,8 @@ _PyImport_InitCore(PyThreadState *tstate, PyObject *sysmod, int importlib)
     return _PyStatus_OK();
 
 error:
-    Py_XDECREF(IMPORT_FUNC(tstate->interp));
-    Py_XDECREF(IMPORTLIB(tstate->interp));
+    Py_XDECREF(IMPORT_FUNC(interp));
+    Py_XDECREF(IMPORTLIB(interp));
     return status;
 }
 

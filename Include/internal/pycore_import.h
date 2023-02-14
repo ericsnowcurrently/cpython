@@ -129,6 +129,7 @@ extern void _PyImport_Fini2(void);
 extern PyStatus _PyImport_InitCore(
         PyThreadState *tstate,
         PyObject *sysmod,
+        PyObject *bimod,
         int importlib);
 extern PyStatus _PyImport_InitExternal(PyThreadState *tstate);
 extern void _PyImport_FiniCore(PyInterpreterState *interp);

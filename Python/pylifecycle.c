@@ -736,17 +736,12 @@ static const _PyShimCodeDef INTERPRETER_TRAMPOLINE_CODEDEF = {
 };
 
 static PyStatus
-pycore_init_builtins(PyThreadState *tstate)
+pycore_init_builtins(PyThreadState *tstate, PyObject **bimod_p)
 {
     PyInterpreterState *interp = tstate->interp;
 
     PyObject *bimod = _PyBuiltin_Init(interp);
     if (bimod == NULL) {
-        goto error;
-    }
-
-    PyObject *modules = _PyImport_GetModules(interp);
-    if (_PyImport_FixupBuiltin(bimod, "builtins", modules) < 0) {
         goto error;
     }
 
@@ -787,9 +782,9 @@ pycore_init_builtins(PyThreadState *tstate)
     if (interp->builtins_copy == NULL) {
         goto error;
     }
-    Py_DECREF(bimod);
 
     assert(!_PyErr_Occurred(tstate));
+    *bimod_p = bimod;
     return _PyStatus_OK();
 
 error:
@@ -843,14 +838,15 @@ pycore_interp_init(PyThreadState *tstate)
         goto done;
     }
 
-    status = pycore_init_builtins(tstate);
+    status = pycore_init_builtins(tstate, &bimod);
     if (_PyStatus_EXCEPTION(status)) {
         goto done;
     }
 
     const PyConfig *config = _PyInterpreterState_GetConfig(interp);
 
-    status = _PyImport_InitCore(tstate, sysmod, config->_install_importlib);
+    status = _PyImport_InitCore(tstate, sysmod, bimod,
+                                config->_install_importlib);
     if (_PyStatus_EXCEPTION(status)) {
         goto done;
     }
