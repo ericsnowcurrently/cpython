@@ -1308,6 +1308,9 @@ finalize_modules_delete_special(PyThreadState *tstate, int verbose)
         "path", "argv", "ps1", "ps2",
         "last_type", "last_value", "last_traceback",
         "__interactivehook__",
+        // meta_path will be cleared by _PyImport_FiniCore(),
+        // but we do it here to eliminate refs as early as possible.
+        "meta_path",
         NULL
     };
 
@@ -1500,7 +1503,7 @@ finalize_clear_sys_builtins_dict(PyInterpreterState *interp, int verbose)
 
 
 /* Clear modules, as good as we can */
-// XXX Move most of this to import.c.
+// XXX Move some of this to import.c?
 static void
 finalize_modules(PyThreadState *tstate)
 {

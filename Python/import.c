@@ -2736,7 +2736,7 @@ _PyImport_FiniCore(PyInterpreterState *interp)
         PyErr_WriteUnraisable(NULL);
     }
 
-    // XXX Pull in most of finalize_modules() in pylifecycle.c.
+    // XXX Pull in some of finalize_modules() from pylifecycle.c.
 
     /* single-phase init modules */
     clear_modules_by_index(interp);
