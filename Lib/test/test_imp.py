@@ -10,6 +10,7 @@ from test.support import import_helper
 from test.support import os_helper
 from test.support import script_helper
 from test.support import warnings_helper
+import types
 import unittest
 import warnings
 imp = warnings_helper.import_deprecated('imp')
@@ -26,19 +27,6 @@ def requires_load_dynamic(meth):
     meth = support.cpython_only(meth)
     return unittest.skipIf(getattr(imp, 'load_dynamic', None) is None,
                            'imp.load_dynamic() required')(meth)
-
-
-def _forget_extension(name, filename):
-    """Clear all internally cached data for the extension.
-
-    This mostly applies only to single-phase init modules.
-    """
-    if name in sys.modules:
-        if hasattr(sys.modules[name], '_clear_globals'):
-            assert sys.modules[name].__file__ == filename
-            sys.modules[name]._clear_globals()
-        del sys.modules[name]
-    _testinternalcapi.clear_extension(name, filename)
 
 
 class LockTests(unittest.TestCase):
@@ -469,13 +457,39 @@ class SinglephaseInitTests(unittest.TestCase):
 
     def setUp(self):
         # Start and end fresh.
-        _forget_extension(self.NAME, self.FILE)
-        self.addCleanup(_forget_extension, self.NAME, self.FILE)
+        def clean_up():
+            name = self.NAME
+            if name in sys.modules:
+                if hasattr(sys.modules[name], '_clear_globals'):
+                    assert sys.modules[name].__file__ == self.FILE
+                    sys.modules[name]._clear_globals()
+                del sys.modules[name]
+            # Clear all internally cached data for the extension.
+            _testinternalcapi.clear_extension(name, self.FILE)
+        clean_up()
+        self.addCleanup(clean_up)
 
     def add_module_cleanup(self, name):
         def clean_up():
+            # Clear all internally cached data for the extension.
             _testinternalcapi.clear_extension(name, self.FILE)
         self.addCleanup(clean_up)
+
+    def get_module_snapshot(self, mod):
+        name = mod.__spec__.name
+        snap = types.SimpleNamespace(
+            ns_id=id(mod.__dict__),
+            ns=types.SimpleNamespace(**mod.__dict__),
+            # call functions
+            summed=mod.sum(1, 2),
+            lookedup=mod.look_up_self(),
+            state_initialized=mod.state_initialized(),
+            # import state
+            cached=sys.modules[name],
+        )
+        if hasattr(mod, 'initialized_count'):
+            snap.init_count = mod.initialized_count()
+        return snap
 
     def load(self, name):
         try:
@@ -483,103 +497,72 @@ class SinglephaseInitTests(unittest.TestCase):
         except AttributeError:
             already_loaded = self.already_loaded = {}
         assert name not in already_loaded
-        module = imp.load_dynamic(name, self.FILE)
-        self.assertNotIn(module, already_loaded.values())
-        already_loaded[name] = module
-        return module
+        mod = imp.load_dynamic(name, self.FILE)
+        self.assertNotIn(mod, already_loaded.values())
+        already_loaded[name] = mod
+        return types.SimpleNamespace(
+            name=name,
+            module=mod,
+            snapshot=self.get_module_snapshot(mod),
+        )
 
-    def re_load(self, name, module):
-        assert sys.modules[name] is module
-        before = type(module)(module.__name__)
-        before.__dict__.update(vars(module))
-
+    def re_load(self, name, mod):
+        assert sys.modules[name] is mod
+        assert mod.__dict__ == mod.__dict__
         reloaded = imp.load_dynamic(name, self.FILE)
+        return types.SimpleNamespace(
+            name=name,
+            module=reloaded,
+            snapshot=self.get_module_snapshot(reloaded),
+        )
 
-        return before, reloaded
+    def check_common(self, loaded):
+        mod = loaded.module
+        # mod.__name__  might not match, but the spec will.
+        self.assertEqual(mod.__spec__.name, loaded.name)
+        self.assertEqual(mod.__file__, self.FILE)
+        self.assertEqual(mod.__spec__.origin, self.FILE)
+        self.assertTrue(issubclass(mod.error, Exception))
+        self.assertEqual(mod.int_const, 1969)
+        self.assertEqual(mod.str_const, 'something different')
+        self.assertIsInstance(mod._module_initialized, float)
+        self.assertGreater(mod._module_initialized, 0)
 
-    def check_common(self, name, module):
-        summed = module.sum(1, 2)
-        lookedup = module.look_up_self()
-        initialized = module.state_initialized()
-        cached = sys.modules[name]
+        snap = loaded.snapshot
+        self.assertEqual(snap.summed, 3)
+        # The "looked up" module is interpreter-specific
+        # (interp->imports.modules_by_index was set for the module).
+        self.assertIs(snap.lookedup, mod)
+        if snap.state_initialized is not None:
+            self.assertIsInstance(snap.state_initialized, float)
+            self.assertGreater(snap.state_initialized, 0)
+        self.assertIs(snap.cached, mod)
 
-        # module.__name__  might not match, but the spec will.
-        self.assertEqual(module.__spec__.name, name)
-        if initialized is not None:
-            self.assertIsInstance(initialized, float)
-            self.assertGreater(initialized, 0)
-        self.assertEqual(summed, 3)
-        self.assertTrue(issubclass(module.error, Exception))
-        self.assertEqual(module.int_const, 1969)
-        self.assertEqual(module.str_const, 'something different')
-        self.assertIs(cached, module)
-
-        return lookedup, initialized, cached
-
-    def check_direct(self, name, module, lookedup):
+    def check_direct(self, loaded):
         # The module has its own PyModuleDef, with a matching name.
-        self.assertEqual(module.__name__, name)
-        self.assertIs(lookedup, module)
+        self.assertEqual(loaded.module.__name__, loaded.name)
+        self.assertIs(loaded.snapshot.lookedup, loaded.module)
 
-    def check_indirect(self, name, module, lookedup, orig):
+    def check_indirect(self, loaded, orig):
         # The module re-uses another's PyModuleDef, with a different name.
-        assert orig is not module
-        assert orig.__name__ != name
-        self.assertNotEqual(module.__name__, name)
-        self.assertIs(lookedup, module)
+        assert orig is not loaded.module
+        assert orig.__name__ != loaded.name
+        self.assertNotEqual(loaded.module.__name__, loaded.name)
+        self.assertIs(loaded.snapshot.lookedup, loaded.module)
 
-    def check_basic(self, module, initialized):
+    def check_basic(self, loaded, expected_init_count):
         # m_size == -1
         # The module loads fresh the first time and copies m_copy after.
-        init_count = module.initialized_count()
+        snap = loaded.snapshot
+        self.assertIsNot(snap.state_initialized, None)
+        self.assertIsInstance(snap.init_count, int)
+        self.assertGreater(snap.init_count, 0)
+        self.assertEqual(snap.init_count, expected_init_count)
 
-        self.assertIsNot(initialized, None)
-        self.assertIsInstance(init_count, int)
-        self.assertGreater(init_count, 0)
-
-        return init_count
-
-    def check_with_reinit(self, module):
+    def check_with_reinit(self, loaded):
         # m_size >= 0
         # The module loads fresh every time.
         pass
-
-    def check_common_reloaded(self, name, module, cached, before, reloaded):
-        recached = sys.modules[name]
-
-        self.assertEqual(reloaded.__spec__.name, name)
-        self.assertEqual(reloaded.__name__, before.__name__)
-        self.assertEqual(before.__dict__, module.__dict__)
-        self.assertIs(recached, reloaded)
-
-    def check_basic_reloaded(self, module, lookedup, initialized, init_count,
-                             before, reloaded):
-        relookedup = reloaded.look_up_self()
-        reinitialized = reloaded.state_initialized()
-        reinit_count = reloaded.initialized_count()
-
-        self.assertIs(reloaded, module)
-        self.assertIs(reloaded.__dict__, module.__dict__)
-        # It only happens to be the same but that's good enough here.
-        # We really just want to verify that the re-loaded attrs
-        # didn't change.
-        self.assertIs(relookedup, lookedup)
-        self.assertEqual(reinitialized, initialized)
-        self.assertEqual(reinit_count, init_count)
-
-    def check_with_reinit_reloaded(self, module, lookedup, initialized,
-                                   before, reloaded):
-        relookedup = reloaded.look_up_self()
-        reinitialized = reloaded.state_initialized()
-
-        self.assertIsNot(reloaded, module)
-        self.assertIsNot(reloaded, module)
-        self.assertNotEqual(reloaded.__dict__, module.__dict__)
-        self.assertIs(relookedup, reloaded)
-        if initialized is None:
-            self.assertIs(reinitialized, None)
-        else:
-            self.assertGreater(reinitialized, initialized)
 
     @requires_load_dynamic
     def test_variants(self):
@@ -589,20 +572,14 @@ class SinglephaseInitTests(unittest.TestCase):
         # Check the "basic" module.
 
         name = self.NAME
-        self.add_module_cleanup(name)
         expected_init_count = 1
         with self.subTest(name):
-            mod = self.load(name)
-            lookedup, initialized, cached = self.check_common(name, mod)
-            self.check_direct(name, mod, lookedup)
-            init_count = self.check_basic(mod, initialized)
-            self.assertEqual(init_count, expected_init_count)
+            loaded = self.load(name)
 
-            before, reloaded = self.re_load(name, mod)
-            self.check_common_reloaded(name, mod, cached, before, reloaded)
-            self.check_basic_reloaded(mod, lookedup, initialized, init_count,
-                                      before, reloaded)
-        basic = mod
+            self.check_common(loaded)
+            self.check_direct(loaded)
+            self.check_basic(loaded, expected_init_count)
+        basic = loaded.module
 
         # Check its indirect variants.
 
@@ -610,23 +587,18 @@ class SinglephaseInitTests(unittest.TestCase):
         self.add_module_cleanup(name)
         expected_init_count += 1
         with self.subTest(name):
-            mod = self.load(name)
-            lookedup, initialized, cached = self.check_common(name, mod)
-            self.check_indirect(name, mod, lookedup, basic)
-            init_count = self.check_basic(mod, initialized)
-            self.assertEqual(init_count, expected_init_count)
+            loaded = self.load(name)
 
-            before, reloaded = self.re_load(name, mod)
-            self.check_common_reloaded(name, mod, cached, before, reloaded)
-            self.check_basic_reloaded(mod, lookedup, initialized, init_count,
-                                      before, reloaded)
+            self.check_common(loaded)
+            self.check_indirect(loaded, basic)
+            self.check_basic(loaded, expected_init_count)
 
             # Currently PyState_AddModule() always replaces the cached module.
-            self.assertIs(basic.look_up_self(), mod)
+            self.assertIs(basic.look_up_self(), loaded.module)
             self.assertEqual(basic.initialized_count(), expected_init_count)
 
-        # The cached module shouldn't be changed after this point.
-        basic_lookedup = mod
+        # The cached module shouldn't change after this point.
+        basic_lookedup = loaded.module
 
         # Check its direct variant.
 
@@ -634,16 +606,11 @@ class SinglephaseInitTests(unittest.TestCase):
         self.add_module_cleanup(name)
         expected_init_count += 1
         with self.subTest(name):
-            mod = self.load(name)
-            lookedup, initialized, cached = self.check_common(name, mod)
-            self.check_direct(name, mod, lookedup)
-            init_count = self.check_basic(mod, initialized)
-            self.assertEqual(init_count, expected_init_count)
+            loaded = self.load(name)
 
-            before, reloaded = self.re_load(name, mod)
-            self.check_common_reloaded(name, mod, cached, before, reloaded)
-            self.check_basic_reloaded(mod, lookedup, initialized, init_count,
-                                      before, reloaded)
+            self.check_common(loaded)
+            self.check_direct(loaded)
+            self.check_basic(loaded, expected_init_count)
 
             # This should change the cached module for _testsinglephase.
             self.assertIs(basic.look_up_self(), basic_lookedup)
@@ -654,16 +621,12 @@ class SinglephaseInitTests(unittest.TestCase):
         name = f'{self.NAME}_with_reinit'
         self.add_module_cleanup(name)
         with self.subTest(name):
-            mod = self.load(name)
-            lookedup, initialized, cached = self.check_common(name, mod)
-            self.assertIs(initialized, None)
-            self.check_direct(name, mod, lookedup)
-            self.check_with_reinit(mod)
+            loaded = self.load(name)
 
-            before, reloaded = self.re_load(name, mod)
-            self.check_common_reloaded(name, mod, cached, before, reloaded)
-            self.check_with_reinit_reloaded(mod, lookedup, initialized,
-                                            before, reloaded)
+            self.check_common(loaded)
+            self.assertIs(loaded.snapshot.state_initialized, None)
+            self.check_direct(loaded)
+            self.check_with_reinit(loaded)
 
             # This should change the cached module for _testsinglephase.
             self.assertIs(basic.look_up_self(), basic_lookedup)
@@ -674,20 +637,101 @@ class SinglephaseInitTests(unittest.TestCase):
         name = f'{self.NAME}_with_state'
         self.add_module_cleanup(name)
         with self.subTest(name):
-            mod = self.load(name)
-            lookedup, initialized, cached = self.check_common(name, mod)
-            self.assertIsNot(initialized, None)
-            self.check_direct(name, mod, lookedup)
-            self.check_with_reinit(mod)
+            loaded = self.load(name)
 
-            before, reloaded = self.re_load(name, mod)
-            self.check_common_reloaded(name, mod, cached, before, reloaded)
-            self.check_with_reinit_reloaded(mod, lookedup, initialized,
-                                            before, reloaded)
+            self.check_common(loaded)
+            self.assertIsNot(loaded.snapshot.state_initialized, None)
+            self.check_direct(loaded)
+            self.check_with_reinit(loaded)
 
             # This should change the cached module for _testsinglephase.
             self.assertIs(basic.look_up_self(), basic_lookedup)
             self.assertEqual(basic.initialized_count(), expected_init_count)
+
+    @requires_load_dynamic
+    def test_basic_reloaded(self):
+        # m_copy is copied into the existing module object.
+        # Global state is not changed.
+        self.maxDiff = None
+
+        for name in [
+            self.NAME,  # the "basic" module
+            f'{self.NAME}_basic_wrapper',  # the indirect variant
+            f'{self.NAME}_basic_copy',  # the direct variant
+        ]:
+            self.add_module_cleanup(name)
+            with self.subTest(name):
+                loaded = self.load(name)
+                reloaded = self.re_load(name, loaded.module)
+
+                self.check_common(loaded)
+                self.check_common(reloaded)
+
+                # Make sure the original __dict__ did not get replaced.
+                self.assertEqual(id(loaded.module.__dict__),
+                                 loaded.snapshot.ns_id)
+                self.assertEqual(loaded.snapshot.ns.__dict__,
+                                 loaded.module.__dict__)
+
+                self.assertEqual(reloaded.module.__spec__.name, reloaded.name)
+                self.assertEqual(reloaded.module.__name__,
+                                 reloaded.snapshot.ns.__name__)
+
+                self.assertIs(reloaded.module, loaded.module)
+                self.assertIs(reloaded.module.__dict__, loaded.module.__dict__)
+                # It only happens to be the same but that's good enough here.
+                # We really just want to verify that the re-loaded attrs
+                # didn't change.
+                self.assertIs(reloaded.snapshot.lookedup,
+                              loaded.snapshot.lookedup)
+                self.assertEqual(reloaded.snapshot.state_initialized,
+                                 loaded.snapshot.state_initialized)
+                self.assertEqual(reloaded.snapshot.init_count,
+                                 loaded.snapshot.init_count)
+
+                self.assertIs(reloaded.snapshot.cached, reloaded.module)
+
+    @requires_load_dynamic
+    def test_with_reinit_reloaded(self):
+        # The module's m_init func is run again.
+        self.maxDiff = None
+
+        # Keep a reference around.
+        basic = self.load(self.NAME)
+
+        for name in [
+            f'{self.NAME}_with_reinit',  # m_size == 0
+            f'{self.NAME}_with_state',  # m_size > 0
+        ]:
+            self.add_module_cleanup(name)
+            with self.subTest(name):
+                loaded = self.load(name)
+                reloaded = self.re_load(name, loaded.module)
+
+                self.check_common(loaded)
+                self.check_common(reloaded)
+
+                # Make sure the original __dict__ did not get replaced.
+                self.assertEqual(id(loaded.module.__dict__),
+                                 loaded.snapshot.ns_id)
+                self.assertEqual(loaded.snapshot.ns.__dict__,
+                                 loaded.module.__dict__)
+
+                self.assertEqual(reloaded.module.__spec__.name, reloaded.name)
+                self.assertEqual(reloaded.module.__name__,
+                                 reloaded.snapshot.ns.__name__)
+
+                self.assertIsNot(reloaded.module, loaded.module)
+                self.assertNotEqual(reloaded.module.__dict__,
+                                    loaded.module.__dict__)
+                self.assertIs(reloaded.snapshot.lookedup, reloaded.module)
+                if loaded.snapshot.state_initialized is None:
+                    self.assertIs(reloaded.snapshot.state_initialized, None)
+                else:
+                    self.assertGreater(reloaded.snapshot.state_initialized,
+                                       loaded.snapshot.state_initialized)
+
+                self.assertIs(reloaded.snapshot.cached, reloaded.module)
 
 
 class ReloadTests(unittest.TestCase):
