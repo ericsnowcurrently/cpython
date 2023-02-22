@@ -14,6 +14,7 @@ import unittest
 import warnings
 imp = warnings_helper.import_deprecated('imp')
 import _imp
+import _testinternalcapi
 
 
 OS_PATH_NAME = os.path.__name__
@@ -25,6 +26,19 @@ def requires_load_dynamic(meth):
     meth = support.cpython_only(meth)
     return unittest.skipIf(getattr(imp, 'load_dynamic', None) is None,
                            'imp.load_dynamic() required')(meth)
+
+
+def _forget_extension(name, filename):
+    """Clear all internally cached data for the extension.
+
+    This mostly applies only to single-phase init modules.
+    """
+    if name in sys.modules:
+        if hasattr(sys.modules[name], '_clear_globals'):
+            assert sys.modules[name].__file__ == filename
+            sys.modules[name]._clear_globals()
+        del sys.modules[name]
+    _testinternalcapi.clear_extension(name, filename)
 
 
 class LockTests(unittest.TestCase):
@@ -253,17 +267,26 @@ class ImportTests(unittest.TestCase):
 
     @requires_load_dynamic
     def test_singlephase_variants(self):
-        '''Exercise the most meaningful variants described in Python/import.c.'''
+        # Exercise the most meaningful variants described in Python/import.c.
         self.maxDiff = None
 
         basename = '_testsinglephase'
-        fileobj, pathname, _ = imp.find_module(basename)
+        fileobj, filename, _ = imp.find_module(basename)
         fileobj.close()
+
+        # Start and end fresh.
+        _forget_extension(basename, filename)
+        self.addCleanup(_forget_extension, basename, filename)
+
+        def add_ext_cleanup(name):
+            def clean_up():
+                _testinternalcapi.clear_extension(name, filename)
+            self.addCleanup(clean_up)
 
         modules = {}
         def load(name):
             assert name not in modules
-            module = imp.load_dynamic(name, pathname)
+            module = imp.load_dynamic(name, filename)
             self.assertNotIn(module, modules.values())
             modules[name] = module
             return module
@@ -273,14 +296,14 @@ class ImportTests(unittest.TestCase):
             before = type(module)(module.__name__)
             before.__dict__.update(vars(module))
 
-            reloaded = imp.load_dynamic(name, pathname)
+            reloaded = imp.load_dynamic(name, filename)
 
             return before, reloaded
 
         def check_common(name, module):
             summed = module.sum(1, 2)
             lookedup = module.look_up_self()
-            initialized = module.initialized()
+            initialized = module.state_initialized()
             cached = sys.modules[name]
 
             # module.__name__  might not match, but the spec will.
@@ -328,7 +351,7 @@ class ImportTests(unittest.TestCase):
         def check_basic_reloaded(module, lookedup, initialized, init_count,
                                  before, reloaded):
             relookedup = reloaded.look_up_self()
-            reinitialized = reloaded.initialized()
+            reinitialized = reloaded.state_initialized()
             reinit_count = reloaded.initialized_count()
 
             self.assertIs(reloaded, module)
@@ -343,7 +366,7 @@ class ImportTests(unittest.TestCase):
         def check_with_reinit_reloaded(module, lookedup, initialized,
                                        before, reloaded):
             relookedup = reloaded.look_up_self()
-            reinitialized = reloaded.initialized()
+            reinitialized = reloaded.state_initialized()
 
             self.assertIsNot(reloaded, module)
             self.assertIsNot(reloaded, module)
@@ -357,6 +380,7 @@ class ImportTests(unittest.TestCase):
         # Check the "basic" module.
 
         name = basename
+        add_ext_cleanup(name)
         expected_init_count = 1
         with self.subTest(name):
             mod = load(name)
@@ -374,6 +398,7 @@ class ImportTests(unittest.TestCase):
         # Check its indirect variants.
 
         name = f'{basename}_basic_wrapper'
+        add_ext_cleanup(name)
         expected_init_count += 1
         with self.subTest(name):
             mod = load(name)
@@ -387,7 +412,7 @@ class ImportTests(unittest.TestCase):
             check_basic_reloaded(mod, lookedup, initialized, init_count,
                                  before, reloaded)
 
-            # Currently _PyState_AddModule() always replaces the cached module.
+            # Currently PyState_AddModule() always replaces the cached module.
             self.assertIs(basic.look_up_self(), mod)
             self.assertEqual(basic.initialized_count(), expected_init_count)
 
@@ -397,6 +422,7 @@ class ImportTests(unittest.TestCase):
         # Check its direct variant.
 
         name = f'{basename}_basic_copy'
+        add_ext_cleanup(name)
         expected_init_count += 1
         with self.subTest(name):
             mod = load(name)
@@ -417,6 +443,7 @@ class ImportTests(unittest.TestCase):
         # Check the non-basic variant that has no state.
 
         name = f'{basename}_with_reinit'
+        add_ext_cleanup(name)
         with self.subTest(name):
             mod = load(name)
             lookedup, initialized, cached = check_common(name, mod)
@@ -435,6 +462,7 @@ class ImportTests(unittest.TestCase):
         # Check the basic variant that has state.
 
         name = f'{basename}_with_state'
+        add_ext_cleanup(name)
         with self.subTest(name):
             mod = load(name)
             lookedup, initialized, cached = check_common(name, mod)
