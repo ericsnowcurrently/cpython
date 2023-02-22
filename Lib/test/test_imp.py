@@ -1,4 +1,5 @@
 import gc
+import json
 import importlib
 import importlib.util
 import os
@@ -10,15 +11,26 @@ from test.support import import_helper
 from test.support import os_helper
 from test.support import script_helper
 from test.support import warnings_helper
+import textwrap
 import types
 import unittest
 import warnings
 imp = warnings_helper.import_deprecated('imp')
 import _imp
 import _testinternalcapi
+try:
+    import _xxsubinterpreters as _interpreters
+except ModuleNotFoundError:
+    _interpreters = None
 
 
 OS_PATH_NAME = os.path.__name__
+
+
+def requires_subinterpreters(meth):
+    """Decorator to skip a test if subinterpreters are not supported."""
+    return unittest.skipIf(_interpreters is None,
+                           'subinterpreters required')(meth)
 
 
 def requires_load_dynamic(meth):
@@ -518,6 +530,9 @@ class SinglephaseInitTests(unittest.TestCase):
         clean_up()
         self.addCleanup(clean_up)
 
+    #########################
+    # helpers
+
     def add_module_cleanup(self, name):
         def clean_up():
             # Clear all internally cached data for the extension.
@@ -549,13 +564,133 @@ class SinglephaseInitTests(unittest.TestCase):
             snapshot=TestSinglePhaseSnapshot.from_module(reloaded),
         )
 
+    # subinterpreters
+
+    def add_subinterpreter(self):
+        interpid = _interpreters.create(isolated=False)
+        _interpreters.run_string(interpid, textwrap.dedent('''
+            import sys
+            import _testinternalcapi
+            '''))
+        def clean_up():
+            _interpreters.run_string(interpid, textwrap.dedent(f'''
+                name = {self.NAME!r}
+                if name in sys.modules:
+                    sys.modules[name]._clear_globals()
+                _testinternalcapi.clear_extension(name, {self.FILE!r})
+                '''))
+            _interpreters.destroy(interpid)
+        self.addCleanup(clean_up)
+        return interpid
+
+    def import_in_subinterp(self, interpid=None, *,
+                            after=None,
+                            precleanup=False,
+                            ):
+        name = self.NAME
+
+        try:
+            r, w = self._pipe
+        except AttributeError:
+            r, w = self._pipe = os.pipe()
+            self.addCleanup(os.close, r)
+            self.addCleanup(os.close, w)
+
+        # Build the script.
+        script = ''
+        if precleanup:
+            if interpid is None:
+                script += textwrap.dedent(f'''
+                    import sys
+                    import _testinternalcapi
+                    name = {name!r}
+                    sys.modules.pop(name, None)
+                    _testinternalcapi.clear_extension(name, {self.FILE!r})
+
+                    ''')
+            else:
+                script += textwrap.dedent(f'''
+                    name = {name!r}
+                    if name in sys.modules:
+                        sys.modules[name]._clear_globals()
+                        del sys.modules[name]
+                    _testinternalcapi.clear_extension(name, {self.FILE!r})
+
+                    ''')
+        script += textwrap.dedent(f'''
+            import json
+            import os
+            import sys
+
+            import {name} as mod
+
+            snapshot = dict(
+                id=id(mod),
+                ns_id=id(mod.__dict__),
+                module=dict(
+                    __file__=mod.__file__,
+                    __spec__=dict(
+                        name=mod.__spec__.name,
+                        origin=mod.__spec__.origin,
+                    ),
+                    int_const=mod.int_const,
+                    str_const=mod.str_const,
+                    _module_initialized=mod._module_initialized,
+                ),
+                summed=mod.sum(1, 2),
+                lookedup_id=id(mod.look_up_self()),
+                state_initialized=mod.state_initialized(),
+                init_count=mod.initialized_count(),
+                cached_id=id(sys.modules[{name!r}]),
+                has_spam=hasattr(mod, 'spam'),
+                spam=getattr(mod, 'spam', None),
+            )
+            os.write({w}, json.dumps(snapshot).encode())
+            ''')
+        if after:
+            script += os.linesep + textwrap.dedent(after)
+
+        # Run the script.
+        if interpid is None:
+            ret = support.run_in_subinterp(script)
+            self.assertEqual(ret, 0)
+        else:
+            _interpreters.run_string(interpid, script)
+
+        # Parse the results.
+        text = os.read(r, 1000)
+        raw = json.loads(text.decode())
+        spam = raw.pop('spam', None)
+        has_spam = raw.pop('has_spam', False)
+        mod = raw['module']
+        mod['__spec__'] = types.SimpleNamespace(**mod['__spec__'])
+        raw['module'] = types.SimpleNamespace(**mod)
+        snapshot = types.SimpleNamespace(**raw)
+        if has_spam:
+            snapshot.spam = spam
+
+        return types.SimpleNamespace(
+            name=name,
+            module=None,
+            snapshot=snapshot,
+        )
+
+    # checks
+
     def check_common(self, loaded):
+        isolated = False
+
         mod = loaded.module
+        if not mod:
+            # It came from a subinterpreter.
+            isolated = True
+            mod = loaded.snapshot.module
         # mod.__name__  might not match, but the spec will.
         self.assertEqual(mod.__spec__.name, loaded.name)
         self.assertEqual(mod.__file__, self.FILE)
         self.assertEqual(mod.__spec__.origin, self.FILE)
-        self.assertTrue(issubclass(mod.error, Exception))
+        if not isolated:
+            self.assertTrue(issubclass(mod.error, Exception))
         self.assertEqual(mod.int_const, 1969)
         self.assertEqual(mod.str_const, 'something different')
         self.assertIsInstance(mod._module_initialized, float)
@@ -563,13 +698,19 @@ class SinglephaseInitTests(unittest.TestCase):
 
         snap = loaded.snapshot
         self.assertEqual(snap.summed, 3)
-        # The "looked up" module is interpreter-specific
-        # (interp->imports.modules_by_index was set for the module).
-        self.assertIs(snap.lookedup, mod)
         if snap.state_initialized is not None:
             self.assertIsInstance(snap.state_initialized, float)
             self.assertGreater(snap.state_initialized, 0)
-        self.assertIs(snap.cached, mod)
+        if isolated:
+            # The "looked up" module is interpreter-specific
+            # (interp->imports.modules_by_index was set for the module).
+            self.assertEqual(snap.lookedup_id, snap.id)
+            self.assertEqual(snap.cached_id, snap.id)
+            with self.assertRaises(AttributeError):
+                snap.spam
+        else:
+            self.assertIs(snap.lookedup, mod)
+            self.assertIs(snap.cached, mod)
 
     def check_direct(self, loaded):
         # The module has its own PyModuleDef, with a matching name.
@@ -596,6 +737,65 @@ class SinglephaseInitTests(unittest.TestCase):
         # m_size >= 0
         # The module loads fresh every time.
         pass
+
+    def check_fresh(self, loaded):
+        """
+        The module had not been loaded before (at least since fully reset).
+        """
+        snap = loaded.snapshot
+        # The module's init func was run.
+        # A copy of the module's __dict__ was stored in def->m_base.m_copy.
+        # The previous m_copy was deleted first.
+        # _PyRuntime.imports.extensions was set.
+        self.assertEqual(snap.init_count, 1)
+        # The global state was initialized.
+        # The module attrs were initialized from that state.
+        self.assertEqual(snap.module._module_initialized,
+                         snap.state_initialized)
+
+    def check_semi_fresh(self, loaded, base, prev):
+        """
+        The module had been loaded before and then reset
+        (but the module global state wasn't).
+        """
+        snap = loaded.snapshot
+        # The module's init func was run again.
+        # A copy of the module's __dict__ was stored in def->m_base.m_copy.
+        # The previous m_copy was deleted first.
+        # The module globals did not get reset.
+        self.assertNotEqual(snap.id, base.snapshot.id)
+        self.assertNotEqual(snap.id, prev.snapshot.id)
+        self.assertEqual(snap.init_count, prev.snapshot.init_count + 1)
+        # The global state was updated.
+        # The module attrs were initialized from that state.
+        self.assertEqual(snap.module._module_initialized,
+                         snap.state_initialized)
+        self.assertNotEqual(snap.state_initialized,
+                            base.snapshot.state_initialized)
+        self.assertNotEqual(snap.state_initialized,
+                            prev.snapshot.state_initialized)
+
+    def check_copied(self, loaded, base):
+        """
+        The module had been loaded before and never reset.
+        """
+        snap = loaded.snapshot
+        # The module's init func was not run again.
+        # The interpreter copied m_copy, as set by the other interpreter,
+        # with objects owned by the other interpreter.
+        # The module globals did not get reset.
+        self.assertNotEqual(snap.id, base.snapshot.id)
+        self.assertEqual(snap.init_count, base.snapshot.init_count)
+        # The global state was not updated since the init func did not run.
+        # The module attrs were not directly initialized from that state.
+        # The state and module attrs still match the previous loading.
+        self.assertEqual(snap.module._module_initialized,
+                         snap.state_initialized)
+        self.assertEqual(snap.state_initialized,
+                         base.snapshot.state_initialized)
+
+    #########################
+    # the tests
 
     @requires_load_dynamic
     def test_variants(self):
@@ -765,6 +965,109 @@ class SinglephaseInitTests(unittest.TestCase):
                                        loaded.snapshot.state_initialized)
 
                 self.assertIs(reloaded.snapshot.cached, reloaded.module)
+
+    @requires_subinterpreters
+    @requires_load_dynamic
+    def test_basic_multiple_interpreters_main_no_reset(self):
+        # without resetting; already loaded in main interpreter
+
+        # Currently, for every single-phrase init module loaded
+        # in multiple interpreters, those interpreters share a
+        # PyModuleDef for that object, which can be a problem.
+
+        # This single-phase module has global state, which is shared
+        # by all interpreters.
+        main_loaded = self.load(self.NAME)
+        _testsinglephase = main_loaded.module
+        # Attrs set after loading are not in m_copy.
+        _testsinglephase.spam = 'spam, spam, spam, spam, eggs, and spam'
+
+        self.check_common(main_loaded)
+        self.check_fresh(main_loaded)
+
+        interp1 = self.add_subinterpreter()
+        interp2 = self.add_subinterpreter()
+
+        # Use an interpreter that gets destroyed right away.
+        loaded = self.import_in_subinterp()
+        self.check_common(loaded)
+        self.check_copied(loaded, main_loaded)
+
+        # Use several interpreters that overlap in time.
+        loaded = self.import_in_subinterp(interp1)
+        self.check_common(loaded)
+        self.check_copied(loaded, main_loaded)
+
+        loaded = self.import_in_subinterp(interp2)
+        self.check_common(loaded)
+        self.check_copied(loaded, main_loaded)
+
+    @requires_subinterpreters
+    @requires_load_dynamic
+    def test_basic_multiple_interpreters_deleted_no_reset(self):
+        # without resetting; already loaded in a deleted interpreter
+
+        # Currently, for every single-phrase init module loaded
+        # in multiple interpreters, those interpreters share a
+        # PyModuleDef for that object, which can be a problem.
+
+        interp1 = self.add_subinterpreter()
+        interp2 = self.add_subinterpreter()
+
+        # First, load in the main interpreter but then completely clear it.
+        loaded_main = self.load(self.NAME)
+        loaded_main.module._clear_globals()
+        _testinternalcapi.clear_extension(self.NAME, self.FILE)
+
+        # Start with an interpreter that gets destroyed right away.
+        base = self.import_in_subinterp(after='''
+            # Attrs set after loading are not in m_copy.
+            mod.spam = 'spam, spam, mash, spam, eggs, and spam'
+        ''')
+        self.check_common(base)
+        self.check_fresh(base)
+
+        # Use several interpreters that overlap in time.
+        loaded_interp1 = self.import_in_subinterp()
+        self.check_common(loaded_interp1)
+        self.check_semi_fresh(loaded_interp1, loaded_main, base)
+
+        loaded_interp2 = self.import_in_subinterp()
+        self.check_common(loaded_interp2)
+        self.check_copied(loaded_interp2, loaded_interp1)
+
+    @requires_subinterpreters
+    @requires_load_dynamic
+    def test_basic_multiple_interpreters_reset_each(self):
+        # resetting between each interpreter
+
+        # Currently, for every single-phrase init module loaded
+        # in multiple interpreters, those interpreters share a
+        # PyModuleDef for that object, which can be a problem.
+
+        interp1 = self.add_subinterpreter()
+        interp2 = self.add_subinterpreter()
+
+        # Use an interpreter that gets destroyed right away.
+        loaded = self.import_in_subinterp(
+            after='''
+            # Attrs set after loading are not in m_copy.
+            mod.spam = 'spam, spam, mash, spam, eggs, and spam'
+            ''',
+            precleanup=True,
+        )
+        self.check_common(loaded)
+        self.check_fresh(loaded)
+
+        # Use several interpreters that overlap in time.
+        loaded = self.import_in_subinterp(interp1, precleanup=True)
+        self.check_common(loaded)
+        self.check_fresh(loaded)
+
+        clear_subinterp(interp2)
+        loaded = self.import_in_subinterp(interp2, precleanup=True)
+        self.check_common(loaded)
+        self.check_fresh(loaded)
 
 
 class ReloadTests(unittest.TestCase):
