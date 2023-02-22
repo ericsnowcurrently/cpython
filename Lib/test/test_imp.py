@@ -894,6 +894,20 @@ class SinglephaseInitTests(unittest.TestCase):
     # the tests
 
     @requires_load_dynamic
+    def test_cleared_globals(self):
+        loaded = self.load(self.NAME)
+        _testsinglephase = loaded.module
+        init_before = _testsinglephase.state_initialized()
+
+        _testsinglephase._clear_globals()
+        init_after = _testsinglephase.state_initialized()
+        init_count = _testsinglephase.initialized_count()
+
+        self.assertGreater(init_before, 0)
+        self.assertEqual(init_after, 0)
+        self.assertEqual(init_count, -1)
+
+    @requires_load_dynamic
     def test_variants(self):
         # Exercise the most meaningful variants described in Python/import.c.
         self.maxDiff = None
