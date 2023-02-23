@@ -75,6 +75,133 @@ class ModuleSnapshot(types.SimpleNamespace):
             cached_id=id(cached),
         )
 
+    SCRIPT = textwrap.dedent('''
+        {imports}
+
+        name = {name!r}
+
+        {prescript}
+
+        mod = {name}
+
+        {body}
+
+        {postscript}
+        ''')
+    IMPORTS = textwrap.dedent('''
+        import sys
+        ''').strip()
+    SCRIPT_BODY = textwrap.dedent('''
+        # Capture the snapshot data.
+        cached = sys.modules.get(name)
+        snapshot = dict(
+            id=id(mod),
+            module=dict(
+                __file__=mod.__file__,
+                __spec__=dict(
+                    name=mod.__spec__.name,
+                    origin=mod.__spec__.origin,
+                ),
+            ),
+            ns=None,
+            ns_id=id(mod.__dict__),
+            cached=None,
+            cached_id=id(cached) if cached else None,
+        )
+        ''').strip()
+    CLEANUP_SCRIPT = textwrap.dedent('''
+        # Clean up the module.
+        _removed_module = sys.modules.pop(name, None)
+        ''').strip()
+
+    @classmethod
+    def build_script(cls, name, *,
+                     precleanup=False,
+                     prescript=None,
+                     import_first=False,
+                     postscript=None,
+                     ):
+        if precleanup is True:
+            precleanup = cls.CLEANUP_SCRIPT
+        elif isinstance(precleanup, str):
+            precleanup = textwrap.dedent(precleanup).strip()
+            precleanup = cls.CLEANUP_SCRIPT + os.linesep + precleanup
+        else:
+            precleanup = ''
+        prescript = textwrap.dedent(prescript).strip() if prescript else ''
+        postscript = textwrap.dedent(postscript).strip() if postscript else ''
+
+        if prescript:
+            prescript = precleanup + os.linesep * 2 + prescript
+        else:
+            prescript = precleanup
+
+        if import_first:
+            prescript += textwrap.dedent(f'''
+
+                # Now import the module.
+                assert name not in sys.modules
+                import {name}''')
+
+        return cls.SCRIPT.format(
+            imports=cls.IMPORTS.strip(),
+            name=name,
+            prescript=prescript.strip(),
+            body=cls.SCRIPT_BODY.strip(),
+            postscript=postscript,
+        )
+
+    @classmethod
+    def parse(cls, text):
+        raw = json.loads(text)
+        mod = raw['module']
+        mod['__spec__'] = types.SimpleNamespace(**mod['__spec__'])
+        raw['module'] = types.SimpleNamespace(**mod)
+        return cls(**raw)
+
+    @classmethod
+    def from_subinterp(cls, name, interpid=None, *, pipe=None, **script_kwds):
+        if pipe is not None:
+            return cls._from_subinterp(name, interpid, pipe, script_kwds)
+        pipe = os.pipe()
+        try:
+            return cls._from_subinterp(name, interpid, pipe, script_kwds)
+        finally:
+            r, w = pipe
+            os.close(r)
+            os.close(w)
+
+    @classmethod
+    def _from_subinterp(cls, name, interpid, pipe, script_kwargs):
+        r, w = pipe
+
+        # Build the script.
+        postscript = textwrap.dedent(f'''
+            # Send the result over the pipe.
+            import json
+            import os
+            os.write({w}, json.dumps(snapshot).encode())
+
+            ''')
+        _postscript = script_kwargs.get('postscript')
+        if _postscript:
+            _postscript = textwrap.dedent(_postscript).lstrip()
+            postscript += _postscript
+        script_kwargs['postscript'] = postscript.strip()
+        script = cls.build_script(name, **script_kwargs)
+
+        # Run the script.
+        if interpid is None:
+            ret = support.run_in_subinterp(script)
+            if ret != 0:
+                raise AssertionError(f'{ret} != 0')
+        else:
+            _interpreters.run_string(interpid, script)
+
+        # Parse the results.
+        text = os.read(r, 1000)
+        return cls.parse(text.decode())
+
 
 class LockTests(unittest.TestCase):
 
@@ -505,6 +632,30 @@ class TestSinglePhaseSnapshot(ModuleSnapshot):
             self.init_count = mod.initialized_count()
         return self
 
+    SCRIPT_BODY = ModuleSnapshot.SCRIPT_BODY + textwrap.dedent(f'''
+        snapshot['module'].update(dict(
+            int_const=mod.int_const,
+            str_const=mod.str_const,
+            _module_initialized=mod._module_initialized,
+        ))
+        snapshot.update(dict(
+            summed=mod.sum(1, 2),
+            lookedup_id=id(mod.look_up_self()),
+            state_initialized=mod.state_initialized(),
+            init_count=mod.initialized_count(),
+            has_spam=hasattr(mod, 'spam'),
+            spam=getattr(mod, 'spam', None),
+        ))
+        ''').rstrip()
+
+    @classmethod
+    def parse(cls, text):
+        self = super().parse(text)
+        if not self.has_spam:
+            del self.spam
+        del self.has_spam
+        return self
+
 
 class SinglephaseInitTests(unittest.TestCase):
 
@@ -584,90 +735,40 @@ class SinglephaseInitTests(unittest.TestCase):
         return interpid
 
     def import_in_subinterp(self, interpid=None, *,
-                            after=None,
                             precleanup=False,
+                            postscript=None,
                             ):
         name = self.NAME
 
+        if precleanup:
+            if interpid is None:
+                precleanup = textwrap.dedent(f'''
+                    assert not _removed_module
+                    import _testinternalcapi
+                    _testinternalcapi.clear_extension(name, {self.FILE!r})
+                    ''').rstrip()
+            else:
+                precleanup = textwrap.dedent(f'''
+                    if _removed_module:
+                        _removed_module._clear_globals()
+                    _testinternalcapi.clear_extension(name, {self.FILE!r})
+                    ''').rstrip()
+
         try:
-            r, w = self._pipe
+            pipe = self._pipe
         except AttributeError:
-            r, w = self._pipe = os.pipe()
+            r, w = pipe = self._pipe = os.pipe()
             self.addCleanup(os.close, r)
             self.addCleanup(os.close, w)
 
-        # Build the script.
-        script = ''
-        if precleanup:
-            if interpid is None:
-                script += textwrap.dedent(f'''
-                    import sys
-                    import _testinternalcapi
-                    name = {name!r}
-                    sys.modules.pop(name, None)
-                    _testinternalcapi.clear_extension(name, {self.FILE!r})
-
-                    ''')
-            else:
-                script += textwrap.dedent(f'''
-                    name = {name!r}
-                    if name in sys.modules:
-                        sys.modules[name]._clear_globals()
-                        del sys.modules[name]
-                    _testinternalcapi.clear_extension(name, {self.FILE!r})
-
-                    ''')
-        script += textwrap.dedent(f'''
-            import json
-            import os
-            import sys
-
-            import {name} as mod
-
-            snapshot = dict(
-                id=id(mod),
-                ns_id=id(mod.__dict__),
-                module=dict(
-                    __file__=mod.__file__,
-                    __spec__=dict(
-                        name=mod.__spec__.name,
-                        origin=mod.__spec__.origin,
-                    ),
-                    int_const=mod.int_const,
-                    str_const=mod.str_const,
-                    _module_initialized=mod._module_initialized,
-                ),
-                summed=mod.sum(1, 2),
-                lookedup_id=id(mod.look_up_self()),
-                state_initialized=mod.state_initialized(),
-                init_count=mod.initialized_count(),
-                cached_id=id(sys.modules[{name!r}]),
-                has_spam=hasattr(mod, 'spam'),
-                spam=getattr(mod, 'spam', None),
-            )
-            os.write({w}, json.dumps(snapshot).encode())
-            ''')
-        if after:
-            script += os.linesep + textwrap.dedent(after)
-
-        # Run the script.
-        if interpid is None:
-            ret = support.run_in_subinterp(script)
-            self.assertEqual(ret, 0)
-        else:
-            _interpreters.run_string(interpid, script)
-
-        # Parse the results.
-        text = os.read(r, 1000)
-        raw = json.loads(text.decode())
-        spam = raw.pop('spam', None)
-        has_spam = raw.pop('has_spam', False)
-        mod = raw['module']
-        mod['__spec__'] = types.SimpleNamespace(**mod['__spec__'])
-        raw['module'] = types.SimpleNamespace(**mod)
-        snapshot = types.SimpleNamespace(**raw)
-        if has_spam:
-            snapshot.spam = spam
+        snapshot = TestSinglePhaseSnapshot.from_subinterp(
+            name,
+            interpid,
+            pipe=pipe,
+            precleanup=precleanup,
+            import_first=True,
+            postscript=postscript,
+        )
 
         return types.SimpleNamespace(
             name=name,
@@ -1020,7 +1121,7 @@ class SinglephaseInitTests(unittest.TestCase):
         _testinternalcapi.clear_extension(self.NAME, self.FILE)
 
         # Start with an interpreter that gets destroyed right away.
-        base = self.import_in_subinterp(after='''
+        base = self.import_in_subinterp(postscript='''
             # Attrs set after loading are not in m_copy.
             mod.spam = 'spam, spam, mash, spam, eggs, and spam'
         ''')
@@ -1050,11 +1151,11 @@ class SinglephaseInitTests(unittest.TestCase):
 
         # Use an interpreter that gets destroyed right away.
         loaded = self.import_in_subinterp(
-            after='''
+            precleanup=True,
+            postscript='''
             # Attrs set after loading are not in m_copy.
             mod.spam = 'spam, spam, mash, spam, eggs, and spam'
             ''',
-            precleanup=True,
         )
         self.check_common(loaded)
         self.check_fresh(loaded)
