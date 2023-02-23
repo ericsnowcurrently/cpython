@@ -29,6 +29,41 @@ def requires_load_dynamic(meth):
                            'imp.load_dynamic() required')(meth)
 
 
+class ModuleSnapshot(types.SimpleNamespace):
+    """A representation of a module for testing.
+
+    Fields:
+
+    * id - the module's object ID
+    * module - the actual module or an adequate substitute
+       * __file__
+       * __spec__
+          * name
+          * origin
+    * ns - a copy (dict) of the module's __dict__ (or None)
+    * ns_id - the object ID of the module's __dict__
+    * cached - the sys.modules[mod.__spec__.name] entry (or None)
+    * cached_id - the object ID of the sys.modules entry (or None)
+
+    In cases where the value is not available (e.g. due to serialization),
+    the value will be None.
+    """
+    _fields = tuple('id module ns ns_id cached cached_id'.split())
+
+    @classmethod
+    def from_module(cls, mod):
+        name = mod.__spec__.name
+        cached = sys.modules.get(name)
+        return cls(
+            id=id(mod),
+            module=mod,
+            ns=types.SimpleNamespace(**mod.__dict__),
+            ns_id=id(mod.__dict__),
+            cached=cached,
+            cached_id=id(cached),
+        )
+
+
 class LockTests(unittest.TestCase):
 
     """Very basic test of import lock functions."""
@@ -445,6 +480,20 @@ class ImportTests(unittest.TestCase):
         check_get_builtins()
 
 
+class TestSinglePhaseSnapshot(ModuleSnapshot):
+
+    @classmethod
+    def from_module(cls, mod):
+        self = super().from_module(mod)
+        self.summed = mod.sum(1, 2)
+        self.lookedup = mod.look_up_self()
+        self.lookedup_id = id(self.lookedup)
+        self.state_initialized = mod.state_initialized()
+        if hasattr(mod, 'initialized_count'):
+            self.init_count = mod.initialized_count()
+        return self
+
+
 class SinglephaseInitTests(unittest.TestCase):
 
     NAME = '_testsinglephase'
@@ -475,22 +524,6 @@ class SinglephaseInitTests(unittest.TestCase):
             _testinternalcapi.clear_extension(name, self.FILE)
         self.addCleanup(clean_up)
 
-    def get_module_snapshot(self, mod):
-        name = mod.__spec__.name
-        snap = types.SimpleNamespace(
-            ns_id=id(mod.__dict__),
-            ns=types.SimpleNamespace(**mod.__dict__),
-            # call functions
-            summed=mod.sum(1, 2),
-            lookedup=mod.look_up_self(),
-            state_initialized=mod.state_initialized(),
-            # import state
-            cached=sys.modules[name],
-        )
-        if hasattr(mod, 'initialized_count'):
-            snap.init_count = mod.initialized_count()
-        return snap
-
     def load(self, name):
         try:
             already_loaded = self.already_loaded
@@ -503,7 +536,7 @@ class SinglephaseInitTests(unittest.TestCase):
         return types.SimpleNamespace(
             name=name,
             module=mod,
-            snapshot=self.get_module_snapshot(mod),
+            snapshot=TestSinglePhaseSnapshot.from_module(mod),
         )
 
     def re_load(self, name, mod):
@@ -513,7 +546,7 @@ class SinglephaseInitTests(unittest.TestCase):
         return types.SimpleNamespace(
             name=name,
             module=reloaded,
-            snapshot=self.get_module_snapshot(reloaded),
+            snapshot=TestSinglePhaseSnapshot.from_module(reloaded),
         )
 
     def check_common(self, loaded):
