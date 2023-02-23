@@ -111,30 +111,31 @@ class ModuleSnapshot(types.SimpleNamespace):
         ''').strip()
     CLEANUP_SCRIPT = textwrap.dedent('''
         # Clean up the module.
-        _removed_module = sys.modules.pop(name, None)
+        sys.modules.pop(name, None)
         ''').strip()
 
     @classmethod
     def build_script(cls, name, *,
-                     precleanup=False,
                      prescript=None,
                      import_first=False,
                      postscript=None,
+                     postcleanup=False,
                      ):
-        if precleanup is True:
-            precleanup = cls.CLEANUP_SCRIPT
-        elif isinstance(precleanup, str):
-            precleanup = textwrap.dedent(precleanup).strip()
-            precleanup = cls.CLEANUP_SCRIPT + os.linesep + precleanup
+        if postcleanup is True:
+            postcleanup = cls.CLEANUP_SCRIPT
+        elif isinstance(postcleanup, str):
+            postcleanup = textwrap.dedent(postcleanup).strip()
+            postcleanup = cls.CLEANUP_SCRIPT + os.linesep + postcleanup
         else:
-            precleanup = ''
+            postcleanup = ''
         prescript = textwrap.dedent(prescript).strip() if prescript else ''
         postscript = textwrap.dedent(postscript).strip() if postscript else ''
 
-        if prescript:
-            prescript = precleanup + os.linesep * 2 + prescript
-        else:
-            prescript = precleanup
+        if postcleanup:
+            if postscript:
+                postscript = postscript + os.linesep * 2 + postcleanup
+            else:
+                postscript = postcleanup
 
         if import_first:
             prescript += textwrap.dedent(f'''
@@ -735,24 +736,18 @@ class SinglephaseInitTests(unittest.TestCase):
         return interpid
 
     def import_in_subinterp(self, interpid=None, *,
-                            precleanup=False,
                             postscript=None,
+                            postcleanup=False,
                             ):
         name = self.NAME
 
-        if precleanup:
-            if interpid is None:
-                precleanup = textwrap.dedent(f'''
-                    assert not _removed_module
-                    import _testinternalcapi
-                    _testinternalcapi.clear_extension(name, {self.FILE!r})
-                    ''').rstrip()
-            else:
-                precleanup = textwrap.dedent(f'''
-                    if _removed_module:
-                        _removed_module._clear_globals()
-                    _testinternalcapi.clear_extension(name, {self.FILE!r})
-                    ''').rstrip()
+        if postcleanup:
+            import_ = 'import _testinternalcapi' if interpid is None else ''
+            postcleanup = f'''
+                {import_}
+                mod._clear_globals()
+                _testinternalcapi.clear_extension(name, {self.FILE!r})
+                '''
 
         try:
             pipe = self._pipe
@@ -765,9 +760,9 @@ class SinglephaseInitTests(unittest.TestCase):
             name,
             interpid,
             pipe=pipe,
-            precleanup=precleanup,
             import_first=True,
             postscript=postscript,
+            postcleanup=postcleanup,
         )
 
         return types.SimpleNamespace(
@@ -1067,17 +1062,26 @@ class SinglephaseInitTests(unittest.TestCase):
 
                 self.assertIs(reloaded.snapshot.cached, reloaded.module)
 
+    # Currently, for every single-phrase init module loaded
+    # in multiple interpreters, those interpreters share a
+    # PyModuleDef for that object, which can be a problem.
+    # Also, we test with a single-phase module that has global state,
+    # which is shared by all interpreters.
+
     @requires_subinterpreters
     @requires_load_dynamic
     def test_basic_multiple_interpreters_main_no_reset(self):
         # without resetting; already loaded in main interpreter
 
-        # Currently, for every single-phrase init module loaded
-        # in multiple interpreters, those interpreters share a
-        # PyModuleDef for that object, which can be a problem.
+        # At this point:
+        #  * alive in 0 interpreters
+        #  * module def may or may not be loaded already
+        #  * module def not in _PyRuntime.imports.extensions
+        #  * mod init func has not run yet (since reset, at least)
+        #  * m_copy not set (hasn't been loaded yet or already cleared)
+        #  * module's global state has not been initialized yet
+        #    (or already cleared)
 
-        # This single-phase module has global state, which is shared
-        # by all interpreters.
         main_loaded = self.load(self.NAME)
         _testsinglephase = main_loaded.module
         # Attrs set after loading are not in m_copy.
@@ -1086,39 +1090,82 @@ class SinglephaseInitTests(unittest.TestCase):
         self.check_common(main_loaded)
         self.check_fresh(main_loaded)
 
-        interp1 = self.add_subinterpreter()
-        interp2 = self.add_subinterpreter()
+        interpid1 = self.add_subinterpreter()
+        interpid2 = self.add_subinterpreter()
+
+        # At this point:
+        #  * alive in 1 interpreter (main)
+        #  * module def in _PyRuntime.imports.extensions
+        #  * mod init func ran for the first time (since reset, at least)
+        #  * m_copy was copied from the main interpreter (was NULL)
+        #  * module's global state was initialized
 
         # Use an interpreter that gets destroyed right away.
         loaded = self.import_in_subinterp()
         self.check_common(loaded)
         self.check_copied(loaded, main_loaded)
 
-        # Use several interpreters that overlap in time.
-        loaded = self.import_in_subinterp(interp1)
+        # At this point:
+        #  * alive in 1 interpreter (main)
+        #  * module def still in _PyRuntime.imports.extensions
+        #  * mod init func ran again
+        #  * m_copy is NULL (claered when the interpreter was destroyed)
+        #    (was from main interpreter)
+        #  * module's global state was updated, not reset
+
+        # Use a subinterpreter that sticks around.
+        loaded = self.import_in_subinterp(interpid1)
         self.check_common(loaded)
         self.check_copied(loaded, main_loaded)
 
-        loaded = self.import_in_subinterp(interp2)
+        # At this point:
+        #  * alive in 2 interpreters (main, interp1)
+        #  * module def still in _PyRuntime.imports.extensions
+        #  * mod init func ran again
+        #  * m_copy was copied from interp1
+        #  * module's global state was updated, not reset
+
+        # Use a subinterpreter while the previous one is still alive.
+        loaded = self.import_in_subinterp(interpid2)
         self.check_common(loaded)
         self.check_copied(loaded, main_loaded)
+
+        # At this point:
+        #  * alive in 3 interpreters (main, interp1, interp2)
+        #  * module def still in _PyRuntime.imports.extensions
+        #  * mod init func ran again
+        #  * m_copy was copied from interp2 (was from interp1)
+        #  * module's global state was updated, not reset
 
     @requires_subinterpreters
     @requires_load_dynamic
     def test_basic_multiple_interpreters_deleted_no_reset(self):
         # without resetting; already loaded in a deleted interpreter
 
-        # Currently, for every single-phrase init module loaded
-        # in multiple interpreters, those interpreters share a
-        # PyModuleDef for that object, which can be a problem.
+        # At this point:
+        #  * alive in 0 interpreters
+        #  * module def may or may not be loaded already
+        #  * module def not in _PyRuntime.imports.extensions
+        #  * mod init func has not run yet (since reset, at least)
+        #  * m_copy not set (hasn't been loaded yet or already cleared)
+        #  * module's global state has not been initialized yet
+        #    (or already cleared)
 
-        interp1 = self.add_subinterpreter()
-        interp2 = self.add_subinterpreter()
+        interpid1 = self.add_subinterpreter()
+        interpid2 = self.add_subinterpreter()
 
         # First, load in the main interpreter but then completely clear it.
         loaded_main = self.load(self.NAME)
         loaded_main.module._clear_globals()
         _testinternalcapi.clear_extension(self.NAME, self.FILE)
+
+        # At this point:
+        #  * alive in 0 interpreters
+        #  * module def loaded already
+        #  * module def was in _PyRuntime.imports.extensions, but cleared
+        #  * mod init func ran for the first time (since reset, at least)
+        #  * m_copy was set, but cleared (was NULL)
+        #  * module's global state was initialized but cleared
 
         # Start with an interpreter that gets destroyed right away.
         base = self.import_in_subinterp(postscript='''
@@ -1128,47 +1175,95 @@ class SinglephaseInitTests(unittest.TestCase):
         self.check_common(base)
         self.check_fresh(base)
 
-        # Use several interpreters that overlap in time.
-        loaded_interp1 = self.import_in_subinterp()
+        # At this point:
+        #  * alive in 0 interpreters
+        #  * module def in _PyRuntime.imports.extensions
+        #  * mod init func ran again
+        #  * m_copy is NULL (claered when the interpreter was destroyed)
+        #  * module's global state was initialized, not reset
+
+        # Use a subinterpreter that sticks around.
+        loaded_interp1 = self.import_in_subinterp(interpid1)
         self.check_common(loaded_interp1)
         self.check_semi_fresh(loaded_interp1, loaded_main, base)
 
-        loaded_interp2 = self.import_in_subinterp()
+        # At this point:
+        #  * alive in 1 interpreter (interp1)
+        #  * module def still in _PyRuntime.imports.extensions
+        #  * mod init func ran again
+        #  * m_copy was copied from interp1 (was NULL)
+        #  * module's global state was updated, not reset
+
+        # Use a subinterpreter while the previous one is still alive.
+        loaded_interp2 = self.import_in_subinterp(interpid2)
         self.check_common(loaded_interp2)
         self.check_copied(loaded_interp2, loaded_interp1)
+
+        # At this point:
+        #  * alive in 2 interpreters (interp1, interp2)
+        #  * module def still in _PyRuntime.imports.extensions
+        #  * mod init func ran again
+        #  * m_copy was copied from interp2 (was from interp1)
+        #  * module's global state was updated, not reset
 
     @requires_subinterpreters
     @requires_load_dynamic
     def test_basic_multiple_interpreters_reset_each(self):
         # resetting between each interpreter
 
-        # Currently, for every single-phrase init module loaded
-        # in multiple interpreters, those interpreters share a
-        # PyModuleDef for that object, which can be a problem.
+        # At this point:
+        #  * alive in 0 interpreters
+        #  * module def may or may not be loaded already
+        #  * module def not in _PyRuntime.imports.extensions
+        #  * mod init func has not run yet (since reset, at least)
+        #  * m_copy not set (hasn't been loaded yet or already cleared)
+        #  * module's global state has not been initialized yet
+        #    (or already cleared)
 
-        interp1 = self.add_subinterpreter()
-        interp2 = self.add_subinterpreter()
+        interpid1 = self.add_subinterpreter()
+        interpid2 = self.add_subinterpreter()
 
         # Use an interpreter that gets destroyed right away.
         loaded = self.import_in_subinterp(
-            precleanup=True,
             postscript='''
             # Attrs set after loading are not in m_copy.
             mod.spam = 'spam, spam, mash, spam, eggs, and spam'
             ''',
+            postcleanup=True,
         )
         self.check_common(loaded)
         self.check_fresh(loaded)
 
-        # Use several interpreters that overlap in time.
-        loaded = self.import_in_subinterp(interp1, precleanup=True)
+        # At this point:
+        #  * alive in 0 interpreters
+        #  * module def in _PyRuntime.imports.extensions
+        #  * mod init func ran for the first time (since reset, at least)
+        #  * m_copy is NULL (claered when the interpreter was destroyed)
+        #  * module's global state was initialized, not reset
+
+        # Use a subinterpreter that sticks around.
+        loaded = self.import_in_subinterp(interpid1, postcleanup=True)
         self.check_common(loaded)
         self.check_fresh(loaded)
 
-        clear_subinterp(interp2)
-        loaded = self.import_in_subinterp(interp2, precleanup=True)
+        # At this point:
+        #  * alive in 1 interpreter (interp1)
+        #  * module def still in _PyRuntime.imports.extensions
+        #  * mod init func ran again
+        #  * m_copy was copied from interp1 (was NULL)
+        #  * module's global state was initialized, not reset
+
+        # Use a subinterpreter while the previous one is still alive.
+        loaded = self.import_in_subinterp(interpid2, postcleanup=True)
         self.check_common(loaded)
         self.check_fresh(loaded)
+
+        # At this point:
+        #  * alive in 2 interpreters (interp2, interp2)
+        #  * module def still in _PyRuntime.imports.extensions
+        #  * mod init func ran again
+        #  * m_copy was copied from interp2 (was from interp1)
+        #  * module's global state was initialized, not reset
 
 
 class ReloadTests(unittest.TestCase):
