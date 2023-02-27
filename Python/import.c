@@ -53,9 +53,9 @@ static struct _inittab *inittab_copy = NULL;
 /*******************************/
 
 #define INITTAB _PyRuntime.imports.inittab
+#define EXTENSIONS_LOCK _PyRuntime.imports.extensions_mutex
 #define LAST_MODULE_INDEX _PyRuntime.imports.last_module_index
 #define EXTENSIONS _PyRuntime.imports.extensions
-
 #define PKGCONTEXT (_PyRuntime.imports.pkgcontext)
 
 
@@ -89,9 +89,9 @@ static struct _inittab *inittab_copy = NULL;
     (interp)->imports.find_and_load
 
 
-/*******************/
-/* the import lock */
-/*******************/
+/***********************************/
+/* the per-interpreter import lock */
+/***********************************/
 
 /* Locking primitives to prevent parallel imports of the same module
    in different threads to return with a partially loaded module.
@@ -144,11 +144,19 @@ _PyImport_ReleaseLock(PyInterpreterState *interp)
 #ifdef HAVE_FORK
 /* This function is called from PyOS_AfterFork_Child() to ensure that newly
    created child processes do not share locks with the parent.
+   This is only called with the main interpreter.
+
    We now acquire the import lock around fork() calls but on some platforms
    (Solaris 9 and earlier? see isue7242) that still left us with problems. */
 PyStatus
 _PyImport_ReInitLock(PyInterpreterState *interp)
 {
+    /* Re-init the global extensions import lock. */
+    if (_PyThread_at_fork_reinit(&EXTENSIONS_LOCK) < 0) {
+        return _PyStatus_ERR("failed to create a new lock");
+    }
+
+    /* Re-init the per-interpreter import lock. */
     if (IMPORT_LOCK(interp) != NULL) {
         if (_PyThread_at_fork_reinit(&IMPORT_LOCK(interp)) < 0) {
             return _PyStatus_ERR("failed to create a new lock");
@@ -165,6 +173,7 @@ _PyImport_ReInitLock(PyInterpreterState *interp)
         IMPORT_LOCK_THREAD(interp) = PYTHREAD_INVALID_THREAD_ID;
         IMPORT_LOCK_LEVEL(interp) = 0;
     }
+
     return _PyStatus_OK();
 }
 #endif
@@ -2701,6 +2710,12 @@ _PyImport_Init(void)
         goto done;
     }
 
+    EXTENSIONS_LOCK = PyThread_allocate_lock();
+    if (EXTENSIONS_LOCK == NULL) {
+        status = _PyStatus_ERR("failed to create a new lock");
+        goto done;
+    }
+
 done:
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
     return status;
@@ -2715,6 +2730,9 @@ _PyImport_Fini(void)
     /* Use the same memory allocator as _PyImport_Init(). */
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+
+    /* Free the lock used around extension modules import state. */
+    PyThread_free_lock(EXTENSIONS_LOCK);
 
     /* Free memory allocated by _PyImport_Init() */
     fini_builtin_modules_table();
