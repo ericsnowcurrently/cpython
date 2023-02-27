@@ -592,6 +592,7 @@ _PyImport_ClearModulesByIndex(PyInterpreterState *interp)
 const char *
 _PyImport_ResolveNameWithPackageContext(const char *name)
 {
+    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
     if (PKGCONTEXT != NULL) {
         const char *p = strrchr(PKGCONTEXT, '.');
         if (p != NULL && strcmp(name, p+1) == 0) {
@@ -599,14 +600,17 @@ _PyImport_ResolveNameWithPackageContext(const char *name)
             PKGCONTEXT = NULL;
         }
     }
+    PyThread_release_lock(EXTENSIONS_LOCK);
     return name;
 }
 
 const char *
 _PyImport_SwapPackageContext(const char *newcontext)
 {
+    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
     const char *oldcontext = PKGCONTEXT;
     PKGCONTEXT = newcontext;
+    PyThread_release_lock(EXTENSIONS_LOCK);
     return oldcontext;
 }
 
