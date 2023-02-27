@@ -654,8 +654,8 @@ exec_builtin_or_dynamic(PyObject *mod) {
 }
 
 
-static int clear_singlephase_extension(PyInterpreterState *interp,
-                                       PyObject *name, PyObject *filename);
+static int clear_legacy_extension(PyInterpreterState *interp,
+                                  PyObject *name, PyObject *filename);
 
 // Currently, this is only used for testing.
 // (See _testinternalcapi.clear_extension().)
@@ -665,7 +665,7 @@ _PyImport_ClearExtension(PyObject *name, PyObject *filename)
     PyInterpreterState *interp = _PyInterpreterState_GET();
 
     /* Clearing a module's C globals is up to the module. */
-    if (clear_singlephase_extension(interp, name, filename) < 0) {
+    if (clear_legacy_extension(interp, name, filename) < 0) {
         return -1;
     }
 
@@ -763,7 +763,7 @@ gets even messier.
    modules.  A copy of the module's dictionary is stored by calling
    _PyImport_FixupExtensionObject() immediately after the module initialization
    function succeeds.  A copy can be retrieved from there by calling
-   import_find_extension().
+   reload_legacy_extension().
 
    Modules which do support multiple initialization set their m_size
    field to a non-negative number (indicating the size of the
@@ -926,8 +926,8 @@ _PyImport_FixupExtensionObject(PyObject *mod, PyObject *name,
 
 
 static PyObject *
-import_find_extension(PyThreadState *tstate, PyObject *name,
-                      PyObject *filename)
+reload_legacy_extension(PyThreadState *tstate, PyObject *name,
+                        PyObject *filename)
 {
     /* Only single-phase init modules will be in the cache. */
     PyModuleDef *def = _extensions_cache_get(filename, name);
@@ -981,8 +981,8 @@ import_find_extension(PyThreadState *tstate, PyObject *name,
 }
 
 static int
-clear_singlephase_extension(PyInterpreterState *interp,
-                            PyObject *name, PyObject *filename)
+clear_legacy_extension(PyInterpreterState *interp,
+                       PyObject *name, PyObject *filename)
 {
     PyModuleDef *def = _extensions_cache_get(filename, name);
     if (def == NULL) {
@@ -1910,8 +1910,9 @@ bootstrap_imp(PyThreadState *tstate)
     }
 
     // Create the _imp module from its definition.
-    PyObject *mod = import_find_extension(tstate, name, name);
+    PyObject *mod = reload_legacy_extension(tstate, name, name);
     if (mod == NULL && !_PyErr_Occurred(tstate)) {
+        /* It hasn't been loaded yet (or isn't a legacy module). */
         mod = create_builtin(tstate, name, spec);
     }
     Py_CLEAR(name);
@@ -3099,8 +3100,9 @@ _imp_create_builtin(PyObject *module, PyObject *spec)
         return NULL;
     }
 
-    PyObject *mod = import_find_extension(tstate, name, name);
+    PyObject *mod = reload_legacy_extension(tstate, name, name);
     if (mod == NULL && !_PyErr_Occurred(tstate)) {
+        /* It hasn't been loaded yet (or isn't a legacy module). */
         mod = create_builtin(tstate, name, spec);
     }
     Py_DECREF(name);
@@ -3410,8 +3412,9 @@ _imp_create_dynamic_impl(PyObject *module, PyObject *spec, PyObject *file)
     }
 
     PyThreadState *tstate = _PyThreadState_GET();
-    mod = import_find_extension(tstate, name, path);
+    mod = reload_legacy_extension(tstate, name, path);
     if (mod == NULL) {
+        /* It hasn't been loaded yet (or isn't a legacy module). */
         if (PyErr_Occurred()) {
             goto finally;
         }
