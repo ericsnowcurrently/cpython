@@ -3392,45 +3392,47 @@ static PyObject *
 _imp_create_dynamic_impl(PyObject *module, PyObject *spec, PyObject *file)
 /*[clinic end generated code: output=83249b827a4fde77 input=c31b954f4cf4e09d]*/
 {
-    PyObject *mod, *name, *path;
-    FILE *fp;
+    PyObject *mod = NULL, *name = NULL, *path = NULL;
 
     name = PyObject_GetAttrString(spec, "name");
     if (name == NULL) {
-        return NULL;
+        goto finally;
+    }
+    if (!PyUnicode_Check(name)) {
+        PyErr_SetString(PyExc_TypeError,
+                        "spec.name must be a string");
+        goto finally;
     }
 
     path = PyObject_GetAttrString(spec, "origin");
     if (path == NULL) {
-        Py_DECREF(name);
-        return NULL;
+        goto finally;
     }
 
     PyThreadState *tstate = _PyThreadState_GET();
     mod = import_find_extension(tstate, name, path);
-    if (mod != NULL || PyErr_Occurred()) {
-        Py_DECREF(name);
-        Py_DECREF(path);
-        return mod;
-    }
+    if (mod == NULL) {
+        if (PyErr_Occurred()) {
+            goto finally;
+        }
 
-    if (file != NULL) {
-        fp = _Py_fopen_obj(path, "r");
-        if (fp == NULL) {
-            Py_DECREF(name);
-            Py_DECREF(path);
-            return NULL;
+        /* It's not a legacy module or hasn't been loaded yet. */
+        if (file != NULL) {
+            FILE *fp = _Py_fopen_obj(path, "r");
+            if (fp == NULL) {
+                goto finally;
+            }
+            mod = _PyImport_LoadDynamicModuleWithSpec(spec, name, path, fp);
+            fclose(fp);
+        }
+        else {
+            mod = _PyImport_LoadDynamicModuleWithSpec(spec, name, path, NULL);
         }
     }
-    else
-        fp = NULL;
 
-    mod = _PyImport_LoadDynamicModuleWithSpec(spec, fp);
-
-    Py_DECREF(name);
-    Py_DECREF(path);
-    if (fp)
-        fclose(fp);
+finally:
+    Py_XDECREF(name);
+    Py_XDECREF(path);
     return mod;
 }
 
