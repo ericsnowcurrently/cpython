@@ -1068,10 +1068,7 @@ is_builtin(PyObject *name)
 static PyObject*
 create_builtin(PyThreadState *tstate, PyObject *name, PyObject *spec)
 {
-    PyObject *mod = import_find_extension(tstate, name, name);
-    if (mod || _PyErr_Occurred(tstate)) {
-        return mod;
-    }
+    PyObject *mod;
 
     struct _inittab *entry = find_builtin(name);
     if (entry == NULL) {
@@ -1913,7 +1910,10 @@ bootstrap_imp(PyThreadState *tstate)
     }
 
     // Create the _imp module from its definition.
-    PyObject *mod = create_builtin(tstate, name, spec);
+    PyObject *mod = import_find_extension(tstate, name, name);
+    if (mod == NULL && !_PyErr_Occurred(tstate)) {
+        mod = create_builtin(tstate, name, spec);
+    }
     Py_CLEAR(name);
     Py_DECREF(spec);
     if (mod == NULL) {
@@ -3099,7 +3099,10 @@ _imp_create_builtin(PyObject *module, PyObject *spec)
         return NULL;
     }
 
-    PyObject *mod = create_builtin(tstate, name, spec);
+    PyObject *mod = import_find_extension(tstate, name, name);
+    if (mod == NULL && !_PyErr_Occurred(tstate)) {
+        mod = create_builtin(tstate, name, spec);
+    }
     Py_DECREF(name);
     return mod;
 }
