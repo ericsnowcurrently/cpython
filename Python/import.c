@@ -863,7 +863,7 @@ _extensions_cache_clear_all(void)
 }
 
 static int
-fix_up_extension(PyObject *mod, PyObject *name, PyObject *filename)
+fix_up_legacy_extension(PyObject *mod, PyObject *name, PyObject *filename)
 {
     if (mod == NULL || !PyModule_Check(mod)) {
         PyErr_BadInternalCall();
@@ -917,7 +917,7 @@ _PyImport_FixupExtensionObject(PyObject *mod, PyObject *name,
     if (PyObject_SetItem(modules, name, mod) < 0) {
         return -1;
     }
-    if (fix_up_extension(mod, name, filename) < 0) {
+    if (fix_up_legacy_extension(mod, name, filename) < 0) {
         PyMapping_DelItem(modules, name);
         return -1;
     }
@@ -1025,7 +1025,7 @@ _PyImport_FixupBuiltin(PyObject *mod, const char *name, PyObject *modules)
     if (PyObject_SetItem(modules, nameobj, mod) < 0) {
         goto finally;
     }
-    if (fix_up_extension(mod, nameobj, nameobj) < 0) {
+    if (fix_up_legacy_extension(mod, nameobj, nameobj) < 0) {
         PyMapping_DelItem(modules, nameobj);
         goto finally;
     }
@@ -1103,7 +1103,7 @@ create_builtin(PyThreadState *tstate, PyObject *name, PyObject *spec)
             // XXX decref?
             return NULL;
         }
-        if (fix_up_extension(mod, name, name) < 0) {
+        if (fix_up_legacy_extension(mod, name, name) < 0) {
             PyMapping_DelItem(modules, name);
             // XXX decref?
             return NULL;
