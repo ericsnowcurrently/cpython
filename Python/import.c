@@ -770,15 +770,22 @@ gets even messier.
 static PyModuleDef *
 _extensions_cache_get(PyObject *filename, PyObject *name)
 {
-    PyObject *extensions = EXTENSIONS;
-    if (extensions == NULL) {
-        return NULL;
-    }
     PyObject *key = PyTuple_Pack(2, filename, name);
     if (key == NULL) {
         return NULL;
     }
-    PyModuleDef *def = (PyModuleDef *)PyDict_GetItemWithError(extensions, key);
+
+    PyModuleDef *def = NULL;
+    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
+
+    PyObject *extensions = EXTENSIONS;
+    if (extensions == NULL) {
+        goto finally;
+    }
+    def = (PyModuleDef *)PyDict_GetItemWithError(extensions, key);
+
+finally:
+    PyThread_release_lock(EXTENSIONS_LOCK);
     Py_DECREF(key);
     return def;
 }
@@ -786,52 +793,69 @@ _extensions_cache_get(PyObject *filename, PyObject *name)
 static int
 _extensions_cache_set(PyObject *filename, PyObject *name, PyModuleDef *def)
 {
-    PyObject *extensions = EXTENSIONS;
-    if (extensions == NULL) {
-        extensions = PyDict_New();
-        if (extensions == NULL) {
-            return -1;
-        }
-        EXTENSIONS = extensions;
-    }
     PyObject *key = PyTuple_Pack(2, filename, name);
     if (key == NULL) {
         return -1;
     }
-    int res = PyDict_SetItem(extensions, key, (PyObject *)def);
-    Py_DECREF(key);
-    if (res < 0) {
-        return -1;
+
+    int res = -1;
+    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
+
+    PyObject *extensions = EXTENSIONS;
+    if (extensions == NULL) {
+        extensions = PyDict_New();
+        if (extensions == NULL) {
+            goto finally;
+        }
+        EXTENSIONS = extensions;
     }
-    return 0;
+    res = PyDict_SetItem(extensions, key, (PyObject *)def);
+    if (res < 0) {
+        goto finally;
+    }
+
+finally:
+    PyThread_release_lock(EXTENSIONS_LOCK);
+    Py_DECREF(key);
+    return res;
 }
 
 static int
 _extensions_cache_delete(PyObject *filename, PyObject *name)
 {
-    PyObject *extensions = EXTENSIONS;
-    if (extensions == NULL) {
-        return 0;
-    }
     PyObject *key = PyTuple_Pack(2, filename, name);
     if (key == NULL) {
         return -1;
     }
+
+    int res = -1;
+    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
+
+    PyObject *extensions = EXTENSIONS;
+    if (extensions == NULL) {
+        res = 0;
+        goto finally;
+    }
     if (PyDict_DelItem(extensions, key) < 0) {
         if (!PyErr_ExceptionMatches(PyExc_KeyError)) {
-            Py_DECREF(key);
-            return -1;
+            goto finally;
         }
         PyErr_Clear();
     }
+    res = 0;
+
+finally:
+    PyThread_release_lock(EXTENSIONS_LOCK);
     Py_DECREF(key);
-    return 0;
+    return res;
 }
 
 static void
 _extensions_cache_clear_all(void)
 {
+    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
     Py_CLEAR(EXTENSIONS);
+    PyThread_release_lock(EXTENSIONS_LOCK);
 }
 
 static int
