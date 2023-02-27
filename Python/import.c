@@ -421,8 +421,12 @@ remove_module(PyThreadState *tstate, PyObject *name)
 Py_ssize_t
 _PyImport_GetNextModuleIndex(void)
 {
+    Py_ssize_t index;
+    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
     LAST_MODULE_INDEX++;
-    return LAST_MODULE_INDEX;
+    index = LAST_MODULE_INDEX;
+    PyThread_release_lock(EXTENSIONS_LOCK);
+    return index;
 }
 
 static const char *
