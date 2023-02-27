@@ -1038,18 +1038,29 @@ finally:
 
 /* Helper to test for built-in module */
 
+static inline struct _inittab *
+find_builtin(PyObject *name)
+{
+    for (struct _inittab *p = INITTAB; p->name != NULL; p++) {
+        if (_PyUnicode_EqualToASCIIString(name, p->name)) {
+            return p;
+        }
+    }
+    return NULL;
+}
+
 static int
 is_builtin(PyObject *name)
 {
-    int i;
-    struct _inittab *inittab = INITTAB;
-    for (i = 0; inittab[i].name != NULL; i++) {
-        if (_PyUnicode_EqualToASCIIString(name, inittab[i].name)) {
-            if (inittab[i].initfunc == NULL)
-                return -1;
-            else
-                return 1;
-        }
+    struct _inittab *entry = find_builtin(name);
+    if (entry == NULL) {
+        return 0;
+    }
+    else if (entry->initfunc == NULL) {
+        return -1;
+    }
+    else {
+        return 1;
     }
     return 0;
 }
@@ -1062,41 +1073,46 @@ create_builtin(PyThreadState *tstate, PyObject *name, PyObject *spec)
         return mod;
     }
 
-    PyObject *modules = MODULES(tstate->interp);
-    for (struct _inittab *p = INITTAB; p->name != NULL; p++) {
-        if (_PyUnicode_EqualToASCIIString(name, p->name)) {
-            if (p->initfunc == NULL) {
-                /* Cannot re-init internal module ("sys" or "builtins") */
-                mod = PyImport_AddModuleObject(name);
-                return Py_XNewRef(mod);
-            }
-            mod = _PyImport_InitFunc_TrampolineCall(*p->initfunc);
-            if (mod == NULL) {
-                return NULL;
-            }
-
-            if (PyObject_TypeCheck(mod, &PyModuleDef_Type)) {
-                return PyModule_FromDefAndSpec((PyModuleDef*)mod, spec);
-            }
-            else {
-                /* Remember pointer to module init function. */
-                PyModuleDef *def = PyModule_GetDef(mod);
-                if (def == NULL) {
-                    return NULL;
-                }
-
-                def->m_base.m_init = p->initfunc;
-                if (_PyImport_FixupExtensionObject(mod, name, name,
-                                                   modules) < 0) {
-                    return NULL;
-                }
-                return mod;
-            }
-        }
+    struct _inittab *entry = find_builtin(name);
+    if (entry == NULL) {
+        // not found
+        Py_RETURN_NONE;
+    }
+    else if (entry->initfunc == NULL) {
+        /* Cannot re-init internal module ("sys" or "builtins") */
+        mod = PyImport_AddModuleObject(name);
+        return Py_XNewRef(mod);
     }
 
-    // not found
-    Py_RETURN_NONE;
+    mod = _PyImport_InitFunc_TrampolineCall(*entry->initfunc);
+    if (mod == NULL) {
+        return NULL;
+    }
+    else if (PyObject_TypeCheck(mod, &PyModuleDef_Type)) {
+        return PyModule_FromDefAndSpec((PyModuleDef*)mod, spec);
+    }
+    else {
+        /* Remember pointer to module init function. */
+        PyModuleDef *def = PyModule_GetDef(mod);
+        if (def == NULL) {
+            // XXX decref?
+            return NULL;
+        }
+        def->m_base.m_init = entry->initfunc;
+
+        /* Fix up the module. */
+        PyObject *modules = MODULES(tstate->interp);
+        if (PyObject_SetItem(modules, name, mod) < 0) {
+            // XXX decref?
+            return NULL;
+        }
+        if (fix_up_extension(mod, name, name) < 0) {
+            PyMapping_DelItem(modules, name);
+            // XXX decref?
+            return NULL;
+        }
+        return mod;
+    }
 }
 
 
