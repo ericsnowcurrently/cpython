@@ -9,7 +9,7 @@ extern "C" {
 extern const char *_PyImport_DynLoadFiletab[];
 
 extern PyObject *_PyImport_LoadDynamicModuleWithSpec(
-        PyObject *spec, PyObject *name, PyObject *path, FILE *);
+        PyObject *spec, PyObject *fullname, PyObject *path, FILE *);
 
 typedef PyObject *(*PyModInitFunction)(void);
 
