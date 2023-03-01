@@ -576,58 +576,9 @@ _PyImport_ClearModulesByIndex(PyInterpreterState *interp)
 }
 
 
-/*********************/
-/* extension modules */
-/*********************/
-
-/* Make sure name is fully qualified.
-
-   This is a bit of a hack: when the shared library is loaded,
-   the module name is "package.module", but the module calls
-   PyModule_Create*() with just "module" for the name.  The shared
-   library loader squirrels away the true name of the module in
-   _PyRuntime.imports.pkgcontext, and PyModule_Create*() will
-   substitute this (if the name actually matches).
-*/
-const char *
-_PyImport_ResolveNameWithPackageContext(const char *name)
-{
-    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
-    if (PKGCONTEXT != NULL) {
-        const char *p = strrchr(PKGCONTEXT, '.');
-        if (p != NULL && strcmp(name, p+1) == 0) {
-            name = PKGCONTEXT;
-            PKGCONTEXT = NULL;
-        }
-    }
-    PyThread_release_lock(EXTENSIONS_LOCK);
-    return name;
-}
-
-const char *
-_PyImport_SwapPackageContext(const char *newcontext)
-{
-    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
-    const char *oldcontext = PKGCONTEXT;
-    PKGCONTEXT = newcontext;
-    PyThread_release_lock(EXTENSIONS_LOCK);
-    return oldcontext;
-}
-
-#ifdef HAVE_DLOPEN
-int
-_PyImport_GetDLOpenFlags(PyInterpreterState *interp)
-{
-    return DLOPENFLAGS(interp);
-}
-
-void
-_PyImport_SetDLOpenFlags(PyInterpreterState *interp, int new_val)
-{
-    DLOPENFLAGS(interp) = new_val;
-}
-#endif  // HAVE_DLOPEN
-
+/******************************/
+/* extension modules (common) */
+/******************************/
 
 /* Common implementation for _imp.exec_dynamic and _imp.exec_builtin */
 static int
@@ -686,9 +637,322 @@ EM_JS(PyObject*, _PyImport_InitFunc_TrampolineCall, (PyModInitFunction func), {
 #endif // __EMSCRIPTEN__ && PY_CALL_TRAMPOLINE
 
 
+/*******************************/
+/* builtin extension modules */
+/*******************************/
+
+static int fix_up_legacy_extension(PyObject *, PyObject *, PyObject *);
+
+int
+_PyImport_FixupBuiltin(PyObject *mod, const char *name, PyObject *modules)
+{
+    int res = -1;
+    PyObject *nameobj;
+    nameobj = PyUnicode_InternFromString(name);
+    if (nameobj == NULL) {
+        return -1;
+    }
+    if (PyObject_SetItem(modules, nameobj, mod) < 0) {
+        goto finally;
+    }
+    if (fix_up_legacy_extension(mod, nameobj, nameobj) < 0) {
+        PyMapping_DelItem(modules, nameobj);
+        goto finally;
+    }
+    res = 0;
+
+finally:
+    Py_DECREF(nameobj);
+    return res;
+}
+
+/* Helper to test for built-in module */
+
+static inline struct _inittab *
+find_builtin(PyObject *name)
+{
+    for (struct _inittab *p = INITTAB; p->name != NULL; p++) {
+        if (_PyUnicode_EqualToASCIIString(name, p->name)) {
+            return p;
+        }
+    }
+    return NULL;
+}
+
+static int
+is_builtin(PyObject *name)
+{
+    struct _inittab *entry = find_builtin(name);
+    if (entry == NULL) {
+        return 0;
+    }
+    else if (entry->initfunc == NULL) {
+        return -1;
+    }
+    else {
+        return 1;
+    }
+    return 0;
+}
+
+static PyObject *
+run_builtin(PyModInitFunction initfunc)
+{
+    return _PyImport_InitFunc_TrampolineCall(*initfunc);
+}
+
+static int
+handle_legacy_builtin(PyInterpreterState *interp,
+                      PyObject *mod, PyModuleDef *def, PyObject *name,
+                      PyModInitFunction initfunc)
+{
+    /* Remember pointer to module init function. */
+    def->m_base.m_init = initfunc;
+
+    /* Fix up the module. */
+    PyObject *modules = MODULES(interp);
+    if (PyObject_SetItem(modules, name, mod) < 0) {
+        return -1;
+    }
+    if (fix_up_legacy_extension(mod, name, name) < 0) {
+        PyMapping_DelItem(modules, name);
+        return -1;
+    }
+    return 0;
+}
+
+static PyObject*
+create_builtin(PyThreadState *tstate, PyObject *name, PyObject *spec)
+{
+    PyObject *mod;
+
+    struct _inittab *entry = find_builtin(name);
+    if (entry == NULL) {
+        // not found
+        Py_RETURN_NONE;
+    }
+    else if (entry->initfunc == NULL) {
+        /* Cannot re-init internal module ("sys" or "builtins") */
+        mod = PyImport_AddModuleObject(name);
+        return Py_XNewRef(mod);
+    }
+
+    mod = run_builtin(entry->initfunc);
+    if (mod == NULL) {
+        return NULL;
+    }
+    else if (PyObject_TypeCheck(mod, &PyModuleDef_Type)) {
+        return PyModule_FromDefAndSpec((PyModuleDef*)mod, spec);
+    }
+    else {
+        // XXX All builtin modules should implement multi-phase init!
+        PyModuleDef *def = PyModule_GetDef(mod);
+        if (def == NULL) {
+            // XXX decref mod?
+            return NULL;
+        }
+        if (handle_legacy_builtin(tstate->interp,
+                                  mod, def, name, entry->initfunc) < 0) {
+            // XXX decref mod?
+            return NULL;
+        }
+        return mod;
+    }
+}
+
+
+/*****************************/
+/* the builtin modules table */
+/*****************************/
+
+/* API for embedding applications that want to add their own entries
+   to the table of built-in modules.  This should normally be called
+   *before* Py_Initialize().  When the table resize fails, -1 is
+   returned and the existing table is unchanged.
+
+   After a similar function by Just van Rossum. */
+
+int
+PyImport_ExtendInittab(struct _inittab *newtab)
+{
+    struct _inittab *p;
+    size_t i, n;
+    int res = 0;
+
+    if (INITTAB != NULL) {
+        Py_FatalError("PyImport_ExtendInittab() may not be called after Py_Initialize()");
+    }
+
+    /* Count the number of entries in both tables */
+    for (n = 0; newtab[n].name != NULL; n++)
+        ;
+    if (n == 0)
+        return 0; /* Nothing to do */
+    for (i = 0; PyImport_Inittab[i].name != NULL; i++)
+        ;
+
+    /* Force default raw memory allocator to get a known allocator to be able
+       to release the memory in _PyImport_Fini2() */
+    PyMemAllocatorEx old_alloc;
+    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+
+    /* Allocate new memory for the combined table */
+    p = NULL;
+    if (i + n <= SIZE_MAX / sizeof(struct _inittab) - 1) {
+        size_t size = sizeof(struct _inittab) * (i + n + 1);
+        p = PyMem_RawRealloc(inittab_copy, size);
+    }
+    if (p == NULL) {
+        res = -1;
+        goto done;
+    }
+
+    /* Copy the tables into the new memory at the first call
+       to PyImport_ExtendInittab(). */
+    if (inittab_copy != PyImport_Inittab) {
+        memcpy(p, PyImport_Inittab, (i+1) * sizeof(struct _inittab));
+    }
+    memcpy(p + i, newtab, (n + 1) * sizeof(struct _inittab));
+    PyImport_Inittab = inittab_copy = p;
+
+done:
+    PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+    return res;
+}
+
+/* Shorthand to add a single entry given a name and a function */
+
+int
+PyImport_AppendInittab(const char *name, PyObject* (*initfunc)(void))
+{
+    struct _inittab newtab[2];
+
+    if (INITTAB != NULL) {
+        Py_FatalError("PyImport_AppendInittab() may not be called after Py_Initialize()");
+    }
+
+    memset(newtab, '\0', sizeof newtab);
+
+    newtab[0].name = name;
+    newtab[0].initfunc = initfunc;
+
+    return PyImport_ExtendInittab(newtab);
+}
+
+
+/* the internal table */
+
+static int
+init_builtin_modules_table(void)
+{
+    size_t size;
+    for (size = 0; PyImport_Inittab[size].name != NULL; size++)
+        ;
+    size++;
+
+    /* Make the copy. */
+    struct _inittab *copied = PyMem_RawMalloc(size * sizeof(struct _inittab));
+    if (copied == NULL) {
+        return -1;
+    }
+    memcpy(copied, PyImport_Inittab, size * sizeof(struct _inittab));
+    INITTAB = copied;
+    return 0;
+}
+
+static void
+fini_builtin_modules_table(void)
+{
+    struct _inittab *inittab = INITTAB;
+    INITTAB = NULL;
+    PyMem_RawFree(inittab);
+}
+
+PyObject *
+_PyImport_GetBuiltinModuleNames(void)
+{
+    PyObject *list = PyList_New(0);
+    if (list == NULL) {
+        return NULL;
+    }
+    struct _inittab *inittab = INITTAB;
+    for (Py_ssize_t i = 0; inittab[i].name != NULL; i++) {
+        PyObject *name = PyUnicode_FromString(inittab[i].name);
+        if (name == NULL) {
+            Py_DECREF(list);
+            return NULL;
+        }
+        if (PyList_Append(list, name) < 0) {
+            Py_DECREF(name);
+            Py_DECREF(list);
+            return NULL;
+        }
+        Py_DECREF(name);
+    }
+    return list;
+}
+
+
+/*******************************/
+/* dynamic extension modules */
+/*******************************/
+
+#ifdef HAVE_DLOPEN
+int
+_PyImport_GetDLOpenFlags(PyInterpreterState *interp)
+{
+    return DLOPENFLAGS(interp);
+}
+
+void
+_PyImport_SetDLOpenFlags(PyInterpreterState *interp, int new_val)
+{
+    DLOPENFLAGS(interp) = new_val;
+}
+#endif  // HAVE_DLOPEN
+
+
+/* Make sure name is fully qualified.
+
+   This is a bit of a hack: when the shared library is loaded,
+   the module name is "package.module", but the module calls
+   PyModule_Create*() with just "module" for the name.  The shared
+   library loader squirrels away the true name of the module in
+   _PyRuntime.imports.pkgcontext, and PyModule_Create*() will
+   substitute this (if the name actually matches).
+*/
+const char *
+_PyImport_ResolveNameWithPackageContext(const char *name)
+{
+    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
+    if (PKGCONTEXT != NULL) {
+        const char *p = strrchr(PKGCONTEXT, '.');
+        if (p != NULL && strcmp(name, p+1) == 0) {
+            name = PKGCONTEXT;
+            PKGCONTEXT = NULL;
+        }
+    }
+    PyThread_release_lock(EXTENSIONS_LOCK);
+    return name;
+}
+
+const char *
+_PyImport_SwapPackageContext(const char *newcontext)
+{
+    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
+    const char *oldcontext = PKGCONTEXT;
+    PKGCONTEXT = newcontext;
+    PyThread_release_lock(EXTENSIONS_LOCK);
+    return oldcontext;
+}
+
+
 /*****************************/
 /* single-phase init modules */
 /*****************************/
+
+// For now, this is used for builtin extensions,
+// in addition to dynamic extensions.
 
 /*
 We support a number of kinds of single-phase init builtin/extension modules:
@@ -1006,259 +1270,6 @@ clear_legacy_extension(PyInterpreterState *interp,
 
     /* Clear the cached module def. */
     return _extensions_cache_delete(filename, name);
-}
-
-
-/*******************/
-/* builtin modules */
-/*******************/
-
-int
-_PyImport_FixupBuiltin(PyObject *mod, const char *name, PyObject *modules)
-{
-    int res = -1;
-    PyObject *nameobj;
-    nameobj = PyUnicode_InternFromString(name);
-    if (nameobj == NULL) {
-        return -1;
-    }
-    if (PyObject_SetItem(modules, nameobj, mod) < 0) {
-        goto finally;
-    }
-    if (fix_up_legacy_extension(mod, nameobj, nameobj) < 0) {
-        PyMapping_DelItem(modules, nameobj);
-        goto finally;
-    }
-    res = 0;
-
-finally:
-    Py_DECREF(nameobj);
-    return res;
-}
-
-/* Helper to test for built-in module */
-
-static inline struct _inittab *
-find_builtin(PyObject *name)
-{
-    for (struct _inittab *p = INITTAB; p->name != NULL; p++) {
-        if (_PyUnicode_EqualToASCIIString(name, p->name)) {
-            return p;
-        }
-    }
-    return NULL;
-}
-
-static int
-is_builtin(PyObject *name)
-{
-    struct _inittab *entry = find_builtin(name);
-    if (entry == NULL) {
-        return 0;
-    }
-    else if (entry->initfunc == NULL) {
-        return -1;
-    }
-    else {
-        return 1;
-    }
-    return 0;
-}
-
-static PyObject *
-run_builtin(PyModInitFunction initfunc)
-{
-    return _PyImport_InitFunc_TrampolineCall(*initfunc);
-}
-
-static int
-handle_legacy_builtin(PyInterpreterState *interp,
-                      PyObject *mod, PyModuleDef *def, PyObject *name,
-                      PyModInitFunction initfunc)
-{
-    /* Remember pointer to module init function. */
-    def->m_base.m_init = initfunc;
-
-    /* Fix up the module. */
-    PyObject *modules = MODULES(interp);
-    if (PyObject_SetItem(modules, name, mod) < 0) {
-        return -1;
-    }
-    if (fix_up_legacy_extension(mod, name, name) < 0) {
-        PyMapping_DelItem(modules, name);
-        return -1;
-    }
-    return 0;
-}
-
-static PyObject*
-create_builtin(PyThreadState *tstate, PyObject *name, PyObject *spec)
-{
-    PyObject *mod;
-
-    struct _inittab *entry = find_builtin(name);
-    if (entry == NULL) {
-        // not found
-        Py_RETURN_NONE;
-    }
-    else if (entry->initfunc == NULL) {
-        /* Cannot re-init internal module ("sys" or "builtins") */
-        mod = PyImport_AddModuleObject(name);
-        return Py_XNewRef(mod);
-    }
-
-    mod = run_builtin(entry->initfunc);
-    if (mod == NULL) {
-        return NULL;
-    }
-    else if (PyObject_TypeCheck(mod, &PyModuleDef_Type)) {
-        return PyModule_FromDefAndSpec((PyModuleDef*)mod, spec);
-    }
-    else {
-        PyModuleDef *def = PyModule_GetDef(mod);
-        if (def == NULL) {
-            // XXX decref mod?
-            return NULL;
-        }
-        if (handle_legacy_builtin(tstate->interp,
-                                  mod, def, name, entry->initfunc) < 0) {
-            // XXX decref mod?
-            return NULL;
-        }
-        return mod;
-    }
-}
-
-
-/*****************************/
-/* the builtin modules table */
-/*****************************/
-
-/* API for embedding applications that want to add their own entries
-   to the table of built-in modules.  This should normally be called
-   *before* Py_Initialize().  When the table resize fails, -1 is
-   returned and the existing table is unchanged.
-
-   After a similar function by Just van Rossum. */
-
-int
-PyImport_ExtendInittab(struct _inittab *newtab)
-{
-    struct _inittab *p;
-    size_t i, n;
-    int res = 0;
-
-    if (INITTAB != NULL) {
-        Py_FatalError("PyImport_ExtendInittab() may not be called after Py_Initialize()");
-    }
-
-    /* Count the number of entries in both tables */
-    for (n = 0; newtab[n].name != NULL; n++)
-        ;
-    if (n == 0)
-        return 0; /* Nothing to do */
-    for (i = 0; PyImport_Inittab[i].name != NULL; i++)
-        ;
-
-    /* Force default raw memory allocator to get a known allocator to be able
-       to release the memory in _PyImport_Fini2() */
-    PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
-
-    /* Allocate new memory for the combined table */
-    p = NULL;
-    if (i + n <= SIZE_MAX / sizeof(struct _inittab) - 1) {
-        size_t size = sizeof(struct _inittab) * (i + n + 1);
-        p = PyMem_RawRealloc(inittab_copy, size);
-    }
-    if (p == NULL) {
-        res = -1;
-        goto done;
-    }
-
-    /* Copy the tables into the new memory at the first call
-       to PyImport_ExtendInittab(). */
-    if (inittab_copy != PyImport_Inittab) {
-        memcpy(p, PyImport_Inittab, (i+1) * sizeof(struct _inittab));
-    }
-    memcpy(p + i, newtab, (n + 1) * sizeof(struct _inittab));
-    PyImport_Inittab = inittab_copy = p;
-
-done:
-    PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
-    return res;
-}
-
-/* Shorthand to add a single entry given a name and a function */
-
-int
-PyImport_AppendInittab(const char *name, PyObject* (*initfunc)(void))
-{
-    struct _inittab newtab[2];
-
-    if (INITTAB != NULL) {
-        Py_FatalError("PyImport_AppendInittab() may not be called after Py_Initialize()");
-    }
-
-    memset(newtab, '\0', sizeof newtab);
-
-    newtab[0].name = name;
-    newtab[0].initfunc = initfunc;
-
-    return PyImport_ExtendInittab(newtab);
-}
-
-
-/* the internal table */
-
-static int
-init_builtin_modules_table(void)
-{
-    size_t size;
-    for (size = 0; PyImport_Inittab[size].name != NULL; size++)
-        ;
-    size++;
-
-    /* Make the copy. */
-    struct _inittab *copied = PyMem_RawMalloc(size * sizeof(struct _inittab));
-    if (copied == NULL) {
-        return -1;
-    }
-    memcpy(copied, PyImport_Inittab, size * sizeof(struct _inittab));
-    INITTAB = copied;
-    return 0;
-}
-
-static void
-fini_builtin_modules_table(void)
-{
-    struct _inittab *inittab = INITTAB;
-    INITTAB = NULL;
-    PyMem_RawFree(inittab);
-}
-
-PyObject *
-_PyImport_GetBuiltinModuleNames(void)
-{
-    PyObject *list = PyList_New(0);
-    if (list == NULL) {
-        return NULL;
-    }
-    struct _inittab *inittab = INITTAB;
-    for (Py_ssize_t i = 0; inittab[i].name != NULL; i++) {
-        PyObject *name = PyUnicode_FromString(inittab[i].name);
-        if (name == NULL) {
-            Py_DECREF(list);
-            return NULL;
-        }
-        if (PyList_Append(list, name) < 0) {
-            Py_DECREF(name);
-            Py_DECREF(list);
-            return NULL;
-        }
-        Py_DECREF(name);
-    }
-    return list;
 }
 
 
