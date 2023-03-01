@@ -1065,6 +1065,32 @@ is_builtin(PyObject *name)
     return 0;
 }
 
+static PyObject *
+run_builtin(PyModInitFunction initfunc)
+{
+    return _PyImport_InitFunc_TrampolineCall(*initfunc);
+}
+
+static int
+handle_legacy_builtin(PyInterpreterState *interp,
+                      PyObject *mod, PyModuleDef *def, PyObject *name,
+                      PyModInitFunction initfunc)
+{
+    /* Remember pointer to module init function. */
+    def->m_base.m_init = initfunc;
+
+    /* Fix up the module. */
+    PyObject *modules = MODULES(interp);
+    if (PyObject_SetItem(modules, name, mod) < 0) {
+        return -1;
+    }
+    if (fix_up_legacy_extension(mod, name, name) < 0) {
+        PyMapping_DelItem(modules, name);
+        return -1;
+    }
+    return 0;
+}
+
 static PyObject*
 create_builtin(PyThreadState *tstate, PyObject *name, PyObject *spec)
 {
@@ -1081,7 +1107,7 @@ create_builtin(PyThreadState *tstate, PyObject *name, PyObject *spec)
         return Py_XNewRef(mod);
     }
 
-    mod = _PyImport_InitFunc_TrampolineCall(*entry->initfunc);
+    mod = run_builtin(entry->initfunc);
     if (mod == NULL) {
         return NULL;
     }
@@ -1089,23 +1115,14 @@ create_builtin(PyThreadState *tstate, PyObject *name, PyObject *spec)
         return PyModule_FromDefAndSpec((PyModuleDef*)mod, spec);
     }
     else {
-        /* Remember pointer to module init function. */
         PyModuleDef *def = PyModule_GetDef(mod);
         if (def == NULL) {
-            // XXX decref?
+            // XXX decref mod?
             return NULL;
         }
-        def->m_base.m_init = entry->initfunc;
-
-        /* Fix up the module. */
-        PyObject *modules = MODULES(tstate->interp);
-        if (PyObject_SetItem(modules, name, mod) < 0) {
-            // XXX decref?
-            return NULL;
-        }
-        if (fix_up_legacy_extension(mod, name, name) < 0) {
-            PyMapping_DelItem(modules, name);
-            // XXX decref?
+        if (handle_legacy_builtin(tstate->interp,
+                                  mod, def, name, entry->initfunc) < 0) {
+            // XXX decref mod?
             return NULL;
         }
         return mod;
@@ -1910,6 +1927,8 @@ bootstrap_imp(PyThreadState *tstate)
     }
 
     // Create the _imp module from its definition.
+    // XXX The _imp module is multi-phase init, so we should be able
+    // to drop this call (and go straight to create_builtin().
     PyObject *mod = reload_legacy_extension(tstate, name, name);
     if (mod == NULL && !_PyErr_Occurred(tstate)) {
         /* It hasn't been loaded yet (or isn't a legacy module). */
