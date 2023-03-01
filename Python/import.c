@@ -638,12 +638,7 @@ EM_JS(PyObject*, _PyImport_InitFunc_TrampolineCall, (PyModInitFunction func), {
 #define _PyImport_InitFunc_TrampolineCall(func) (func)()
 #endif // __EMSCRIPTEN__ && PY_CALL_TRAMPOLINE
 
-#ifdef HAVE_DYNAMIC_LOADING
-// forward declration
 static const char * swap_package_context(const char *newcontext);
-#else
-# define swap_package_context(nc)
-#endif
 
 static PyModuleDef *
 run_extension(PyModInitFunction initfunc,
@@ -1037,40 +1032,6 @@ _PyImport_SetDLOpenFlags(PyInterpreterState *interp, int new_val)
 
 #ifdef HAVE_DYNAMIC_LOADING
 
-/* Make sure name is fully qualified.
-
-   This is a bit of a hack: when the shared library is loaded,
-   the module name is "package.module", but the module calls
-   PyModule_Create*() with just "module" for the name.  The shared
-   library loader squirrels away the true name of the module in
-   _PyRuntime.imports.pkgcontext, and PyModule_Create*() will
-   substitute this (if the name actually matches).
-*/
-const char *
-_PyImport_ResolveNameWithPackageContext(const char *name)
-{
-    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
-    if (PKGCONTEXT != NULL) {
-        const char *p = strrchr(PKGCONTEXT, '.');
-        if (p != NULL && strcmp(name, p+1) == 0) {
-            name = PKGCONTEXT;
-            PKGCONTEXT = NULL;
-        }
-    }
-    PyThread_release_lock(EXTENSIONS_LOCK);
-    return name;
-}
-
-static const char *
-swap_package_context(const char *newcontext)
-{
-    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
-    const char *oldcontext = PKGCONTEXT;
-    PKGCONTEXT = newcontext;
-    PyThread_release_lock(EXTENSIONS_LOCK);
-    return oldcontext;
-}
-
 static PyObject *
 create_dynamic(PyInterpreterState *interp,
                PyObject *spec, PyObject *fullname, PyObject *path,  FILE *fp)
@@ -1203,6 +1164,41 @@ gets even messier.
    module-specific state). They are still recorded in the extensions
    dictionary, to avoid loading shared libraries twice.
 */
+
+/* Make sure name is fully qualified.
+
+   This is a bit of a hack: when the shared library is loaded,
+   the module name is "package.module", but the module calls
+   PyModule_Create*() with just "module" for the name.  The shared
+   library loader squirrels away the true name of the module in
+   _PyRuntime.imports.pkgcontext, and PyModule_Create*() will
+   substitute this (if the name actually matches).
+*/
+const char *
+_PyImport_ResolveNameWithPackageContext(const char *name)
+{
+    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
+    if (PKGCONTEXT != NULL) {
+        const char *p = strrchr(PKGCONTEXT, '.');
+        if (p != NULL && strcmp(name, p+1) == 0) {
+            name = PKGCONTEXT;
+            PKGCONTEXT = NULL;
+        }
+    }
+    PyThread_release_lock(EXTENSIONS_LOCK);
+    return name;
+}
+
+static const char *
+swap_package_context(const char *newcontext)
+{
+    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
+    const char *oldcontext = PKGCONTEXT;
+    PKGCONTEXT = newcontext;
+    PyThread_release_lock(EXTENSIONS_LOCK);
+    return oldcontext;
+}
+
 
 static PyModuleDef *
 _extensions_cache_get(PyObject *filename, PyObject *name)
