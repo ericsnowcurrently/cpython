@@ -580,55 +580,6 @@ _PyImport_ClearModulesByIndex(PyInterpreterState *interp)
 /* extension modules (common) */
 /******************************/
 
-/* Common implementation for _imp.exec_dynamic and _imp.exec_builtin */
-static int
-exec_builtin_or_dynamic(PyObject *mod) {
-    PyModuleDef *def;
-    void *state;
-
-    if (!PyModule_Check(mod)) {
-        return 0;
-    }
-
-    def = PyModule_GetDef(mod);
-    if (def == NULL) {
-        return 0;
-    }
-
-    state = PyModule_GetState(mod);
-    if (state) {
-        /* Already initialized; skip reload */
-        return 0;
-    }
-
-    return PyModule_ExecDef(mod, def);
-}
-
-
-static int clear_legacy_extension(PyInterpreterState *interp,
-                                  PyObject *name, PyObject *filename);
-
-// Currently, this is only used for testing.
-// (See _testinternalcapi.clear_extension().)
-int
-_PyImport_ClearExtension(PyObject *name, PyObject *filename)
-{
-    PyInterpreterState *interp = _PyInterpreterState_GET();
-
-    /* Clearing a module's C globals is up to the module. */
-    if (clear_legacy_extension(interp, name, filename) < 0) {
-        return -1;
-    }
-
-    // In the future we'll probably also make sure the extension's
-    // file handle (and DL handle) is closed (requires saving it).
-
-    return 0;
-}
-
-
-/*******************/
-
 #if defined(__EMSCRIPTEN__) && defined(PY_CALL_TRAMPOLINE)
 #include <emscripten.h>
 EM_JS(PyObject*, _PyImport_InitFunc_TrampolineCall, (PyModInitFunction func), {
@@ -777,6 +728,53 @@ handle_legacy_extension(PyInterpreterState *interp,
         PyMapping_DelItem(modules, name);
         return -1;
     }
+    return 0;
+}
+
+
+/* Common implementation for _imp.exec_dynamic and _imp.exec_builtin */
+static int
+exec_builtin_or_dynamic(PyObject *mod) {
+    PyModuleDef *def;
+    void *state;
+
+    if (!PyModule_Check(mod)) {
+        return 0;
+    }
+
+    def = PyModule_GetDef(mod);
+    if (def == NULL) {
+        return 0;
+    }
+
+    state = PyModule_GetState(mod);
+    if (state) {
+        /* Already initialized; skip reload */
+        return 0;
+    }
+
+    return PyModule_ExecDef(mod, def);
+}
+
+
+static int clear_legacy_extension(PyInterpreterState *interp,
+                                  PyObject *name, PyObject *filename);
+
+// Currently, this is only used for testing.
+// (See _testinternalcapi.clear_extension().)
+int
+_PyImport_ClearExtension(PyObject *name, PyObject *filename)
+{
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+
+    /* Clearing a module's C globals is up to the module. */
+    if (clear_legacy_extension(interp, name, filename) < 0) {
+        return -1;
+    }
+
+    // In the future we'll probably also make sure the extension's
+    // file handle (and DL handle) is closed (requires saving it).
+
     return 0;
 }
 
