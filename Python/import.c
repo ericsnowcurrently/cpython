@@ -602,6 +602,7 @@ run_extension(PyModInitFunction initfunc,
     if (path == NULL) {
         /* It's a builtin extension. */
         m = _PyImport_InitFunc_TrampolineCall(*initfunc);
+        // Currently we don't bother with package context for builtin modules.
     }
     else {
         /* It's a dynamic extension. */
