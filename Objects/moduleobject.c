@@ -208,7 +208,9 @@ _PyModule_CreateInitialized(PyModuleDef* module, int module_api_version)
             "module %s: PyModule_Create is incompatible with m_slots", name);
         return NULL;
     }
+#ifdef HAVE_DYNAMIC_LOADING
     name = _PyImport_ResolveNameWithPackageContext(name);
+#endif
     if ((m = (PyModuleObject*)PyModule_New(name)) == NULL)
         return NULL;
 

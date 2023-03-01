@@ -912,6 +912,8 @@ _PyImport_SetDLOpenFlags(PyInterpreterState *interp, int new_val)
 #endif  // HAVE_DLOPEN
 
 
+#ifdef HAVE_DYNAMIC_LOADING
+
 /* Make sure name is fully qualified.
 
    This is a bit of a hack: when the shared library is loaded,
@@ -945,6 +947,8 @@ _PyImport_SwapPackageContext(const char *newcontext)
     PyThread_release_lock(EXTENSIONS_LOCK);
     return oldcontext;
 }
+
+#endif /* HAVE_DYNAMIC_LOADING */
 
 
 /*****************************/
