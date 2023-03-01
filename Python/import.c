@@ -638,12 +638,157 @@ EM_JS(PyObject*, _PyImport_InitFunc_TrampolineCall, (PyModInitFunction func), {
 #define _PyImport_InitFunc_TrampolineCall(func) (func)()
 #endif // __EMSCRIPTEN__ && PY_CALL_TRAMPOLINE
 
+#ifdef HAVE_DYNAMIC_LOADING
+// forward declration
+static const char * swap_package_context(const char *newcontext);
+#else
+# define swap_package_context(nc)
+#endif
+
+static PyModuleDef *
+run_extension(PyModInitFunction initfunc,
+              PyObject *fullname, const char *encoded, PyObject *path,
+              PyObject **mod_p)
+{
+    PyModuleDef *def = NULL;
+    PyObject *m;
+
+    if (path == NULL) {
+        /* It's a builtin extension. */
+        m = _PyImport_InitFunc_TrampolineCall(*initfunc);
+    }
+    else {
+        /* It's a dynamic extension. */
+        if (PySys_Audit("import", "OOOOO", fullname, path,
+                        Py_None, Py_None, Py_None) < 0) {
+            return NULL;
+        }
+
+        const char *oldcontext;
+        const char *newcontext = PyUnicode_AsUTF8(fullname);
+        if (newcontext == NULL) {
+            return NULL;
+        }
+
+        /* Package context is needed for single-phase init */
+        oldcontext = swap_package_context(newcontext);
+        m = _PyImport_InitFunc_TrampolineCall(initfunc);
+        swap_package_context(oldcontext);
+    }
+
+    /* Check the returned object. */
+    if (m == NULL) {
+        if (path == NULL) {
+            // XXX For now, we preserve the behavior of the old code
+            // for builtins, which did not set an exception.
+            return NULL;
+        }
+        if (!PyErr_Occurred()) {
+            PyErr_Format(
+                PyExc_SystemError,
+                "initialization of %s failed without raising an exception",
+                encoded);
+        }
+        return NULL;
+    } else if (PyErr_Occurred()) {
+        if (path == NULL) {
+            // XXX For now, we preserve the behavior of the old code
+            // for builtins, which did not chain an exception.
+            // XXX decref m?
+            return NULL;
+        }
+        _PyErr_FormatFromCause(
+            PyExc_SystemError,
+            "initialization of %s raised unreported exception",
+            encoded);
+        // XXX decref m?
+        return NULL;
+    }
+    if (Py_IS_TYPE(m, NULL)) {
+        /* This can happen when a PyModuleDef is returned without calling
+         * PyModuleDef_Init on it
+         */
+        if (path == NULL) {
+            // XXX For now, we preserve the behavior of the old code
+            // for builtins, which did not set an exception.
+            return NULL;
+        }
+        PyErr_Format(PyExc_SystemError,
+                     "init function of %s returned uninitialized object",
+                     encoded);
+        // We do not decref m, to prevent a segfault.
+        return NULL;
+    }
+
+    /* Try multi-phase init first. */
+    if (PyObject_TypeCheck(m, &PyModuleDef_Type)) {
+        def = (PyModuleDef *)m;
+        m = NULL;
+    }
+    /* Fall back to single-phase init mechanism. */
+    else {
+        def = PyModule_GetDef(m);
+        if (def == NULL) {
+            if (path == NULL) {
+                // XXX For now, we preserve the behavior of the old code
+                // for builtins, which did not set an exception or decref m.
+                return NULL;
+            }
+            PyErr_Format(PyExc_SystemError,
+                         "initialization of %s did not return an extension "
+                         "module", encoded);
+            Py_DECREF(m);
+            return NULL;
+        }
+    }
+
+    *mod_p = m;
+    return def;
+}
+
+static int fix_up_legacy_extension(PyObject *, PyObject *, PyObject *);
+
+static int
+handle_legacy_extension(PyInterpreterState *interp,
+                        PyObject *mod, PyModuleDef *def,
+                        PyObject *name, const char *encoded, int asciionly,
+                        PyObject *path, PyModInitFunction initfunc)
+{
+    if (!asciionly) {
+        /* don't allow legacy init for non-ASCII module names */
+        PyErr_Format(
+            PyExc_SystemError,
+            "initialization of %s did not return PyModuleDef",
+            encoded);
+        return -1;
+    }
+
+    /* Remember pointer to module init function. */
+    def->m_base.m_init = initfunc;
+
+    if (path != NULL) {
+        /* Remember the filename as the __file__ attribute */
+        if (PyModule_AddObjectRef(mod, "__file__", path) < 0) {
+            PyErr_Clear(); /* Not important enough to report */
+        }
+    }
+
+    /* Fix up the module. */
+    PyObject *modules = MODULES(interp);
+    if (PyObject_SetItem(modules, name, mod) < 0) {
+        return -1;
+    }
+    if (fix_up_legacy_extension(mod, name, name) < 0) {
+        PyMapping_DelItem(modules, name);
+        return -1;
+    }
+    return 0;
+}
+
 
 /*******************************/
 /* builtin extension modules */
 /*******************************/
-
-static int fix_up_legacy_extension(PyObject *, PyObject *, PyObject *);
 
 int
 _PyImport_FixupBuiltin(PyObject *mod, const char *name, PyObject *modules)
@@ -697,36 +842,10 @@ is_builtin(PyObject *name)
     return 0;
 }
 
-static PyObject *
-run_builtin(PyModInitFunction initfunc)
-{
-    return _PyImport_InitFunc_TrampolineCall(*initfunc);
-}
-
-static int
-handle_legacy_builtin(PyInterpreterState *interp,
-                      PyObject *mod, PyModuleDef *def, PyObject *name,
-                      PyModInitFunction initfunc)
-{
-    /* Remember pointer to module init function. */
-    def->m_base.m_init = initfunc;
-
-    /* Fix up the module. */
-    PyObject *modules = MODULES(interp);
-    if (PyObject_SetItem(modules, name, mod) < 0) {
-        return -1;
-    }
-    if (fix_up_legacy_extension(mod, name, name) < 0) {
-        PyMapping_DelItem(modules, name);
-        return -1;
-    }
-    return 0;
-}
-
 static PyObject*
-create_builtin(PyThreadState *tstate, PyObject *name, PyObject *spec)
+create_builtin(PyInterpreterState *interp, PyObject *name, PyObject *spec)
 {
-    PyObject *mod;
+    PyObject *mod = NULL;
 
     struct _inittab *entry = find_builtin(name);
     if (entry == NULL) {
@@ -739,22 +858,24 @@ create_builtin(PyThreadState *tstate, PyObject *name, PyObject *spec)
         return Py_XNewRef(mod);
     }
 
-    mod = run_builtin(entry->initfunc);
-    if (mod == NULL) {
+    const char *encoded = PyUnicode_AsUTF8(name);
+    int asciionly = 1;
+    PyModuleDef *def = run_extension(entry->initfunc, name, encoded, NULL,
+                                     &mod);
+    if (def == NULL) {
+        assert(mod == NULL);
         return NULL;
     }
-    else if (PyObject_TypeCheck(mod, &PyModuleDef_Type)) {
-        return PyModule_FromDefAndSpec((PyModuleDef*)mod, spec);
+    if (mod == NULL) {
+        /* multi-phase init */
+        return PyModule_FromDefAndSpec(def, spec);
     }
     else {
+        /* single-phase init */
         // XXX All builtin modules should implement multi-phase init!
-        PyModuleDef *def = PyModule_GetDef(mod);
-        if (def == NULL) {
-            // XXX decref mod?
-            return NULL;
-        }
-        if (handle_legacy_builtin(tstate->interp,
-                                  mod, def, name, entry->initfunc) < 0) {
+        if (handle_legacy_extension(
+                interp, mod, def, name, encoded, asciionly, NULL,
+                entry->initfunc) < 0) {
             // XXX decref mod?
             return NULL;
         }
@@ -940,8 +1061,8 @@ _PyImport_ResolveNameWithPackageContext(const char *name)
     return name;
 }
 
-const char *
-_PyImport_SwapPackageContext(const char *newcontext)
+static const char *
+swap_package_context(const char *newcontext)
 {
     PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
     const char *oldcontext = PKGCONTEXT;
@@ -950,111 +1071,9 @@ _PyImport_SwapPackageContext(const char *newcontext)
     return oldcontext;
 }
 
-
-static PyModuleDef *
-run_dynamic(PyModInitFunction initfunc,
-            PyObject *fullname, PyObject *encoded, PyObject *path,
-            PyObject **mod_p)
-{
-    PyObject *m;
-
-    if (PySys_Audit("import", "OOOOO", fullname, path,
-                    Py_None, Py_None, Py_None) < 0) {
-        return NULL;
-    }
-
-    const char *oldcontext;
-    const char *newcontext = PyUnicode_AsUTF8(fullname);
-    if (newcontext == NULL) {
-        return NULL;
-    }
-
-    /* Package context is needed for single-phase init */
-    oldcontext = _PyImport_SwapPackageContext(newcontext);
-    m = _PyImport_InitFunc_TrampolineCall(initfunc);
-    _PyImport_SwapPackageContext(oldcontext);
-
-    if (m == NULL) {
-        if (!PyErr_Occurred()) {
-            PyErr_Format(
-                PyExc_SystemError,
-                "initialization of %s failed without raising an exception",
-                PyBytes_AS_STRING(encoded));
-        }
-        return NULL;
-    } else if (PyErr_Occurred()) {
-        _PyErr_FormatFromCause(
-            PyExc_SystemError,
-            "initialization of %s raised unreported exception",
-            PyBytes_AS_STRING(encoded));
-        // XXX decref m?
-        return NULL;
-    }
-    if (Py_IS_TYPE(m, NULL)) {
-        /* This can happen when a PyModuleDef is returned without calling
-         * PyModuleDef_Init on it
-         */
-        PyErr_Format(PyExc_SystemError,
-                     "init function of %s returned uninitialized object",
-                     PyBytes_AS_STRING(encoded));
-        // We do not decref m, to prevent a segfault.
-        return NULL;
-    }
-
-    /* Try multi-phase init first. */
-    if (PyObject_TypeCheck(m, &PyModuleDef_Type)) {
-        *mod_p = NULL;
-        return (PyModuleDef *)m;
-    }
-
-    /* Fall back to single-phase init mechanism. */
-    PyModuleDef *def = PyModule_GetDef(m);
-    if (def == NULL) {
-        PyErr_Format(PyExc_SystemError,
-                     "initialization of %s did not return an extension "
-                     "module", PyBytes_AS_STRING(encoded));
-        Py_DECREF(m);
-        return NULL;
-    }
-
-    *mod_p = m;
-    return def;
-}
-
-static int
-handle_legacy_dynamic(PyObject *mod, PyModuleDef *def,
-                      struct module_name *name, PyObject *path,
-                      PyModInitFunction initfunc)
-{
-    if (!name->asciionly) {
-        /* don't allow legacy init for non-ASCII module names */
-        PyErr_Format(
-            PyExc_SystemError,
-            "initialization of %s did not return PyModuleDef",
-            PyBytes_AS_STRING(name->encoded));
-        return -1;
-    }
-
-    /* Remember pointer to module init function. */
-    def->m_base.m_init = initfunc;
-
-    if (path != NULL) {
-        /* Remember the filename as the __file__ attribute */
-        if (PyModule_AddObjectRef(mod, "__file__", path) < 0) {
-            PyErr_Clear(); /* Not important enough to report */
-        }
-    }
-
-    PyObject *modules = PyImport_GetModuleDict();
-    if (_PyImport_FixupExtensionObject(mod, name->full, path, modules) < 0) {
-        return -1;
-    }
-
-    return 0;
-}
-
 static PyObject *
-create_dynamic(PyObject *spec, PyObject *fullname, PyObject *path,  FILE *fp)
+create_dynamic(PyInterpreterState *interp,
+               PyObject *spec, PyObject *fullname, PyObject *path,  FILE *fp)
 {
     PyObject *m = NULL;
     PyModuleDef *def;
@@ -1070,7 +1089,8 @@ create_dynamic(PyObject *spec, PyObject *fullname, PyObject *path,  FILE *fp)
         goto finally;
     }
 
-    def = run_dynamic(p0, fullname, name.encoded, path, &m);
+    const char *encoded = PyBytes_AS_STRING(name.encoded);
+    def = run_extension(p0, fullname, encoded, path, &m);
     if (def == NULL) {
         goto finally;
     }
@@ -1080,7 +1100,9 @@ create_dynamic(PyObject *spec, PyObject *fullname, PyObject *path,  FILE *fp)
     }
     else {
         /* single-phase init */
-        if (handle_legacy_dynamic(m, def, &name, path, p0) < 0) {
+        if (handle_legacy_extension(
+                interp, m, def, fullname, encoded, name.asciionly, path,
+                p0) < 0) {
             Py_CLEAR(m);
             goto finally;
         }
@@ -2090,7 +2112,7 @@ bootstrap_imp(PyThreadState *tstate)
     PyObject *mod = reload_legacy_extension(tstate, name, name);
     if (mod == NULL && !_PyErr_Occurred(tstate)) {
         /* It hasn't been loaded yet (or isn't a legacy module). */
-        mod = create_builtin(tstate, name, spec);
+        mod = create_builtin(tstate->interp, name, spec);
     }
     Py_CLEAR(name);
     Py_DECREF(spec);
@@ -3280,7 +3302,7 @@ _imp_create_builtin(PyObject *module, PyObject *spec)
     PyObject *mod = reload_legacy_extension(tstate, name, name);
     if (mod == NULL && !_PyErr_Occurred(tstate)) {
         /* It hasn't been loaded yet (or isn't a legacy module). */
-        mod = create_builtin(tstate, name, spec);
+        mod = create_builtin(tstate->interp, name, spec);
     }
     Py_DECREF(name);
     return mod;
@@ -3602,11 +3624,11 @@ _imp_create_dynamic_impl(PyObject *module, PyObject *spec, PyObject *file)
             if (fp == NULL) {
                 goto finally;
             }
-            mod = create_dynamic(spec, name, path, fp);
+            mod = create_dynamic(tstate->interp, spec, name, path, fp);
             fclose(fp);
         }
         else {
-            mod = create_dynamic(spec, name, path, NULL);
+            mod = create_dynamic(tstate->interp, spec, name, path, NULL);
         }
     }
 
