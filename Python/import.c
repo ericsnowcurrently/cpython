@@ -634,6 +634,8 @@ _PyImport_ClearExtension(PyObject *name, PyObject *filename)
 EM_JS(PyObject*, _PyImport_InitFunc_TrampolineCall, (PyModInitFunction func), {
     return wasmTable.get(func)();
 });
+#else
+#define _PyImport_InitFunc_TrampolineCall(func) (func)()
 #endif // __EMSCRIPTEN__ && PY_CALL_TRAMPOLINE
 
 
@@ -946,6 +948,147 @@ _PyImport_SwapPackageContext(const char *newcontext)
     PKGCONTEXT = newcontext;
     PyThread_release_lock(EXTENSIONS_LOCK);
     return oldcontext;
+}
+
+
+static PyModuleDef *
+run_dynamic(PyModInitFunction initfunc,
+            PyObject *fullname, PyObject *encoded, PyObject *path,
+            PyObject **mod_p)
+{
+    PyObject *m;
+
+    if (PySys_Audit("import", "OOOOO", fullname, path,
+                    Py_None, Py_None, Py_None) < 0) {
+        return NULL;
+    }
+
+    const char *oldcontext;
+    const char *newcontext = PyUnicode_AsUTF8(fullname);
+    if (newcontext == NULL) {
+        return NULL;
+    }
+
+    /* Package context is needed for single-phase init */
+    oldcontext = _PyImport_SwapPackageContext(newcontext);
+    m = _PyImport_InitFunc_TrampolineCall(initfunc);
+    _PyImport_SwapPackageContext(oldcontext);
+
+    if (m == NULL) {
+        if (!PyErr_Occurred()) {
+            PyErr_Format(
+                PyExc_SystemError,
+                "initialization of %s failed without raising an exception",
+                PyBytes_AS_STRING(encoded));
+        }
+        return NULL;
+    } else if (PyErr_Occurred()) {
+        _PyErr_FormatFromCause(
+            PyExc_SystemError,
+            "initialization of %s raised unreported exception",
+            PyBytes_AS_STRING(encoded));
+        // XXX decref m?
+        return NULL;
+    }
+    if (Py_IS_TYPE(m, NULL)) {
+        /* This can happen when a PyModuleDef is returned without calling
+         * PyModuleDef_Init on it
+         */
+        PyErr_Format(PyExc_SystemError,
+                     "init function of %s returned uninitialized object",
+                     PyBytes_AS_STRING(encoded));
+        // We do not decref m, to prevent a segfault.
+        return NULL;
+    }
+
+    /* Try multi-phase init first. */
+    if (PyObject_TypeCheck(m, &PyModuleDef_Type)) {
+        *mod_p = NULL;
+        return (PyModuleDef *)m;
+    }
+
+    /* Fall back to single-phase init mechanism. */
+    PyModuleDef *def = PyModule_GetDef(m);
+    if (def == NULL) {
+        PyErr_Format(PyExc_SystemError,
+                     "initialization of %s did not return an extension "
+                     "module", PyBytes_AS_STRING(encoded));
+        Py_DECREF(m);
+        return NULL;
+    }
+
+    *mod_p = m;
+    return def;
+}
+
+static int
+handle_legacy_dynamic(PyObject *mod, PyModuleDef *def,
+                      struct module_name *name, PyObject *path,
+                      PyModInitFunction initfunc)
+{
+    if (!name->asciionly) {
+        /* don't allow legacy init for non-ASCII module names */
+        PyErr_Format(
+            PyExc_SystemError,
+            "initialization of %s did not return PyModuleDef",
+            PyBytes_AS_STRING(name->encoded));
+        return -1;
+    }
+
+    /* Remember pointer to module init function. */
+    def->m_base.m_init = initfunc;
+
+    if (path != NULL) {
+        /* Remember the filename as the __file__ attribute */
+        if (PyModule_AddObjectRef(mod, "__file__", path) < 0) {
+            PyErr_Clear(); /* Not important enough to report */
+        }
+    }
+
+    PyObject *modules = PyImport_GetModuleDict();
+    if (_PyImport_FixupExtensionObject(mod, name->full, path, modules) < 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+static PyObject *
+create_dynamic(PyObject *spec, PyObject *fullname, PyObject *path,  FILE *fp)
+{
+    PyObject *m = NULL;
+    PyModuleDef *def;
+    PyModInitFunction p0;
+
+    struct module_name name;
+    if (_PyImport_GetDynamicModuleEncodedName(fullname, &name) < 0) {
+        goto finally;
+    }
+
+    p0 = _PyImport_LoadDynamicModuleInitFunc(&name, path, fp);
+    if (p0 == NULL) {
+        goto finally;
+    }
+
+    def = run_dynamic(p0, fullname, name.encoded, path, &m);
+    if (def == NULL) {
+        goto finally;
+    }
+    else if (m == NULL) {
+        /* multi-phase init */
+        m = PyModule_FromDefAndSpec(def, spec);
+    }
+    else {
+        /* single-phase init */
+        if (handle_legacy_dynamic(m, def, &name, path, p0) < 0) {
+            Py_CLEAR(m);
+            goto finally;
+        }
+    }
+
+finally:
+    Py_DECREF(name.encoded);
+    return m;
 }
 
 #endif /* HAVE_DYNAMIC_LOADING */
@@ -3459,11 +3602,11 @@ _imp_create_dynamic_impl(PyObject *module, PyObject *spec, PyObject *file)
             if (fp == NULL) {
                 goto finally;
             }
-            mod = _PyImport_LoadDynamicModuleWithSpec(spec, name, path, fp);
+            mod = create_dynamic(spec, name, path, fp);
             fclose(fp);
         }
         else {
-            mod = _PyImport_LoadDynamicModuleWithSpec(spec, name, path, NULL);
+            mod = create_dynamic(spec, name, path, NULL);
         }
     }
 

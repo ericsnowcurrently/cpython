@@ -5,13 +5,26 @@
 extern "C" {
 #endif
 
+/* The following is also used for builtin modules. */
+typedef PyObject *(*PyModInitFunction)(void);
+
 
 #ifdef HAVE_DYNAMIC_LOADING
 
 extern const char *_PyImport_DynLoadFiletab[];
 
-extern PyObject *_PyImport_LoadDynamicModuleWithSpec(
-        PyObject *spec, PyObject *fullname, PyObject *path, FILE *);
+struct module_name {
+    PyObject *full;
+    PyObject *encoded;
+    int asciionly;
+    const char *hook_prefix;
+};
+
+extern int _PyImport_GetDynamicModuleEncodedName(
+        PyObject *fullname, struct module_name *result);
+
+extern PyModInitFunction _PyImport_LoadDynamicModuleInitFunc(
+        struct module_name *name, PyObject *path, FILE *fp);
 
 /* Max length of module suffix searched for -- accommodates "module.slb" */
 #define MAXSUFFIXSIZE 12
@@ -24,17 +37,6 @@ typedef void (*dl_funcptr)(void);
 #endif
 
 #endif /* HAVE_DYNAMIC_LOADING */
-
-
-/* The following are also used for builtin modules. */
-
-typedef PyObject *(*PyModInitFunction)(void);
-
-#if defined(__EMSCRIPTEN__) && defined(PY_CALL_TRAMPOLINE)
-extern PyObject *_PyImport_InitFunc_TrampolineCall(PyModInitFunction func);
-#else
-#define _PyImport_InitFunc_TrampolineCall(func) (func)()
-#endif
 
 
 #ifdef __cplusplus
