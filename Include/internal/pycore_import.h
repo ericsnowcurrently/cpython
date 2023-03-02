@@ -9,8 +9,6 @@ extern "C" {
 struct _import_runtime_state {
     /* The builtin modules (defined in config.c). */
     struct _inittab *inittab;
-    /* The global lock for importing extensions. */
-    PyThread_type_lock extensions_mutex;
     /* The most recent value assigned to a PyModuleDef.m_base.m_index.
        This is incremented each time PyModuleDef_Init() is called,
        which is just about every time an extension module is imported.
@@ -21,8 +19,16 @@ struct _import_runtime_state {
        and only if they support multiple initialization (m_size >- 0)
        or are imported in the main interpreter.
        This is initialized lazily in _PyImport_FixupExtensionObject().
-       Modules are added there and looked up in _imp.find_extension(). */
+       Modules are added there and looked up in _imp.find_extension().
+
+       The value may also be None (for "not single-phase init")
+       or a lock (for "currently loading"). */
+    /* The global lock for importing extensions. */
+    PyThread_type_lock extensions_mutex;
     PyObject *extensions;
+    /* The first lock used for "currently loading" in the extensions dict. */
+    PyThread_type_lock extension_mutex_0;
+    int extension_mutex_0_free;
     /* Package context -- the full module name for package imports */
     const char * pkgcontext;
 };

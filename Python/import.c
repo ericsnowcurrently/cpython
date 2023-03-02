@@ -33,6 +33,10 @@ module _imp
 #include "clinic/import.c.h"
 
 
+#define ASSERT_LOCKED(lock) \
+    assert(!PyThread_acquire_lock(lock, NOWAIT_LOCK))
+
+
 /*******************************/
 /* process-global import state */
 /*******************************/
@@ -53,9 +57,11 @@ static struct _inittab *inittab_copy = NULL;
 /*******************************/
 
 #define INITTAB _PyRuntime.imports.inittab
-#define EXTENSIONS_LOCK _PyRuntime.imports.extensions_mutex
 #define LAST_MODULE_INDEX _PyRuntime.imports.last_module_index
+#define EXTENSIONS_LOCK _PyRuntime.imports.extensions_mutex
 #define EXTENSIONS _PyRuntime.imports.extensions
+#define EXTENSION_LOCK_0 _PyRuntime.imports.extension_mutex_0
+#define EXTENSION_LOCK_0_FREE _PyRuntime.imports.extension_mutex_0_free
 #define PKGCONTEXT (_PyRuntime.imports.pkgcontext)
 
 
@@ -153,6 +159,10 @@ _PyImport_ReInitLock(PyInterpreterState *interp)
 {
     /* Re-init the global extensions import lock. */
     if (_PyThread_at_fork_reinit(&EXTENSIONS_LOCK) < 0) {
+        return _PyStatus_ERR("failed to create a new lock");
+    }
+
+    if (_PyThread_at_fork_reinit(&EXTENSION_LOCK_0) < 0) {
         return _PyStatus_ERR("failed to create a new lock");
     }
 
@@ -784,6 +794,9 @@ _PyImport_ClearExtension(PyObject *name, PyObject *filename)
 /* builtin extension modules */
 /*******************************/
 
+static inline int _extensions_cache_set(PyObject *filename, PyObject *name,
+                                        PyObject *def);
+
 int
 _PyImport_FixupBuiltin(PyObject *mod, const char *name, PyObject *modules)
 {
@@ -799,6 +812,13 @@ _PyImport_FixupBuiltin(PyObject *mod, const char *name, PyObject *modules)
     if (fix_up_legacy_extension(mod, nameobj, NULL) < 0) {
         PyMapping_DelItem(modules, nameobj);
         goto finally;
+    }
+    PyModuleDef *def = PyModule_GetDef(mod);
+    // XXX Why special-case the main interpreter?
+    if (_Py_IsMainInterpreter(_PyInterpreterState_GET()) || def->m_size == -1) {
+        if (_extensions_cache_set(NULL, nameobj, (PyObject *)def) < 0) {
+            goto finally;
+        }
     }
     res = 0;
 
@@ -836,10 +856,14 @@ is_builtin(PyObject *name)
     return 0;
 }
 
+static void _extensions_cache_finish_loading(PyObject *, PyObject *, PyObject *);
+
 static PyObject*
-create_builtin(PyInterpreterState *interp, PyObject *name, PyObject *spec)
+create_builtin(PyInterpreterState *interp, PyObject *name, PyObject *spec,
+               int singlephase)
 {
     PyObject *mod = NULL;
+    PyObject *filename = NULL;
 
     struct _inittab *entry = find_builtin(name);
     if (entry == NULL) {
@@ -854,12 +878,14 @@ create_builtin(PyInterpreterState *interp, PyObject *name, PyObject *spec)
 
     const char *encoded = PyUnicode_AsUTF8(name);
     int asciionly = 1;
-    PyModuleDef *def = run_extension(entry->initfunc, name, encoded, NULL,
+    PyModuleDef *def = run_extension(entry->initfunc, name, encoded, filename,
                                      &mod);
     if (def == NULL) {
         assert(mod == NULL);
         return NULL;
     }
+    _extensions_cache_finish_loading(NULL, name,
+                                     singlephase ? (PyObject *)def : Py_None);
     if (mod == NULL) {
         /* multi-phase init */
         return PyModule_FromDefAndSpec(def, spec);
@@ -868,7 +894,7 @@ create_builtin(PyInterpreterState *interp, PyObject *name, PyObject *spec)
         /* single-phase init */
         // XXX All builtin modules should implement multi-phase init!
         if (handle_legacy_extension(
-                interp, mod, def, name, encoded, asciionly, NULL,
+                interp, mod, def, name, encoded, asciionly, filename,
                 entry->initfunc) < 0) {
             // XXX decref mod?
             return NULL;
@@ -1033,7 +1059,8 @@ _PyImport_SetDLOpenFlags(PyInterpreterState *interp, int new_val)
 
 static PyObject *
 create_dynamic(PyInterpreterState *interp,
-               PyObject *spec, PyObject *fullname, PyObject *path,  FILE *fp)
+               PyObject *spec, PyObject *fullname, PyObject *path,  FILE *fp,
+               int singlephase)
 {
     PyObject *m = NULL;
     PyModuleDef *def;
@@ -1054,7 +1081,9 @@ create_dynamic(PyInterpreterState *interp,
     if (def == NULL) {
         goto finally;
     }
-    else if (m == NULL) {
+    _extensions_cache_finish_loading(path, name.full,
+                                     singlephase ? (PyObject *)def : Py_None);
+    if (m == NULL) {
         /* multi-phase init */
         m = PyModule_FromDefAndSpec(def, spec);
     }
@@ -1199,8 +1228,8 @@ swap_package_context(const char *newcontext)
 }
 
 
-static PyModuleDef *
-_extensions_cache_get(PyObject *filename, PyObject *name)
+static PyObject *
+_extensions_cache_get_unlocked(PyObject *filename, PyObject *name)
 {
     if (filename == NULL) {
         /* It's a builtin extension. */
@@ -1211,23 +1240,32 @@ _extensions_cache_get(PyObject *filename, PyObject *name)
         return NULL;
     }
 
-    PyModuleDef *def = NULL;
-    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
+    PyObject *def = NULL;
 
+    ASSERT_LOCKED(EXTENSIONS_LOCK);
     PyObject *extensions = EXTENSIONS;
     if (extensions == NULL) {
         goto finally;
     }
-    def = (PyModuleDef *)PyDict_GetItemWithError(extensions, key);
+    def = PyDict_GetItemWithError(extensions, key);
 
 finally:
-    PyThread_release_lock(EXTENSIONS_LOCK);
     Py_DECREF(key);
     return def;
 }
 
+static inline PyObject *
+_extensions_cache_get(PyObject *filename, PyObject *name)
+{
+    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
+    PyObject *cached = _extensions_cache_get_unlocked(filename, name);
+    PyThread_release_lock(EXTENSIONS_LOCK);
+    return cached;
+}
+
 static int
-_extensions_cache_set(PyObject *filename, PyObject *name, PyModuleDef *def)
+_extensions_cache_set_unlocked(PyObject *filename, PyObject *name,
+                               PyObject *def)
 {
     if (filename == NULL) {
         /* It's a builtin extension. */
@@ -1239,8 +1277,8 @@ _extensions_cache_set(PyObject *filename, PyObject *name, PyModuleDef *def)
     }
 
     int res = -1;
-    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
 
+    ASSERT_LOCKED(EXTENSIONS_LOCK);
     PyObject *extensions = EXTENSIONS;
     if (extensions == NULL) {
         extensions = PyDict_New();
@@ -1249,19 +1287,27 @@ _extensions_cache_set(PyObject *filename, PyObject *name, PyModuleDef *def)
         }
         EXTENSIONS = extensions;
     }
-    res = PyDict_SetItem(extensions, key, (PyObject *)def);
+    res = PyDict_SetItem(extensions, key, def);
     if (res < 0) {
         goto finally;
     }
 
 finally:
-    PyThread_release_lock(EXTENSIONS_LOCK);
     Py_DECREF(key);
     return res;
 }
 
+static inline int
+_extensions_cache_set(PyObject *filename, PyObject *name, PyObject *def)
+{
+    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
+    int res = _extensions_cache_set_unlocked(filename, name, def);
+    PyThread_release_lock(EXTENSIONS_LOCK);
+    return res;
+}
+
 static int
-_extensions_cache_delete(PyObject *filename, PyObject *name)
+_extensions_cache_delete_unlocked(PyObject *filename, PyObject *name)
 {
     if (filename == NULL) {
         /* It's a builtin extension. */
@@ -1271,9 +1317,7 @@ _extensions_cache_delete(PyObject *filename, PyObject *name)
     if (key == NULL) {
         return -1;
     }
-
     int res = -1;
-    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
 
     PyObject *extensions = EXTENSIONS;
     if (extensions == NULL) {
@@ -1289,8 +1333,16 @@ _extensions_cache_delete(PyObject *filename, PyObject *name)
     res = 0;
 
 finally:
-    PyThread_release_lock(EXTENSIONS_LOCK);
     Py_DECREF(key);
+    return res;
+}
+
+static inline int
+_extensions_cache_delete(PyObject *filename, PyObject *name)
+{
+    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
+    int res = _extensions_cache_delete_unlocked(filename, name);
+    PyThread_release_lock(EXTENSIONS_LOCK);
     return res;
 }
 
@@ -1301,6 +1353,213 @@ _extensions_cache_clear_all(void)
     Py_CLEAR(EXTENSIONS);
     PyThread_release_lock(EXTENSIONS_LOCK);
 }
+
+/* Set (capsule<lock>, 0) for the module. */
+static int
+_extensions_cache_start_loading(PyObject *filename, PyObject *name)
+{
+    ASSERT_LOCKED(EXTENSIONS_LOCK);
+
+    PyThread_type_lock lock;
+    if (EXTENSION_LOCK_0_FREE) {
+        lock = EXTENSION_LOCK_0;
+    }
+    else {
+        /* This lock will be freed in _extensiosn_cache_clear_loading(). */
+        lock = PyThread_allocate_lock();
+        if (lock == NULL) {
+            return -1;
+        }
+    }
+    PyObject *capsule = PyCapsule_New(lock, NULL, NULL);
+    if (capsule == NULL) {
+        goto error;
+    }
+
+    PyObject *count = PyLong_FromLong(0);
+    if (count == NULL) {
+        Py_DECREF(capsule);
+        goto error;
+    }
+
+    PyObject *cached = PyTuple_Pack(2, capsule, count);
+    Py_DECREF(capsule);
+    Py_DECREF(count);
+    if (cached == NULL) {
+        goto error;
+    }
+
+    int res = _extensions_cache_set_unlocked(filename, name, cached);
+    Py_DECREF(cached);
+    if (res < 0) {
+        goto error;
+    }
+    return 0;
+
+error:
+    if (lock != EXTENSION_LOCK_0) {
+        PyThread_free_lock(lock);
+    }
+    return -1;
+}
+
+static void
+_extensions_cache_finish_loading(PyObject *filename, PyObject *name,
+                                 PyObject *def)
+{
+    assert(def != NULL);
+    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
+
+    PyObject *cached = _extensions_cache_get_unlocked(filename, name);
+    assert(cached != NULL && \
+           PyObject_TypeCheck(cached, &PyTuple_Type) && \
+           PyTuple_GET_SIZE(cached) == 2);
+    Py_INCREF(cached);
+
+    /* Let new load attempts run without waiting. */
+    if (def == NULL) {
+        _extensions_cache_delete(filename, name);
+    }
+    else if (def == Py_None) {
+        _extensions_cache_set_unlocked(filename, name, def);
+    }
+    else {
+        assert(PyObject_TypeCheck(def, &PyModuleDef_Type));
+        if (((PyModuleDef *)def)->m_size == -1) {
+            _extensions_cache_set_unlocked(filename, name, def);
+        }
+        // XXX Why special-case the main interpreter?
+        else if (_Py_IsMainInterpreter(_PyInterpreterState_GET())) {
+            _extensions_cache_set_unlocked(filename, name, def);
+        }
+        else {
+            _extensions_cache_delete(filename, name);
+        }
+    }
+    PyThread_release_lock(EXTENSIONS_LOCK);
+
+    /* Unblock waiting load attempts. */
+    PyObject *capsule = PyTuple_GET_ITEM(cached, 0);
+    assert(capsule != NULL);
+    PyThread_type_lock lock = \
+            (PyThread_type_lock)PyCapsule_GetPointer(capsule, NULL);
+    assert(lock != NULL);
+    PyThread_release_lock(lock);
+
+    /* Wait for all blocked attempts to unblock. */
+    Py_ssize_t count = PyLong_AsSsize_t(PyTuple_GET_ITEM(cached, 1));
+    assert(count >= 0);
+    while (count > 0) {
+        PyThread_acquire_lock(lock, WAIT_LOCK);
+        PyThread_release_lock(lock);
+        count = PyLong_AsSsize_t(PyTuple_GET_ITEM(cached, 1));
+    }
+
+    /* Free the lock and placeholder. */
+    if (lock != EXTENSION_LOCK_0) {
+        PyThread_free_lock(lock);
+    }
+    Py_DECREF(cached);  // This should free it.
+}
+
+
+static PyModuleDef *
+find_legacy_extension(PyObject *name, PyObject *filename, int *singlephase_p)
+{
+    int singlephase = -1;  /* don't know */
+    PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
+
+    PyModuleDef *def;
+    PyObject *cached = _extensions_cache_get_unlocked(filename, name);
+    if (cached == NULL) {
+        /* Force a fresh load. */
+        def = NULL;
+        _extensions_cache_start_loading(filename, name);
+    }
+    else if (cached == Py_None) {
+        singlephase = 0;
+        def = NULL;
+    }
+    else if (PyObject_TypeCheck(cached, &PyModuleDef_Type)) {
+        singlephase = 1;
+        def = (PyModuleDef *)cached;
+        if (def->m_size == -1) {
+            /* Module does not support repeated initialization */
+            if (def->m_base.m_copy == NULL) {
+                /* Force a fresh load. */
+                _extensions_cache_start_loading(filename, name);
+                def = NULL;
+            }
+        }
+        else {
+            if (def->m_base.m_init == NULL) {
+                /* Force a fresh load. */
+                _extensions_cache_start_loading(filename, name);
+                def = NULL;
+            }
+        }
+    }
+    else {
+        /* The module is already loading. */
+        assert(PyObject_TypeCheck(cached, &PyTuple_Type) && \
+               PyTuple_GET_SIZE(cached) == 2);
+
+        PyObject *capsule = PyTuple_GET_ITEM(cached, 0);
+        assert(capsule != NULL);
+        PyThread_type_lock lock = \
+                (PyThread_type_lock)PyCapsule_GetPointer(capsule, NULL);
+        assert(lock != NULL);
+
+        /* Increment the count. */
+        PyObject *count_obj = PyTuple_GET_ITEM(cached, 1);
+        Py_ssize_t count = PyLong_AsSsize_t(count_obj);
+        assert(count >= 0);
+        Py_DECREF(count_obj);
+        count_obj = PyLong_FromLong(count + 1);
+        if (count_obj == NULL) {
+            def = NULL;
+            goto finally;
+        }
+        PyTuple_SET_ITEM(cached, 1, count_obj);
+
+        PyThread_release_lock(EXTENSIONS_LOCK);
+
+        /* Wait until the module finishes loading. */
+        PyThread_acquire_lock(lock, WAIT_LOCK);
+        PyThread_release_lock(lock);
+
+        /* Decrement the count. */
+        PyThread_acquire_lock(EXTENSIONS_LOCK, WAIT_LOCK);
+        count_obj = PyTuple_GET_ITEM(cached, 1);
+        count = PyLong_AsSsize_t(count_obj);
+        assert(count > 0);
+        Py_DECREF(count_obj);
+        count_obj = PyLong_FromLong(count - 1);
+        if (count_obj == NULL) {
+            def = NULL;
+            goto finally;
+        }
+        PyTuple_SET_ITEM(cached, 1, count_obj);
+
+        /* Get the now-loaded def. */
+        cached = _extensions_cache_get_unlocked(filename, name);
+        if (cached == Py_None) {
+            singlephase = 0;
+            def = NULL;
+        }
+        else {
+            assert(PyObject_TypeCheck(cached, &PyModuleDef_Type));
+            singlephase = 1;
+            def = (PyModuleDef *)cached;
+        }
+    }
+
+finally:
+    PyThread_release_lock(EXTENSIONS_LOCK);
+    *singlephase_p = singlephase;
+    return (PyModuleDef *)def;
+}
+
 
 static int
 fix_up_legacy_extension(PyObject *mod, PyObject *name, PyObject *filename)
@@ -1323,26 +1582,19 @@ fix_up_legacy_extension(PyObject *mod, PyObject *name, PyObject *filename)
 
     // bpo-44050: Extensions and def->m_base.m_copy can be updated
     // when the extension module doesn't support sub-interpreters.
-    // XXX Why special-case the main interpreter?
-    if (_Py_IsMainInterpreter(tstate->interp) || def->m_size == -1) {
-        if (def->m_size == -1) {
-            if (def->m_base.m_copy) {
-                /* Somebody already imported the module,
-                   likely under a different name.
-                   XXX this should really not happen. */
-                Py_CLEAR(def->m_base.m_copy);
-            }
-            PyObject *dict = PyModule_GetDict(mod);
-            if (dict == NULL) {
-                return -1;
-            }
-            def->m_base.m_copy = PyDict_Copy(dict);
-            if (def->m_base.m_copy == NULL) {
-                return -1;
-            }
+    if (def->m_size == -1) {
+        if (def->m_base.m_copy) {
+            /* Somebody already imported the module,
+               likely under a different name.
+               XXX this should really not happen. */
+            Py_CLEAR(def->m_base.m_copy);
         }
-
-        if (_extensions_cache_set(filename, name, def) < 0) {
+        PyObject *dict = PyModule_GetDict(mod);
+        if (dict == NULL) {
+            return -1;
+        }
+        def->m_base.m_copy = PyDict_Copy(dict);
+        if (def->m_base.m_copy == NULL) {
             return -1;
         }
     }
@@ -1361,30 +1613,33 @@ _PyImport_FixupExtensionObject(PyObject *mod, PyObject *name,
         PyMapping_DelItem(modules, name);
         return -1;
     }
+    PyModuleDef *def = PyModule_GetDef(mod);
+    // XXX Why special-case the main interpreter?
+    if (_Py_IsMainInterpreter(_PyInterpreterState_GET()) || def->m_size == -1) {
+        if (_extensions_cache_set(filename, name, (PyObject *)def) < 0) {
+            return -1;
+        }
+    }
     return 0;
 }
 
 
 static PyObject *
-reload_legacy_extension(PyThreadState *tstate, PyObject *name,
-                        PyObject *filename)
+reload_legacy_extension(PyThreadState *tstate,
+                        PyObject *name, PyObject *filename, PyModuleDef *def)
 {
-    /* Only single-phase init modules will be in the cache. */
-    PyModuleDef *def = _extensions_cache_get(filename, name);
-    if (def == NULL) {
-        return NULL;
-    }
+    /* Only single-phase init modules will reach this point. */
 
     PyObject *mod, *mdict;
     PyObject *modules = MODULES(tstate->interp);
 
     if (def->m_size == -1) {
         /* Module does not support repeated initialization */
-        if (def->m_base.m_copy == NULL)
-            return NULL;
+        assert(def->m_base.m_copy != NULL);
         mod = import_add_module(tstate, name);
-        if (mod == NULL)
+        if (mod == NULL) {
             return NULL;
+        }
         mdict = PyModule_GetDict(mod);
         if (mdict == NULL) {
             Py_DECREF(mod);
@@ -1396,11 +1651,12 @@ reload_legacy_extension(PyThreadState *tstate, PyObject *name,
         }
     }
     else {
-        if (def->m_base.m_init == NULL)
-            return NULL;
+        assert(def->m_base.m_init != NULL);
+        // XXX Call run_extension()?
         mod = _PyImport_InitFunc_TrampolineCall(def->m_base.m_init);
-        if (mod == NULL)
+        if (mod == NULL) {
             return NULL;
+        }
         if (PyObject_SetItem(modules, name, mod) == -1) {
             Py_DECREF(mod);
             return NULL;
@@ -1420,28 +1676,38 @@ reload_legacy_extension(PyThreadState *tstate, PyObject *name,
     return mod;
 }
 
+
 static int
 clear_legacy_extension(PyInterpreterState *interp,
                        PyObject *name, PyObject *filename)
 {
-    PyModuleDef *def = _extensions_cache_get(filename, name);
-    if (def == NULL) {
+    PyObject *cached = _extensions_cache_get(filename, name);
+    if (cached == NULL) {
         if (PyErr_Occurred()) {
             return -1;
         }
         return 0;
     }
 
-    /* Clear data set when the module was initially loaded. */
-    def->m_base.m_init = NULL;
-    Py_CLEAR(def->m_base.m_copy);
-    // We leave m_index alone since there's no reason to reset it.
+    if (PyObject_TypeCheck(cached, &PyModuleDef_Type)) {
+        PyModuleDef *def = (PyModuleDef *)cached;
 
-    /* Clear the PyState_*Module() cache entry. */
-    if (_modules_by_index_check(interp, def->m_base.m_index) == NULL) {
-        if (_modules_by_index_clear(interp, def) < 0) {
-            return -1;
+        /* Clear data set when the module was initially loaded. */
+        def->m_base.m_init = NULL;
+        Py_CLEAR(def->m_base.m_copy);
+        // We leave m_index alone since there's no reason to reset it.
+
+        /* Clear the PyState_*Module() cache entry. */
+        if (_modules_by_index_check(interp, def->m_base.m_index) == NULL) {
+            if (_modules_by_index_clear(interp, def) < 0) {
+                return -1;
+            }
         }
+    }
+    else if (cached != Py_None) {
+        /* It's the "loading" lock. */
+        assert(PyObject_TypeCheck(cached, &PyTuple_Type));
+        Py_FatalError("unexpectedly loading");
     }
 
     /* Clear the cached module def. */
@@ -2116,10 +2382,20 @@ bootstrap_imp(PyThreadState *tstate)
     // Create the _imp module from its definition.
     // XXX The _imp module is multi-phase init, so we should be able
     // to drop this call (and go straight to create_builtin().
-    PyObject *mod = reload_legacy_extension(tstate, name, name);
-    if (mod == NULL && !_PyErr_Occurred(tstate)) {
+    PyObject *mod;
+    int singlephase = -1;
+    PyModuleDef *def = find_legacy_extension(name, NULL, &singlephase);
+    assert(!singlephase || singlephase == -1);
+    if (def == NULL) {
+        if (_PyErr_Occurred(tstate)) {
+            return NULL;
+        }
         /* It hasn't been loaded yet (or isn't a legacy module). */
-        mod = create_builtin(tstate->interp, name, spec);
+        mod = create_builtin(tstate->interp, name, spec, singlephase);
+    }
+    else {
+        assert(singlephase && singlephase != -1);
+        mod = reload_legacy_extension(tstate, name, NULL, def);
     }
     Py_CLEAR(name);
     Py_DECREF(spec);
@@ -2971,6 +3247,12 @@ _PyImport_Init(void)
         goto done;
     }
 
+    EXTENSION_LOCK_0 = PyThread_allocate_lock();
+    if (EXTENSION_LOCK_0 == NULL) {
+        status = _PyStatus_ERR("failed to create a new lock");
+        goto done;
+    }
+
 done:
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
     return status;
@@ -2988,6 +3270,7 @@ _PyImport_Fini(void)
 
     /* Free the lock used around extension modules import state. */
     PyThread_free_lock(EXTENSIONS_LOCK);
+    PyThread_free_lock(EXTENSION_LOCK_0);
 
     /* Free memory allocated by _PyImport_Init() */
     fini_builtin_modules_table();
@@ -3306,10 +3589,18 @@ _imp_create_builtin(PyObject *module, PyObject *spec)
         return NULL;
     }
 
-    PyObject *mod = reload_legacy_extension(tstate, name, name);
-    if (mod == NULL && !_PyErr_Occurred(tstate)) {
+    PyObject *mod;
+    int singlephase = -1;
+    PyModuleDef *def = find_legacy_extension(name, NULL, &singlephase);
+    if (def == NULL) {
+        if (_PyErr_Occurred(tstate)) {
+            return NULL;
+        }
         /* It hasn't been loaded yet (or isn't a legacy module). */
-        mod = create_builtin(tstate->interp, name, spec);
+        mod = create_builtin(tstate->interp, name, spec, singlephase);
+    }
+    else {
+        mod = reload_legacy_extension(tstate, name, NULL, def);
     }
     Py_DECREF(name);
     return mod;
@@ -3618,25 +3909,30 @@ _imp_create_dynamic_impl(PyObject *module, PyObject *spec, PyObject *file)
     }
 
     PyThreadState *tstate = _PyThreadState_GET();
-    mod = reload_legacy_extension(tstate, name, path);
-    if (mod == NULL) {
-        /* It hasn't been loaded yet (or isn't a legacy module). */
-        if (PyErr_Occurred()) {
+    int singlephase = -1;
+    PyModuleDef *def = find_legacy_extension(name, path, &singlephase);
+    if (def == NULL) {
+        if (_PyErr_Occurred(tstate)) {
             goto finally;
         }
-
-        /* It's not a legacy module or hasn't been loaded yet. */
+        /* It hasn't been loaded yet (or isn't a legacy module). */
         if (file != NULL) {
             FILE *fp = _Py_fopen_obj(path, "r");
             if (fp == NULL) {
                 goto finally;
             }
-            mod = create_dynamic(tstate->interp, spec, name, path, fp);
+            mod = create_dynamic(tstate->interp, spec, name, path, fp,
+                                 singlephase);
             fclose(fp);
         }
         else {
-            mod = create_dynamic(tstate->interp, spec, name, path, NULL);
+            mod = create_dynamic(tstate->interp, spec, name, path, NULL,
+                                 singlephase);
         }
+    }
+    else {
+        assert(singlephase);
+        mod = reload_legacy_extension(tstate, name, path, def);
     }
 
 finally:
