@@ -725,7 +725,7 @@ handle_legacy_extension(PyInterpreterState *interp,
     if (PyObject_SetItem(modules, name, mod) < 0) {
         return -1;
     }
-    if (fix_up_legacy_extension(mod, name, name) < 0) {
+    if (fix_up_legacy_extension(mod, name, path) < 0) {
         PyMapping_DelItem(modules, name);
         return -1;
     }
@@ -796,7 +796,7 @@ _PyImport_FixupBuiltin(PyObject *mod, const char *name, PyObject *modules)
     if (PyObject_SetItem(modules, nameobj, mod) < 0) {
         goto finally;
     }
-    if (fix_up_legacy_extension(mod, nameobj, nameobj) < 0) {
+    if (fix_up_legacy_extension(mod, nameobj, NULL) < 0) {
         PyMapping_DelItem(modules, nameobj);
         goto finally;
     }
@@ -1202,6 +1202,10 @@ swap_package_context(const char *newcontext)
 static PyModuleDef *
 _extensions_cache_get(PyObject *filename, PyObject *name)
 {
+    if (filename == NULL) {
+        /* It's a builtin extension. */
+        filename = name;
+    }
     PyObject *key = PyTuple_Pack(2, filename, name);
     if (key == NULL) {
         return NULL;
@@ -1225,6 +1229,10 @@ finally:
 static int
 _extensions_cache_set(PyObject *filename, PyObject *name, PyModuleDef *def)
 {
+    if (filename == NULL) {
+        /* It's a builtin extension. */
+        filename = name;
+    }
     PyObject *key = PyTuple_Pack(2, filename, name);
     if (key == NULL) {
         return -1;
@@ -1255,6 +1263,10 @@ finally:
 static int
 _extensions_cache_delete(PyObject *filename, PyObject *name)
 {
+    if (filename == NULL) {
+        /* It's a builtin extension. */
+        filename = name;
+    }
     PyObject *key = PyTuple_Pack(2, filename, name);
     if (key == NULL) {
         return -1;
