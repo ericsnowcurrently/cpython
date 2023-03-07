@@ -38,7 +38,7 @@ PyAPI_FUNC(void) _Py_NO_RETURN _Py_FatalRefcountErrorFunc(
     _Py_FatalRefcountErrorFunc(__func__, (message))
 
 
-extern Py_ssize_t _Py_RefTotal;
+extern _Py_atomic_size_t _Py_RefTotal;
 extern void _Py_AddRefTotal(Py_ssize_t);
 extern void _Py_IncRefTotal(void);
 extern void _Py_DecRefTotal(void);

@@ -58,6 +58,7 @@ _PyObject_CheckConsistency(PyObject *op, int check_content)
    built against the pre-3.12 stable ABI. */
 PyAPI_DATA(Py_ssize_t) _Py_RefTotal;
 Py_ssize_t _Py_RefTotal;
+extern _Py_atomic_int _Py_RefTotal;
 
 static inline void
 reftotal_increment(void)

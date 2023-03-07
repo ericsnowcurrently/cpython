@@ -50,6 +50,10 @@ typedef struct _Py_atomic_int {
     atomic_int _value;
 } _Py_atomic_int;
 
+typedef struct _Py_atomic_size_t {
+    atomic_size_t _value;
+} _Py_atomic_size_t;
+
 #define _Py_atomic_signal_fence(/*memory_order*/ ORDER) \
     atomic_signal_fence(ORDER)
 
@@ -80,6 +84,10 @@ typedef struct _Py_atomic_address {
 typedef struct _Py_atomic_int {
     int _value;
 } _Py_atomic_int;
+
+typedef struct _Py_atomic_size_t {
+    size_t _value;
+} _Py_atomic_size_t;
 
 #define _Py_atomic_signal_fence(/*memory_order*/ ORDER) \
     __atomic_signal_fence(ORDER)
@@ -118,6 +126,10 @@ typedef struct _Py_atomic_address {
 typedef struct _Py_atomic_int {
     int _value;
 } _Py_atomic_int;
+
+typedef struct _Py_atomic_size_t {
+    size_t _value;
+} _Py_atomic_size_t;
 
 
 static __inline__ void
@@ -255,6 +267,10 @@ typedef struct _Py_atomic_int {
     volatile int _value;
 } _Py_atomic_int;
 
+typedef struct _Py_atomic_size_t {
+    volatile size_t _value;
+} _Py_atomic_size_t;
+
 
 #if defined(_M_X64)
 #define _Py_atomic_store_64bit(ATOMIC_VAL, NEW_VAL, ORDER) \
@@ -390,6 +406,10 @@ typedef struct _Py_atomic_address {
 typedef struct _Py_atomic_int {
     volatile int _value;
 } _Py_atomic_int;
+
+typedef struct _Py_atomic_size_t {
+    volatile size_t _value;
+} _Py_atomic_size_t;
 
 
 #if defined(_M_ARM64)
@@ -527,6 +547,11 @@ typedef struct _Py_atomic_address {
 typedef struct _Py_atomic_int {
     int _value;
 } _Py_atomic_int;
+
+typedef struct _Py_atomic_size_t {
+    size_t _value;
+} _Py_atomic_size_t;
+
 /* Fall back to other compilers and processors by assuming that simple
    volatile accesses are atomic.  This is false, so people should port
    this. */
