@@ -54,13 +54,29 @@ _PyObject_CheckConsistency(PyObject *op, int check_content)
 
 
 #ifdef Py_REF_DEBUG
-/* We keep the legacy symbol around for backward compatibility. */
+/* We keep the legacy symbol around for backward compatibility,
+   both for stable ABI extensions and for debugging CPython. */
 Py_ssize_t _Py_RefTotal;
 
 static inline Py_ssize_t
 get_legacy_reftotal(void)
 {
     return _Py_RefTotal;
+}
+static inline void
+legacy_reftotal_increment(void)
+{
+    _Py_RefTotal++;
+}
+static inline void
+legacy_reftotal_decrement(void)
+{
+    _Py_RefTotal--;
+}
+static inline void
+legacy_reftotal_add(Py_ssize_t n)
+{
+    _Py_RefTotal += n;
 }
 #endif
 
@@ -72,18 +88,21 @@ static inline void
 reftotal_increment(void)
 {
     REFTOTAL++;
+    legacy_reftotal_increment();
 }
 
 static inline void
 reftotal_decrement(void)
 {
     REFTOTAL--;
+    legacy_reftotal_decrement();
 }
 
 static inline void
 reftotal_add(Py_ssize_t n)
 {
     REFTOTAL += n;
+    legacy_reftotal_add(n);
 }
 
 static inline Py_ssize_t
