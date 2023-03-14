@@ -2483,37 +2483,6 @@ _PyCrossInterpreterData_UnregisterClass(PyTypeObject *cls)
 
 /* cross-interpreter data for builtin types */
 
-struct _shared_bytes_data {
-    char *bytes;
-    Py_ssize_t len;
-};
-
-static PyObject *
-_new_bytes_object(_PyCrossInterpreterData *data)
-{
-    struct _shared_bytes_data *shared = (struct _shared_bytes_data *)(data->data);
-    return PyBytes_FromStringAndSize(shared->bytes, shared->len);
-}
-
-static int
-_bytes_shared(PyThreadState *tstate, PyObject *obj,
-              _PyCrossInterpreterData *data)
-{
-    if (_PyCrossInterpreterData_InitWithSize(
-            data, tstate->interp, sizeof(struct _shared_bytes_data), obj,
-            _new_bytes_object
-            ) < 0)
-    {
-        return -1;
-    }
-    struct _shared_bytes_data *shared = (struct _shared_bytes_data *)data->data;
-    if (PyBytes_AsStringAndSize(obj, &shared->bytes, &shared->len) < 0) {
-        _PyCrossInterpreterData_Clear(tstate->interp, data);
-        return -1;
-    }
-    return 0;
-}
-
 struct _shared_str_data {
     int kind;
     const void *buffer;
@@ -2600,11 +2569,6 @@ _register_builtins_for_crossinterpreter_data(struct _xidregistry *xidregistry)
     // int
     if (_xidregistry_add_type(xidregistry, &PyLong_Type, _long_shared) != 0) {
         Py_FatalError("could not register int for cross-interpreter sharing");
-    }
-
-    // bytes
-    if (_xidregistry_add_type(xidregistry, &PyBytes_Type, _bytes_shared) != 0) {
-        Py_FatalError("could not register bytes for cross-interpreter sharing");
     }
 
     // str

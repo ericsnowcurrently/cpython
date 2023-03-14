@@ -2537,6 +2537,37 @@ bytes_methods[] = {
     {NULL,     NULL}                         /* sentinel */
 };
 
+struct shared_bytes_data {
+    char *bytes;
+    Py_ssize_t len;
+};
+
+static PyObject *
+bytes_from_xid(_PyCrossInterpreterData *data)
+{
+    struct shared_bytes_data *shared = (struct shared_bytes_data *)(data->data);
+    return PyBytes_FromStringAndSize(shared->bytes, shared->len);
+}
+
+static int
+bytes_shared(PyThreadState *tstate, PyObject *obj,
+             _PyCrossInterpreterData *data)
+{
+    if (_PyCrossInterpreterData_InitWithSize(
+            data, tstate->interp, sizeof(struct shared_bytes_data), obj,
+            bytes_from_xid
+            ) < 0)
+    {
+        return -1;
+    }
+    struct shared_bytes_data *shared = (struct shared_bytes_data *)data->data;
+    if (PyBytes_AsStringAndSize(obj, &shared->bytes, &shared->len) < 0) {
+        _PyCrossInterpreterData_Clear(tstate->interp, data);
+        return -1;
+    }
+    return 0;
+}
+
 static PyObject *
 bytes_mod(PyObject *self, PyObject *arg)
 {
@@ -2958,6 +2989,7 @@ PyTypeObject PyBytes_Type = {
     bytes_alloc,                                /* tp_alloc */
     bytes_new,                                  /* tp_new */
     PyObject_Del,                               /* tp_free */
+    .tp_shared = bytes_shared,
 };
 
 void
