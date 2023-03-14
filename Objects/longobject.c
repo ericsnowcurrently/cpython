@@ -6280,6 +6280,33 @@ static PyNumberMethods long_as_number = {
     long_long,                  /* nb_index */
 };
 
+static PyObject *
+long_from_xid(_PyCrossInterpreterData *data)
+{
+    return PyLong_FromSsize_t((Py_ssize_t)(data->data));
+}
+
+static int
+long_shared(PyThreadState *tstate, PyObject *obj,
+            _PyCrossInterpreterData *data)
+{
+    /* Note that this means the size of shareable ints is bounded by
+     * sys.maxsize.  Hence on 32-bit architectures that is half the
+     * size of maximum shareable ints on 64-bit.
+     */
+    Py_ssize_t value = PyLong_AsSsize_t(obj);
+    if (value == -1 && PyErr_Occurred()) {
+        if (PyErr_ExceptionMatches(PyExc_OverflowError)) {
+            PyErr_SetString(PyExc_OverflowError, "try sending as bytes");
+        }
+        return -1;
+    }
+    _PyCrossInterpreterData_Init(data, tstate->interp, (void *)value, NULL,
+                                 long_from_xid);
+    // data->obj and data->free remain NULL
+    return 0;
+}
+
 PyTypeObject PyLong_Type = {
     PyVarObject_HEAD_INIT(&PyType_Type, 0)
     "int",                                      /* tp_name */
@@ -6322,6 +6349,7 @@ PyTypeObject PyLong_Type = {
     0,                                          /* tp_alloc */
     long_new,                                   /* tp_new */
     PyObject_Free,                              /* tp_free */
+    .tp_shared = long_shared,
 };
 
 static PyTypeObject Int_InfoType;

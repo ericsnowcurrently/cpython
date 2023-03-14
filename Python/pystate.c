@@ -2484,33 +2484,6 @@ _PyCrossInterpreterData_UnregisterClass(PyTypeObject *cls)
 /* cross-interpreter data for builtin types */
 
 static PyObject *
-_new_long_object(_PyCrossInterpreterData *data)
-{
-    return PyLong_FromSsize_t((Py_ssize_t)(data->data));
-}
-
-static int
-_long_shared(PyThreadState *tstate, PyObject *obj,
-             _PyCrossInterpreterData *data)
-{
-    /* Note that this means the size of shareable ints is bounded by
-     * sys.maxsize.  Hence on 32-bit architectures that is half the
-     * size of maximum shareable ints on 64-bit.
-     */
-    Py_ssize_t value = PyLong_AsSsize_t(obj);
-    if (value == -1 && PyErr_Occurred()) {
-        if (PyErr_ExceptionMatches(PyExc_OverflowError)) {
-            PyErr_SetString(PyExc_OverflowError, "try sending as bytes");
-        }
-        return -1;
-    }
-    _PyCrossInterpreterData_Init(data, tstate->interp, (void *)value, NULL,
-            _new_long_object);
-    // data->obj and data->free remain NULL
-    return 0;
-}
-
-static PyObject *
 _new_none_object(_PyCrossInterpreterData *data)
 {
     // XXX Singleton refcounts are problematic across interpreters...
@@ -2533,11 +2506,6 @@ _register_builtins_for_crossinterpreter_data(struct _xidregistry *xidregistry)
     // None
     if (_xidregistry_add_type(xidregistry, (PyTypeObject *)PyObject_Type(Py_None), _none_shared) != 0) {
         Py_FatalError("could not register None for cross-interpreter sharing");
-    }
-
-    // int
-    if (_xidregistry_add_type(xidregistry, &PyLong_Type, _long_shared) != 0) {
-        Py_FatalError("could not register int for cross-interpreter sharing");
     }
 }
 
