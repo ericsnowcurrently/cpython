@@ -77,7 +77,7 @@ add_new_exception(PyObject *mod, const char *name, PyObject *base)
     add_new_exception(MOD, MODULE_NAME "." Py_STRINGIFY(NAME), BASE)
 
 static PyTypeObject *
-add_new_type(PyObject *mod, PyType_Spec *spec, crossinterpdatafunc shared)
+add_new_type(PyObject *mod, PyType_Spec *spec)
 {
     PyTypeObject *cls = (PyTypeObject *)PyType_FromMetaclass(
                 NULL, mod, spec, NULL);
@@ -87,12 +87,6 @@ add_new_type(PyObject *mod, PyType_Spec *spec, crossinterpdatafunc shared)
     if (PyModule_AddType(mod, cls) < 0) {
         Py_DECREF(cls);
         return NULL;
-    }
-    if (shared != NULL) {
-        if (_PyCrossInterpreterData_RegisterClass(cls, shared)) {
-            Py_DECREF(cls);
-            return NULL;
-        }
     }
     return cls;
 }
@@ -174,9 +168,6 @@ static int
 clear_module_state(module_state *state)
 {
     /* heap types */
-    if (state->ChannelIDType != NULL) {
-        (void)_PyCrossInterpreterData_UnregisterClass(state->ChannelIDType);
-    }
     Py_CLEAR(state->ChannelIDType);
 
     /* exceptions */
@@ -2262,11 +2253,11 @@ module_exec(PyObject *mod)
     }
 
     // ChannelID
-    state->ChannelIDType = add_new_type(
-            mod, &ChannelIDType_spec, _channelid_shared);
+    state->ChannelIDType = add_new_type(mod, &ChannelIDType_spec);
     if (state->ChannelIDType == NULL) {
         goto error;
     }
+    state->ChannelIDType->tp_shared = _channelid_shared;
 
     return 0;
 
