@@ -1739,7 +1739,7 @@ static PyNumberMethods none_as_number = {
 };
 
 static PyObject *
-none_from_xid(_PyCrossInterpreterData *data)
+none_from_xid(PyCrossInterpreterData *data)
 {
     // XXX Singleton refcounts are problematic across interpreters...
     return Py_NewRef(Py_None);
@@ -1747,9 +1747,9 @@ none_from_xid(_PyCrossInterpreterData *data)
 
 static int
 none_shared(PyThreadState *tstate, PyObject *obj,
-            _PyCrossInterpreterData *data)
+            PyCrossInterpreterData *data)
 {
-    _PyCrossInterpreterData_Init(data, tstate->interp, NULL, NULL,
+    PyCrossInterpreterData_Init(data, tstate->interp, NULL, NULL,
                                  none_from_xid);
     // data->data, data->obj and data->free remain NULL
     return 0;

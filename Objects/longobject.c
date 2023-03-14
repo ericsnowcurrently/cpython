@@ -6281,14 +6281,14 @@ static PyNumberMethods long_as_number = {
 };
 
 static PyObject *
-long_from_xid(_PyCrossInterpreterData *data)
+long_from_xid(PyCrossInterpreterData *data)
 {
     return PyLong_FromSsize_t((Py_ssize_t)(data->data));
 }
 
 static int
 long_shared(PyThreadState *tstate, PyObject *obj,
-            _PyCrossInterpreterData *data)
+            PyCrossInterpreterData *data)
 {
     /* Note that this means the size of shareable ints is bounded by
      * sys.maxsize.  Hence on 32-bit architectures that is half the
@@ -6301,8 +6301,8 @@ long_shared(PyThreadState *tstate, PyObject *obj,
         }
         return -1;
     }
-    _PyCrossInterpreterData_Init(data, tstate->interp, (void *)value, NULL,
-                                 long_from_xid);
+    PyCrossInterpreterData_Init(data, tstate->interp, (void *)value, NULL,
+                                long_from_xid);
     // data->obj and data->free remain NULL
     return 0;
 }

@@ -92,13 +92,13 @@ add_new_type(PyObject *mod, PyType_Spec *spec)
 }
 
 static int
-_release_xid_data(_PyCrossInterpreterData *data, int ignoreexc)
+_release_xid_data(PyCrossInterpreterData *data, int ignoreexc)
 {
     PyObject *exc;
     if (ignoreexc) {
         exc = PyErr_GetRaisedException();
     }
-    int res = _PyCrossInterpreterData_Release(data);
+    int res = PyCrossInterpreterData_Release(data);
     if (res < 0) {
         // XXX Fix this!
         /* The owning interpreter is already destroyed.
@@ -112,7 +112,7 @@ _release_xid_data(_PyCrossInterpreterData *data, int ignoreexc)
          * shareable types are all very basic, with no GC.
          * That said, it becomes much messier once interpreters
          * no longer share a GIL, so this needs to be fixed before then. */
-        _PyCrossInterpreterData_Clear(NULL, data);
+        PyCrossInterpreterData_Clear(NULL, data);
         if (ignoreexc) {
             // XXX Emit a warning?
             PyErr_Clear();
@@ -285,7 +285,7 @@ handle_channel_error(int err, PyObject *mod, int64_t cid)
 struct _channelitem;
 
 typedef struct _channelitem {
-    _PyCrossInterpreterData *data;
+    PyCrossInterpreterData *data;
     struct _channelitem *next;
 } _channelitem;
 
@@ -330,10 +330,10 @@ _channelitem_free_all(_channelitem *item)
     }
 }
 
-static _PyCrossInterpreterData *
+static PyCrossInterpreterData *
 _channelitem_popped(_channelitem *item)
 {
-    _PyCrossInterpreterData *data = item->data;
+    PyCrossInterpreterData *data = item->data;
     item->data = NULL;
     _channelitem_free(item);
     return data;
@@ -376,7 +376,7 @@ _channelqueue_free(_channelqueue *queue)
 }
 
 static int
-_channelqueue_put(_channelqueue *queue, _PyCrossInterpreterData *data)
+_channelqueue_put(_channelqueue *queue, PyCrossInterpreterData *data)
 {
     _channelitem *item = _channelitem_new();
     if (item == NULL) {
@@ -395,7 +395,7 @@ _channelqueue_put(_channelqueue *queue, _PyCrossInterpreterData *data)
     return 0;
 }
 
-static _PyCrossInterpreterData *
+static PyCrossInterpreterData *
 _channelqueue_get(_channelqueue *queue)
 {
     _channelitem *item = queue->first;
@@ -687,7 +687,7 @@ _channel_free(_PyChannelState *chan)
 
 static int
 _channel_add(_PyChannelState *chan, int64_t interp,
-             _PyCrossInterpreterData *data)
+             PyCrossInterpreterData *data)
 {
     int res = -1;
     PyThread_acquire_lock(chan->mutex, WAIT_LOCK);
@@ -713,7 +713,7 @@ done:
 
 static int
 _channel_next(_PyChannelState *chan, int64_t interp,
-              _PyCrossInterpreterData **res)
+              PyCrossInterpreterData **res)
 {
     int err = 0;
     PyThread_acquire_lock(chan->mutex, WAIT_LOCK);
@@ -727,7 +727,7 @@ _channel_next(_PyChannelState *chan, int64_t interp,
         goto done;
     }
 
-    _PyCrossInterpreterData *data = _channelqueue_get(chan->queue);
+    PyCrossInterpreterData *data = _channelqueue_get(chan->queue);
     if (data == NULL && !PyErr_Occurred() && chan->closing != NULL) {
         chan->open = 0;
     }
@@ -1248,12 +1248,12 @@ _channel_send(_channels *channels, int64_t id, PyObject *obj)
     }
 
     // Convert the object to cross-interpreter data.
-    _PyCrossInterpreterData *data = PyMem_NEW(_PyCrossInterpreterData, 1);
+    PyCrossInterpreterData *data = PyMem_NEW(PyCrossInterpreterData, 1);
     if (data == NULL) {
         PyThread_release_lock(mutex);
         return -1;
     }
-    if (_PyObject_GetCrossInterpreterData(obj, data) != 0) {
+    if (PyObject_GetCrossInterpreterData(obj, data) != 0) {
         PyThread_release_lock(mutex);
         PyMem_Free(data);
         return -1;
@@ -1298,7 +1298,7 @@ _channel_recv(_channels *channels, int64_t id, PyObject **res)
     // Past this point we are responsible for releasing the mutex.
 
     // Pop off the next item from the channel.
-    _PyCrossInterpreterData *data = NULL;
+    PyCrossInterpreterData *data = NULL;
     err = _channel_next(chan, PyInterpreterState_GetID(interp), &data);
     PyThread_release_lock(mutex);
     if (err != 0) {
@@ -1310,7 +1310,7 @@ _channel_recv(_channels *channels, int64_t id, PyObject **res)
     }
 
     // Convert the data back to an object.
-    PyObject *obj = _PyCrossInterpreterData_NewObject(data);
+    PyObject *obj = PyCrossInterpreterData_NewObject(data);
     if (obj == NULL) {
         assert(PyErr_Occurred());
         (void)_release_xid_data(data, 1);
@@ -1668,7 +1668,7 @@ struct _channelid_xid {
 };
 
 static PyObject *
-_channelid_from_xid(_PyCrossInterpreterData *data)
+_channelid_from_xid(PyCrossInterpreterData *data)
 {
     struct _channelid_xid *xid = (struct _channelid_xid *)data->data;
 
@@ -1717,9 +1717,9 @@ done:
 
 static int
 _channelid_shared(PyThreadState *tstate, PyObject *obj,
-                  _PyCrossInterpreterData *data)
+                  PyCrossInterpreterData *data)
 {
-    if (_PyCrossInterpreterData_InitWithSize(
+    if (PyCrossInterpreterData_InitWithSize(
             data, tstate->interp, sizeof(struct _channelid_xid), obj,
             _channelid_from_xid
             ) < 0)

@@ -13275,7 +13275,7 @@ struct shared_str_data {
 };
 
 static PyObject *
-unicode_from_xid(_PyCrossInterpreterData *data)
+unicode_from_xid(PyCrossInterpreterData *data)
 {
     struct shared_str_data *shared = (struct shared_str_data *)(data->data);
     return PyUnicode_FromKindAndData(shared->kind, shared->buffer, shared->len);
@@ -13283,9 +13283,9 @@ unicode_from_xid(_PyCrossInterpreterData *data)
 
 static int
 unicode_shared(PyThreadState *tstate, PyObject *obj,
-               _PyCrossInterpreterData *data)
+               PyCrossInterpreterData *data)
 {
-    if (_PyCrossInterpreterData_InitWithSize(
+    if (PyCrossInterpreterData_InitWithSize(
             data, tstate->interp, sizeof(struct shared_str_data), obj,
             unicode_from_xid
             ) < 0)

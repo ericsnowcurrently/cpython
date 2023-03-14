@@ -2543,7 +2543,7 @@ struct shared_bytes_data {
 };
 
 static PyObject *
-bytes_from_xid(_PyCrossInterpreterData *data)
+bytes_from_xid(PyCrossInterpreterData *data)
 {
     struct shared_bytes_data *shared = (struct shared_bytes_data *)(data->data);
     return PyBytes_FromStringAndSize(shared->bytes, shared->len);
@@ -2551,9 +2551,9 @@ bytes_from_xid(_PyCrossInterpreterData *data)
 
 static int
 bytes_shared(PyThreadState *tstate, PyObject *obj,
-             _PyCrossInterpreterData *data)
+             PyCrossInterpreterData *data)
 {
-    if (_PyCrossInterpreterData_InitWithSize(
+    if (PyCrossInterpreterData_InitWithSize(
             data, tstate->interp, sizeof(struct shared_bytes_data), obj,
             bytes_from_xid
             ) < 0)
@@ -2562,7 +2562,7 @@ bytes_shared(PyThreadState *tstate, PyObject *obj,
     }
     struct shared_bytes_data *shared = (struct shared_bytes_data *)data->data;
     if (PyBytes_AsStringAndSize(obj, &shared->bytes, &shared->len) < 0) {
-        _PyCrossInterpreterData_Clear(tstate->interp, data);
+        PyCrossInterpreterData_Clear(tstate->interp, data);
         return -1;
     }
     return 0;

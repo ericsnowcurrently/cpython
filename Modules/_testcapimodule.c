@@ -1558,10 +1558,10 @@ run_in_subinterp_with_config(PyObject *self, PyObject *args, PyObject *kwargs)
 static void
 _xid_capsule_destructor(PyObject *capsule)
 {
-    _PyCrossInterpreterData *data = \
-            (_PyCrossInterpreterData *)PyCapsule_GetPointer(capsule, NULL);
+    PyCrossInterpreterData *data = \
+            (PyCrossInterpreterData *)PyCapsule_GetPointer(capsule, NULL);
     if (data != NULL) {
-        assert(_PyCrossInterpreterData_Release(data) == 0);
+        assert(PyCrossInterpreterData_Release(data) == 0);
         PyMem_Free(data);
     }
 }
@@ -1574,18 +1574,18 @@ get_crossinterp_data(PyObject *self, PyObject *args)
         return NULL;
     }
 
-    _PyCrossInterpreterData *data = PyMem_NEW(_PyCrossInterpreterData, 1);
+    PyCrossInterpreterData *data = PyMem_NEW(PyCrossInterpreterData, 1);
     if (data == NULL) {
         PyErr_NoMemory();
         return NULL;
     }
-    if (_PyObject_GetCrossInterpreterData(obj, data) != 0) {
+    if (PyObject_GetCrossInterpreterData(obj, data) != 0) {
         PyMem_Free(data);
         return NULL;
     }
     PyObject *capsule = PyCapsule_New(data, NULL, _xid_capsule_destructor);
     if (capsule == NULL) {
-        assert(_PyCrossInterpreterData_Release(data) == 0);
+        assert(PyCrossInterpreterData_Release(data) == 0);
         PyMem_Free(data);
     }
     return capsule;
@@ -1599,12 +1599,12 @@ restore_crossinterp_data(PyObject *self, PyObject *args)
         return NULL;
     }
 
-    _PyCrossInterpreterData *data = \
-            (_PyCrossInterpreterData *)PyCapsule_GetPointer(capsule, NULL);
+    PyCrossInterpreterData *data = \
+            (PyCrossInterpreterData *)PyCapsule_GetPointer(capsule, NULL);
     if (data == NULL) {
         return NULL;
     }
-    return _PyCrossInterpreterData_NewObject(data);
+    return PyCrossInterpreterData_NewObject(data);
 }
 
 static void

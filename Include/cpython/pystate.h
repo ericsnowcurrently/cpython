@@ -374,15 +374,15 @@ PyAPI_FUNC(const PyConfig*) _Py_GetConfig(void);
 
 /* cross-interpreter data */
 
-// _PyCrossInterpreterData is similar to Py_buffer as an effectively
+// PyCrossInterpreterData is similar to Py_buffer as an effectively
 // opaque struct that holds data outside the object machinery.  This
 // is necessary to pass safely between interpreters in the same process.
-typedef struct _xid _PyCrossInterpreterData;
+typedef struct xid PyCrossInterpreterData;
 
-typedef PyObject *(*xid_newobjectfunc)(_PyCrossInterpreterData *);
+typedef PyObject *(*xid_newobjectfunc)(PyCrossInterpreterData *);
 typedef void (*xid_freefunc)(void *);
 
-struct _xid {
+struct xid {
     // data is the cross-interpreter-safe derivation of a Python object
     // (see _PyObject_GetCrossInterpreterData).  It will be NULL if the
     // new_object func (below) encodes the data.
@@ -414,27 +414,27 @@ struct _xid {
     // okay (e.g. bytes) and for those types this field should be set
     // to NULL.  However, for most the data was allocated just for
     // cross-interpreter use, so it must be freed when
-    // _PyCrossInterpreterData_Release is called or the memory will
+    // PyCrossInterpreterData_Release is called or the memory will
     // leak.  In that case, at the very least this field should be set
     // to PyMem_RawFree (the default if not explicitly set to NULL).
     // The call will happen with the original interpreter activated.
     xid_freefunc free;
 };
 
-PyAPI_FUNC(void) _PyCrossInterpreterData_Init(
-        _PyCrossInterpreterData *data,
+PyAPI_FUNC(void) PyCrossInterpreterData_Init(
+        PyCrossInterpreterData *data,
         PyInterpreterState *interp, void *shared, PyObject *obj,
         xid_newobjectfunc new_object);
-PyAPI_FUNC(int) _PyCrossInterpreterData_InitWithSize(
-        _PyCrossInterpreterData *,
+PyAPI_FUNC(int) PyCrossInterpreterData_InitWithSize(
+        PyCrossInterpreterData *,
         PyInterpreterState *interp, const size_t, PyObject *,
         xid_newobjectfunc);
-PyAPI_FUNC(void) _PyCrossInterpreterData_Clear(
-        PyInterpreterState *, _PyCrossInterpreterData *);
+PyAPI_FUNC(void) PyCrossInterpreterData_Clear(
+        PyInterpreterState *, PyCrossInterpreterData *);
 
-PyAPI_FUNC(int) _PyObject_GetCrossInterpreterData(PyObject *, _PyCrossInterpreterData *);
-PyAPI_FUNC(PyObject *) _PyCrossInterpreterData_NewObject(_PyCrossInterpreterData *);
-PyAPI_FUNC(int) _PyCrossInterpreterData_Release(_PyCrossInterpreterData *);
+PyAPI_FUNC(int) PyObject_GetCrossInterpreterData(PyObject *, PyCrossInterpreterData *);
+PyAPI_FUNC(PyObject *) PyCrossInterpreterData_NewObject(PyCrossInterpreterData *);
+PyAPI_FUNC(int) PyCrossInterpreterData_Release(PyCrossInterpreterData *);
 
-PyAPI_FUNC(int) _PyObject_CheckCrossInterpreterData(PyObject *);
-PyAPI_FUNC(crossinterpdatafunc) _PyCrossInterpreterData_Lookup(PyObject *);
+PyAPI_FUNC(int) PyObject_CheckCrossInterpreterData(PyObject *);
+PyAPI_FUNC(crossinterpdatafunc) PyCrossInterpreterData_Lookup(PyObject *);

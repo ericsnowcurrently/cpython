@@ -59,13 +59,13 @@ add_new_exception(PyObject *mod, const char *name, PyObject *base)
     add_new_exception(MOD, MODULE_NAME "." Py_STRINGIFY(NAME), BASE)
 
 static int
-_release_xid_data(_PyCrossInterpreterData *data, int ignoreexc)
+_release_xid_data(PyCrossInterpreterData *data, int ignoreexc)
 {
     PyObject *exc;
     if (ignoreexc) {
         exc = PyErr_GetRaisedException();
     }
-    int res = _PyCrossInterpreterData_Release(data);
+    int res = PyCrossInterpreterData_Release(data);
     if (res < 0) {
         // XXX Fix this!
         /* The owning interpreter is already destroyed.
@@ -77,7 +77,7 @@ _release_xid_data(_PyCrossInterpreterData *data, int ignoreexc)
          * shareable types are all very basic, with no GC.
          * That said, it becomes much messier once interpreters
          * no longer share a GIL, so this needs to be fixed before then. */
-        _PyCrossInterpreterData_Clear(NULL, data);
+        PyCrossInterpreterData_Clear(NULL, data);
         if (ignoreexc) {
             // XXX Emit a warning?
             PyErr_Clear();
@@ -129,7 +129,7 @@ clear_module_state(module_state *state)
 
 struct _sharednsitem {
     const char *name;
-    _PyCrossInterpreterData data;
+    PyCrossInterpreterData data;
 };
 
 static void _sharednsitem_clear(struct _sharednsitem *);  // forward
@@ -141,7 +141,7 @@ _sharednsitem_init(struct _sharednsitem *item, PyObject *key, PyObject *value)
     if (item->name == NULL) {
         return -1;
     }
-    if (_PyObject_GetCrossInterpreterData(value, &item->data) != 0) {
+    if (PyObject_GetCrossInterpreterData(value, &item->data) != 0) {
         _sharednsitem_clear(item);
         return -1;
     }
@@ -165,7 +165,7 @@ _sharednsitem_apply(struct _sharednsitem *item, PyObject *ns)
     if (name == NULL) {
         return -1;
     }
-    PyObject *value = _PyCrossInterpreterData_NewObject(&item->data);
+    PyObject *value = PyCrossInterpreterData_NewObject(&item->data);
     if (value == NULL) {
         Py_DECREF(name);
         return -1;
@@ -731,7 +731,7 @@ object_is_shareable(PyObject *self, PyObject *args, PyObject *kwds)
         return NULL;
     }
 
-    if (_PyObject_CheckCrossInterpreterData(obj) == 0) {
+    if (PyObject_CheckCrossInterpreterData(obj) == 0) {
         Py_RETURN_TRUE;
     }
     PyErr_Clear();

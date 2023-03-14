@@ -137,9 +137,9 @@ typedef struct {
  * backwards-compatibility */
 typedef Py_ssize_t printfunc;
 
-typedef struct _xid _PyCrossInterpreterData;
+typedef struct xid PyCrossInterpreterData;
 typedef int (*crossinterpdatafunc)(PyThreadState *tstate, PyObject *,
-                                   _PyCrossInterpreterData *);
+                                   PyCrossInterpreterData *);
 
 // If this structure is modified, Doc/includes/typestruct.h should be updated
 // as well.
