@@ -1738,6 +1738,23 @@ static PyNumberMethods none_as_number = {
     0,                          /* nb_index */
 };
 
+static PyObject *
+none_from_xid(_PyCrossInterpreterData *data)
+{
+    // XXX Singleton refcounts are problematic across interpreters...
+    return Py_NewRef(Py_None);
+}
+
+static int
+none_shared(PyThreadState *tstate, PyObject *obj,
+            _PyCrossInterpreterData *data)
+{
+    _PyCrossInterpreterData_Init(data, tstate->interp, NULL, NULL,
+                                 none_from_xid);
+    // data->data, data->obj and data->free remain NULL
+    return 0;
+}
+
 PyTypeObject _PyNone_Type = {
     PyVarObject_HEAD_INIT(&PyType_Type, 0)
     "NoneType",
@@ -1777,6 +1794,7 @@ PyTypeObject _PyNone_Type = {
     0,                  /*tp_init */
     0,                  /*tp_alloc */
     none_new,           /*tp_new */
+    .tp_shared = none_shared,
 };
 
 PyObject _Py_NoneStruct = {
