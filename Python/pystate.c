@@ -2231,6 +2231,12 @@ static struct _xidregitem * _xidregistry_find_type(struct _xidregistry *, PyType
 crossinterpdatafunc
 _PyCrossInterpreterData_Lookup(PyObject *obj)
 {
+    PyTypeObject *cls = (PyTypeObject *)PyObject_Type(obj);
+    assert(cls != NULL);
+    if (cls->tp_shared != NULL) {
+        return cls->tp_shared;
+    }
+
     struct _xidregistry *xidregistry = &_PyRuntime.xidregistry ;
     PyThread_acquire_lock(xidregistry->mutex, WAIT_LOCK);
     if (xidregistry->head == NULL) {

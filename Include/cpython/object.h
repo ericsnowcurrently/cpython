@@ -137,6 +137,10 @@ typedef struct {
  * backwards-compatibility */
 typedef Py_ssize_t printfunc;
 
+typedef struct _xid _PyCrossInterpreterData;
+typedef int (*crossinterpdatafunc)(PyThreadState *tstate, PyObject *,
+                                   _PyCrossInterpreterData *);
+
 // If this structure is modified, Doc/includes/typestruct.h should be updated
 // as well.
 struct _typeobject {
@@ -224,6 +228,10 @@ struct _typeobject {
 
     /* bitset of which type-watchers care about this type */
     char tp_watched;
+
+    /* Hook for sharing object data between isolated interpreters. */
+    // XXX tp_crossinterpreter?
+    crossinterpdatafunc tp_shared;
 };
 
 /* This struct is used by the specializer
