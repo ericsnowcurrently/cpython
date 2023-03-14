@@ -2221,7 +2221,27 @@ _check_xidata(PyThreadState *tstate, _PyCrossInterpreterData *data)
     return 0;
 }
 
-crossinterpdatafunc _PyCrossInterpreterData_Lookup(PyObject *);
+static void _register_builtins_for_crossinterpreter_data(struct _xidregistry *xidregistry);
+static struct _xidregitem * _xidregistry_find_type(struct _xidregistry *, PyTypeObject *);
+
+/* Cross-interpreter objects are looked up by exact match on the class.
+   We can reassess this policy when we move from a global registry to a
+   tp_* slot. */
+
+crossinterpdatafunc
+_PyCrossInterpreterData_Lookup(PyObject *obj)
+{
+    struct _xidregistry *xidregistry = &_PyRuntime.xidregistry ;
+    PyThread_acquire_lock(xidregistry->mutex, WAIT_LOCK);
+    if (xidregistry->head == NULL) {
+        _register_builtins_for_crossinterpreter_data(xidregistry);
+    }
+    struct _xidregitem *matched = _xidregistry_find_type(xidregistry,
+                                                         (PyTypeObject *)cls);
+    Py_DECREF(cls);
+    PyThread_release_lock(xidregistry->mutex);
+    return matched != NULL ? matched->getdata : NULL;
+}
 
 /* This is a separate func from _PyCrossInterpreterData_Lookup in order
    to keep the registry code separate. */
@@ -2416,8 +2436,6 @@ _xidregistry_find_type(struct _xidregistry *xidregistry, PyTypeObject *cls)
     return NULL;
 }
 
-static void _register_builtins_for_crossinterpreter_data(struct _xidregistry *xidregistry);
-
 int
 _PyCrossInterpreterData_RegisterClass(PyTypeObject *cls,
                                        crossinterpdatafunc getdata)
@@ -2456,26 +2474,6 @@ _PyCrossInterpreterData_UnregisterClass(PyTypeObject *cls)
     return res;
 }
 
-
-/* Cross-interpreter objects are looked up by exact match on the class.
-   We can reassess this policy when we move from a global registry to a
-   tp_* slot. */
-
-crossinterpdatafunc
-_PyCrossInterpreterData_Lookup(PyObject *obj)
-{
-    struct _xidregistry *xidregistry = &_PyRuntime.xidregistry ;
-    PyObject *cls = PyObject_Type(obj);
-    PyThread_acquire_lock(xidregistry->mutex, WAIT_LOCK);
-    if (xidregistry->head == NULL) {
-        _register_builtins_for_crossinterpreter_data(xidregistry);
-    }
-    struct _xidregitem *matched = _xidregistry_find_type(xidregistry,
-                                                         (PyTypeObject *)cls);
-    Py_DECREF(cls);
-    PyThread_release_lock(xidregistry->mutex);
-    return matched != NULL ? matched->getdata : NULL;
-}
 
 /* cross-interpreter data for builtin types */
 
