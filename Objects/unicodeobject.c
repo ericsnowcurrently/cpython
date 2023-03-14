@@ -13268,6 +13268,37 @@ static PyMethodDef unicode_methods[] = {
     {NULL, NULL}
 };
 
+struct shared_str_data {
+    int kind;
+    const void *buffer;
+    Py_ssize_t len;
+};
+
+static PyObject *
+unicode_from_xid(_PyCrossInterpreterData *data)
+{
+    struct shared_str_data *shared = (struct shared_str_data *)(data->data);
+    return PyUnicode_FromKindAndData(shared->kind, shared->buffer, shared->len);
+}
+
+static int
+unicode_shared(PyThreadState *tstate, PyObject *obj,
+               _PyCrossInterpreterData *data)
+{
+    if (_PyCrossInterpreterData_InitWithSize(
+            data, tstate->interp, sizeof(struct shared_str_data), obj,
+            unicode_from_xid
+            ) < 0)
+    {
+        return -1;
+    }
+    struct shared_str_data *shared = (struct shared_str_data *)data->data;
+    shared->kind = PyUnicode_KIND(obj);
+    shared->buffer = PyUnicode_DATA(obj);
+    shared->len = PyUnicode_GET_LENGTH(obj);
+    return 0;
+}
+
 static PyObject *
 unicode_mod(PyObject *v, PyObject *w)
 {
@@ -14487,6 +14518,7 @@ PyTypeObject PyUnicode_Type = {
     0,                            /* tp_alloc */
     unicode_new,                  /* tp_new */
     PyObject_Del,                 /* tp_free */
+    .tp_shared = unicode_shared,
 };
 
 /* Initialize the Unicode implementation */
