@@ -7,7 +7,6 @@
 #include "Python.h"
 // XXX This module should not rely on internal API.
 #include "pycore_frame.h"
-#include "pycore_pystate.h"       // _PyThreadState_GET()
 #include "interpreteridobject.h"
 
 
@@ -520,7 +519,7 @@ interp_create(PyObject *self, PyObject *args, PyObject *kwds)
     }
 
     // Create and initialize the new interpreter.
-    PyThreadState *save_tstate = _PyThreadState_GET();
+    PyThreadState *save_tstate = PyThreadState_GET();
     const _PyInterpreterConfig config = isolated
         ? (_PyInterpreterConfig)_PyInterpreterConfig_INIT
         : (_PyInterpreterConfig)_PyInterpreterConfig_LEGACY_INIT;
