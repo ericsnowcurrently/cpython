@@ -14,6 +14,7 @@ extern PyObject* PyInit_errno(void);
 extern PyObject* PyInit_faulthandler(void);
 extern PyObject* PyInit__tracemalloc(void);
 extern PyObject* PyInit_gc(void);
+extern PyObject* PyInit__interpreters(void);
 extern PyObject* PyInit_math(void);
 extern PyObject* PyInit__md5(void);
 extern PyObject* PyInit_nt(void);
@@ -95,6 +96,7 @@ struct _inittab _PyImport_Inittab[] = {
     {"errno", PyInit_errno},
     {"faulthandler", PyInit_faulthandler},
     {"gc", PyInit_gc},
+    {"_interpreters", PyInit__interpreters},
     {"math", PyInit_math},
     {"nt", PyInit_nt}, /* Use the NT os functions, not posix */
     {"_operator", PyInit__operator},

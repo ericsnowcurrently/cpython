@@ -210,6 +210,7 @@ Modules/_hashopenssl.c	-	py_hashes	-
 Modules/_hacl/Hacl_Hash_SHA1.c	-	_h0	-
 Modules/_hacl/Hacl_Hash_MD5.c	-	_h0	-
 Modules/_hacl/Hacl_Hash_MD5.c	-	_t	-
+Modules/_interpretersmodule.c	-	no_exception	-
 Modules/_io/_iomodule.c	-	static_types	-
 Modules/_io/textio.c	-	encodefuncs	-
 Modules/_io/winconsoleio.c	-	_PyWindowsConsoleIO_Type	-
