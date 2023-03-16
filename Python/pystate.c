@@ -1608,6 +1608,13 @@ PyThreadState_GetID(PyThreadState *tstate)
 }
 
 
+int
+PyThreadState_IsRunning(PyThreadState *tstate)
+{
+    return tstate->cframe->current_frame != NULL;
+}
+
+
 static inline void
 tstate_activate(PyThreadState *tstate)
 {

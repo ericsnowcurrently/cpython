@@ -279,6 +279,8 @@ PyAPI_FUNC(PyThreadState *) _PyThreadState_UncheckedGet(void);
 
 PyAPI_FUNC(PyObject *) _PyThreadState_GetDict(PyThreadState *tstate);
 
+PyAPI_FUNC(int) PyThreadState_IsRunning(PyThreadState *tstate);
+
 // Disable tracing and profiling.
 PyAPI_FUNC(void) PyThreadState_EnterTracing(PyThreadState *tstate);
 
