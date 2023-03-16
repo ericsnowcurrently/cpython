@@ -42,8 +42,8 @@ newinterpid(PyTypeObject *cls, int64_t id, int force)
     return self;
 }
 
-static int
-interp_id_converter(PyObject *arg, void *ptr)
+int
+PyInterpreterID_Converter(PyObject *arg, void *ptr)
 {
     int64_t id;
     if (PyObject_TypeCheck(arg, &PyInterpreterID_Type)) {
@@ -78,7 +78,7 @@ interpid_new(PyTypeObject *cls, PyObject *args, PyObject *kwds)
     int force = 0;
     if (!PyArg_ParseTupleAndKeywords(args, kwds,
                                      "O&|$p:InterpreterID.__init__", kwlist,
-                                     interp_id_converter, &id, &force)) {
+                                     PyInterpreterID_Converter, &id, &force)) {
         return NULL;
     }
 
@@ -287,7 +287,7 @@ PyInterpreterState *
 PyInterpreterID_LookUp(PyObject *requested_id)
 {
     int64_t id;
-    if (!interp_id_converter(requested_id, &id)) {
+    if (!PyInterpreterID_Converter(requested_id, &id)) {
         return NULL;
     }
     return _PyInterpreterState_LookUpID(id);
