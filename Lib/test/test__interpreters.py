@@ -13,7 +13,7 @@ from test.support import import_helper
 from test.support import script_helper
 
 
-interpreters = import_helper.import_module('_xxsubinterpreters')
+interpreters = import_helper.import_module('_interpreters')
 
 
 ##################################
@@ -195,7 +195,7 @@ class ModuleTests(TestBase):
     def test_import_in_interpreter(self):
         _run_output(
             interpreters.create(),
-            'import _xxsubinterpreters as _interpreters',
+            'import _interpreters',
         )
 
 
@@ -237,7 +237,7 @@ class GetCurrentTests(TestBase):
         main = interpreters.get_main()
         interp = interpreters.create()
         out = _run_output(interp, dedent("""
-            import _xxsubinterpreters as _interpreters
+            import _interpreters
             cur = _interpreters.get_current()
             print(cur)
             assert isinstance(cur, _interpreters.InterpreterID)
@@ -260,7 +260,7 @@ class GetMainTests(TestBase):
         [expected] = interpreters.list_all()
         interp = interpreters.create()
         out = _run_output(interp, dedent("""
-            import _xxsubinterpreters as _interpreters
+            import _interpreters
             main = _interpreters.get_main()
             print(main)
             assert isinstance(main, _interpreters.InterpreterID)
@@ -287,7 +287,7 @@ class IsRunningTests(TestBase):
     def test_from_subinterpreter(self):
         interp = interpreters.create()
         out = _run_output(interp, dedent(f"""
-            import _xxsubinterpreters as _interpreters
+            import _interpreters
             if _interpreters.is_running({interp}):
                 print(True)
             else:
@@ -406,7 +406,7 @@ class CreateTests(TestBase):
         main, = interpreters.list_all()
         id1 = interpreters.create()
         out = _run_output(id1, dedent("""
-            import _xxsubinterpreters as _interpreters
+            import _interpreters
             id = _interpreters.create()
             print(id)
             assert isinstance(id, _interpreters.InterpreterID)
@@ -422,7 +422,7 @@ class CreateTests(TestBase):
         def f():
             nonlocal id2
             out = _run_output(id1, dedent("""
-                import _xxsubinterpreters as _interpreters
+                import _interpreters
                 id = _interpreters.create()
                 print(id)
                 """))
@@ -516,7 +516,7 @@ class DestroyTests(TestBase):
         main, = interpreters.list_all()
         id = interpreters.create()
         script = dedent(f"""
-            import _xxsubinterpreters as _interpreters
+            import _interpreters
             try:
                 _interpreters.destroy({id})
             except RuntimeError:
@@ -531,7 +531,7 @@ class DestroyTests(TestBase):
         id1 = interpreters.create()
         id2 = interpreters.create()
         script = dedent(f"""
-            import _xxsubinterpreters as _interpreters
+            import _interpreters
             _interpreters.destroy({id2})
             """)
         interpreters.run_string(id1, script)
@@ -905,7 +905,7 @@ class RunStringTests(TestBase):
         script = dedent(f"""
         from textwrap import dedent
         import threading
-        import _xxsubinterpreters as _interpreters
+        import _interpreters
         id = _interpreters.create()
         def f():
             _interpreters.run_string(id, dedent('''

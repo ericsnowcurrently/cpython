@@ -19,7 +19,7 @@ imp = warnings_helper.import_deprecated('imp')
 import _imp
 import _testinternalcapi
 try:
-    import _xxsubinterpreters as _interpreters
+    import _interpreters
 except ModuleNotFoundError:
     _interpreters = None
 
