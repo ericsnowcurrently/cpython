@@ -15,7 +15,7 @@
 #include "pycore_pystate.h"       // _PyThreadState_GET()
 #include "pycore_symtable.h"      // PySTEntry_Type
 #include "pycore_unionobject.h"   // _PyUnion_Type
-#include "interpreteridobject.h"  // _PyInterpreterID_Type
+#include "interpreteridobject.h"  // PyInterpreterID_Type
 
 #ifdef Py_LIMITED_API
    // Prevent recursive call _Py_IncRef() <=> Py_INCREF()
@@ -1989,7 +1989,7 @@ static PyTypeObject* static_types[] = {
     &_PyHamt_BitmapNode_Type,
     &_PyHamt_CollisionNode_Type,
     &_PyHamt_Type,
-    &_PyInterpreterID_Type,
+    &PyInterpreterID_Type,
     &_PyLineIterator,
     &_PyManagedBuffer_Type,
     &_PyMemoryIter_Type,
