@@ -7,7 +7,7 @@
 
 #include "Python.h"
 #include "pycore_pystate.h"       // _PyThreadState_GET()
-#include "pycore_interpreteridobject.h"
+#include "interpreteridobject.h"
 
 
 #define MODULE_NAME "_xxinterpchannels"

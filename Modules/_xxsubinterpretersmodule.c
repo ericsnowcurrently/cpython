@@ -9,7 +9,7 @@
 // XXX This module should not rely on internal API.
 #include "pycore_frame.h"
 #include "pycore_pystate.h"       // _PyThreadState_GET()
-#include "pycore_interpreteridobject.h"
+#include "interpreteridobject.h"
 
 
 #define MODULE_NAME "_xxsubinterpreters"
