@@ -54,37 +54,6 @@ add_new_exception(PyObject *mod, const char *name, PyObject *base)
 #define ADD_NEW_EXCEPTION(MOD, NAME, BASE) \
     add_new_exception(MOD, MODULE_NAME "." Py_STRINGIFY(NAME), BASE)
 
-static int
-_release_xid_data(_PyCrossInterpreterData *data, int ignoreexc)
-{
-    PyObject *exc;
-    if (ignoreexc) {
-        exc = PyErr_GetRaisedException();
-    }
-    int res = _PyCrossInterpreterData_Release(data);
-    if (res < 0) {
-        // XXX Fix this!
-        /* The owning interpreter is already destroyed.
-         * Ideally, this shouldn't ever happen.  (It's highly unlikely.)
-         * For now we hack around that to resolve refleaks, by decref'ing
-         * the released object here, even if its the wrong interpreter.
-         * The owning interpreter has already been destroyed
-         * so we should be okay, especially since the currently
-         * shareable types are all very basic, with no GC.
-         * That said, it becomes much messier once interpreters
-         * no longer share a GIL, so this needs to be fixed before then. */
-        _PyCrossInterpreterData_Clear(NULL, data);
-        if (ignoreexc) {
-            // XXX Emit a warning?
-            PyErr_Clear();
-        }
-    }
-    if (ignoreexc) {
-        PyErr_SetRaisedException(exc);
-    }
-    return res;
-}
-
 
 /* module state *************************************************************/
 
@@ -122,131 +91,6 @@ clear_module_state(module_state *state)
 
 
 /* data-sharing-specific code ***********************************************/
-
-struct _sharednsitem {
-    const char *name;
-    _PyCrossInterpreterData data;
-};
-
-static void _sharednsitem_clear(struct _sharednsitem *);  // forward
-
-static int
-_sharednsitem_init(struct _sharednsitem *item, PyObject *key, PyObject *value)
-{
-    item->name = _copy_raw_string(key);
-    if (item->name == NULL) {
-        return -1;
-    }
-    if (_PyObject_GetCrossInterpreterData(value, &item->data) != 0) {
-        _sharednsitem_clear(item);
-        return -1;
-    }
-    return 0;
-}
-
-static void
-_sharednsitem_clear(struct _sharednsitem *item)
-{
-    if (item->name != NULL) {
-        PyMem_RawFree((void *)item->name);
-        item->name = NULL;
-    }
-    (void)_release_xid_data(&item->data, 1);
-}
-
-static int
-_sharednsitem_apply(struct _sharednsitem *item, PyObject *ns)
-{
-    PyObject *name = PyUnicode_FromString(item->name);
-    if (name == NULL) {
-        return -1;
-    }
-    PyObject *value = _PyCrossInterpreterData_NewObject(&item->data);
-    if (value == NULL) {
-        Py_DECREF(name);
-        return -1;
-    }
-    int res = PyDict_SetItem(ns, name, value);
-    Py_DECREF(name);
-    Py_DECREF(value);
-    return res;
-}
-
-typedef struct _sharedns {
-    Py_ssize_t len;
-    struct _sharednsitem* items;
-} _sharedns;
-
-static _sharedns *
-_sharedns_new(Py_ssize_t len)
-{
-    _sharedns *shared = PyMem_NEW(_sharedns, 1);
-    if (shared == NULL) {
-        PyErr_NoMemory();
-        return NULL;
-    }
-    shared->len = len;
-    shared->items = PyMem_NEW(struct _sharednsitem, len);
-    if (shared->items == NULL) {
-        PyErr_NoMemory();
-        PyMem_Free(shared);
-        return NULL;
-    }
-    return shared;
-}
-
-static void
-_sharedns_free(_sharedns *shared)
-{
-    for (Py_ssize_t i=0; i < shared->len; i++) {
-        _sharednsitem_clear(&shared->items[i]);
-    }
-    PyMem_Free(shared->items);
-    PyMem_Free(shared);
-}
-
-static _sharedns *
-_get_shared_ns(PyObject *shareable)
-{
-    if (shareable == NULL || shareable == Py_None) {
-        return NULL;
-    }
-    Py_ssize_t len = PyDict_Size(shareable);
-    if (len == 0) {
-        return NULL;
-    }
-
-    _sharedns *shared = _sharedns_new(len);
-    if (shared == NULL) {
-        return NULL;
-    }
-    Py_ssize_t pos = 0;
-    for (Py_ssize_t i=0; i < len; i++) {
-        PyObject *key, *value;
-        if (PyDict_Next(shareable, &pos, &key, &value) == 0) {
-            break;
-        }
-        if (_sharednsitem_init(&shared->items[i], key, value) != 0) {
-            break;
-        }
-    }
-    if (PyErr_Occurred()) {
-        _sharedns_free(shared);
-        return NULL;
-    }
-    return shared;
-}
-
-static int
-_sharedns_apply(_sharedns *shared, PyObject *ns)
-{
-    for (Py_ssize_t i=0; i < shared->len; i++) {
-        if (_sharednsitem_apply(&shared->items[i], ns) != 0) {
-            return -1;
-        }
-    }
-    return 0;
-}
 
 // Ultimately we'd like to preserve enough information about the
 // exception and traceback that we could re-constitute (or at least
@@ -400,7 +244,7 @@ _ensure_not_running(PyInterpreterState *interp)
 
 static int
 _run_script(PyInterpreterState *interp, const char *codestr,
-            _sharedns *shared, _sharedexception *sharedexc)
+            _sharedexception *sharedexc)
 {
     PyObject *excval = NULL;
     PyObject *main_mod = _PyInterpreterState_GetMainModule(interp);
@@ -413,14 +257,6 @@ _run_script(PyInterpreterState *interp, const char *codestr,
         goto error;
     }
     Py_INCREF(ns);
-
-    // Apply the cross-interpreter data.
-    if (shared != NULL) {
-        if (_sharedns_apply(shared, ns) != 0) {
-            Py_DECREF(ns);
-            goto error;
-        }
-    }
 
     // Run the string (see PyRun_SimpleStringFlags).
     PyObject *result = PyRun_StringFlags(codestr, Py_file_input, ns, ns, NULL);
@@ -451,17 +287,12 @@ error:
 
 static int
 _run_script_in_interpreter(PyObject *mod, PyInterpreterState *interp,
-                           const char *codestr, PyObject *shareables)
+                           const char *codestr)
 {
     if (_ensure_not_running(interp) < 0) {
         return -1;
     }
     module_state *state = get_module_state(mod);
-
-    _sharedns *shared = _get_shared_ns(shareables);
-    if (shared == NULL && PyErr_Occurred()) {
-        return -1;
-    }
 
     // Switch to interpreter.
     PyThreadState *save_tstate = NULL;
@@ -474,7 +305,7 @@ _run_script_in_interpreter(PyObject *mod, PyInterpreterState *interp,
 
     // Run the script.
     _sharedexception exc;
-    int result = _run_script(interp, codestr, shared, &exc);
+    int result = _run_script(interp, codestr, &exc);
 
     // Switch back.
     if (save_tstate != NULL) {
@@ -489,10 +320,6 @@ _run_script_in_interpreter(PyObject *mod, PyInterpreterState *interp,
     else if (result != 0) {
         // We were unable to allocate a shared exception.
         PyErr_NoMemory();
-    }
-
-    if (shared != NULL) {
-        _sharedns_free(shared);
     }
 
     return result;
@@ -671,12 +498,11 @@ Return the ID of main interpreter.");
 static PyObject *
 interp_run_string(PyObject *self, PyObject *args, PyObject *kwds)
 {
-    static char *kwlist[] = {"id", "script", "shared", NULL};
+    static char *kwlist[] = {"id", "script", NULL};
     PyObject *id, *code;
-    PyObject *shared = NULL;
     if (!PyArg_ParseTupleAndKeywords(args, kwds,
-                                     "OU|O:run_string", kwlist,
-                                     &id, &code, &shared)) {
+                                     "OU:run_string", kwlist,
+                                     &id, &code)) {
         return NULL;
     }
 
@@ -699,14 +525,14 @@ interp_run_string(PyObject *self, PyObject *args, PyObject *kwds)
     }
 
     // Run the code in the interpreter.
-    if (_run_script_in_interpreter(self, interp, codestr, shared) != 0) {
+    if (_run_script_in_interpreter(self, interp, codestr) != 0) {
         return NULL;
     }
     Py_RETURN_NONE;
 }
 
 PyDoc_STRVAR(run_string_doc,
-"run_string(id, script, shared)\n\
+"run_string(id, script)\n\
 \n\
 Execute the provided string in the identified interpreter.\n\
 \n\
@@ -836,4 +662,3 @@ PyInit__interpreters(void)
 {
     return PyModuleDef_Init(&moduledef);
 }
-

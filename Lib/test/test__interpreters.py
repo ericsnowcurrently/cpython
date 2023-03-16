@@ -31,10 +31,10 @@ def _captured_script(script):
     return wrapped, open(r, encoding="utf-8")
 
 
-def _run_output(interp, request, shared=None):
+def _run_output(interp, request):
     script, rpipe = _captured_script(request)
     with rpipe:
-        interpreters.run_string(interp, script, shared)
+        interpreters.run_string(interp, script)
         return rpipe.read()
 
 
@@ -544,22 +544,6 @@ class RunStringTests(TestBase):
 
             self.assertEqual(out, 'it worked!')
 
-    def test_shareable_types(self):
-        interp = interpreters.create()
-        objects = [
-            None,
-            'spam',
-            b'spam',
-            42,
-        ]
-        for obj in objects:
-            with self.subTest(obj):
-                interpreters.run_string(
-                    interp,
-                    f'assert(obj == {obj!r})',
-                    shared=dict(obj=obj),
-                )
-
     def test_os_exec(self):
         expected = 'spam spam spam spam spam'
         subinterp = interpreters.create()
@@ -662,83 +646,6 @@ class RunStringTests(TestBase):
                 import sys
                 sys.exit(42)
                 """))
-
-    def test_with_shared(self):
-        r, w = os.pipe()
-
-        shared = {
-                'spam': b'ham',
-                'eggs': b'-1',
-                'cheddar': None,
-                }
-        script = dedent(f"""
-            eggs = int(eggs)
-            spam = 42
-            result = spam + eggs
-
-            ns = dict(vars())
-            del ns['__builtins__']
-            import pickle
-            with open({w}, 'wb') as chan:
-                pickle.dump(ns, chan)
-            """)
-        interpreters.run_string(self.id, script, shared)
-        with open(r, 'rb') as chan:
-            ns = pickle.load(chan)
-
-        self.assertEqual(ns['spam'], 42)
-        self.assertEqual(ns['eggs'], -1)
-        self.assertEqual(ns['result'], 41)
-        self.assertIsNone(ns['cheddar'])
-
-    def test_shared_overwrites(self):
-        interpreters.run_string(self.id, dedent("""
-            spam = 'eggs'
-            ns1 = dict(vars())
-            del ns1['__builtins__']
-            """))
-
-        shared = {'spam': b'ham'}
-        script = dedent(f"""
-            ns2 = dict(vars())
-            del ns2['__builtins__']
-        """)
-        interpreters.run_string(self.id, script, shared)
-
-        r, w = os.pipe()
-        script = dedent(f"""
-            ns = dict(vars())
-            del ns['__builtins__']
-            import pickle
-            with open({w}, 'wb') as chan:
-                pickle.dump(ns, chan)
-            """)
-        interpreters.run_string(self.id, script)
-        with open(r, 'rb') as chan:
-            ns = pickle.load(chan)
-
-        self.assertEqual(ns['ns1']['spam'], 'eggs')
-        self.assertEqual(ns['ns2']['spam'], b'ham')
-        self.assertEqual(ns['spam'], b'ham')
-
-    def test_shared_overwrites_default_vars(self):
-        r, w = os.pipe()
-
-        shared = {'__name__': b'not __main__'}
-        script = dedent(f"""
-            spam = 42
-
-            ns = dict(vars())
-            del ns['__builtins__']
-            import pickle
-            with open({w}, 'wb') as chan:
-                pickle.dump(ns, chan)
-            """)
-        interpreters.run_string(self.id, script, shared)
-        with open(r, 'rb') as chan:
-            ns = pickle.load(chan)
-
-        self.assertEqual(ns['__name__'], b'not __main__')
 
     def test_main_reused(self):
         r, w = os.pipe()
