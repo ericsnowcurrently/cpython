@@ -714,30 +714,6 @@ See PyRun_SimpleStrings.");
 
 
 static PyObject *
-object_is_shareable(PyObject *self, PyObject *args, PyObject *kwds)
-{
-    static char *kwlist[] = {"obj", NULL};
-    PyObject *obj;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds,
-                                     "O:is_shareable", kwlist, &obj)) {
-        return NULL;
-    }
-
-    if (_PyObject_CheckCrossInterpreterData(obj) == 0) {
-        Py_RETURN_TRUE;
-    }
-    PyErr_Clear();
-    Py_RETURN_FALSE;
-}
-
-PyDoc_STRVAR(is_shareable_doc,
-"is_shareable(obj) -> bool\n\
-\n\
-Return True if the object's data may be shared between interpreters and\n\
-False otherwise.");
-
-
-static PyObject *
 interp_is_running(PyObject *self, PyObject *args, PyObject *kwds)
 {
     static char *kwlist[] = {"id", NULL};
@@ -782,9 +758,6 @@ static PyMethodDef module_functions[] = {
      METH_VARARGS | METH_KEYWORDS, is_running_doc},
     {"run_string",                _PyCFunction_CAST(interp_run_string),
      METH_VARARGS | METH_KEYWORDS, run_string_doc},
-
-    {"is_shareable",              _PyCFunction_CAST(object_is_shareable),
-     METH_VARARGS | METH_KEYWORDS, is_shareable_doc},
 
     {NULL,                        NULL}           /* sentinel */
 };
