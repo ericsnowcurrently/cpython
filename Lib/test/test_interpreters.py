@@ -6,7 +6,7 @@ import unittest
 
 from test import support
 from test.support import import_helper
-_interpreters = import_helper.import_module('_xxsubinterpreters')
+_interpreters = import_helper.import_module('_interpreters')
 
 import interpreters
 
@@ -258,7 +258,7 @@ class TestInterpreterIsRunning(TestBase):
     def test_from_subinterpreter(self):
         interp = interpreters.create()
         out = _run_output(interp, dedent(f"""
-            import _xxsubinterpreters as _interpreters
+            import _interpreters as _interpreters
             if _interpreters.is_running({interp.id}):
                 print(True)
             else:
@@ -459,4 +459,4 @@ class TestInterpreterRun(TestBase):
         with self.assertRaises(TypeError):
             interp.run(b'print("spam")')
 
-    # test_xxsubinterpreters covers the remaining Interpreter.run() behavior.
+    # test_interpreters covers the remaining Interpreter.run() behavior.

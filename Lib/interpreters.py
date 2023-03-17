@@ -1,6 +1,6 @@
 """Multiple interpreters High Level Module."""
 
-import _xxsubinterpreters as _interpreters
+import _interpreters
 
 
 __all__ = [
