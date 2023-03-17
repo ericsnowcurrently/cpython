@@ -2,13 +2,9 @@
 
 import _xxsubinterpreters as _interpreters
 
-# aliases:
-from _xxsubinterpreters import is_shareable
-
 
 __all__ = [
     'Interpreter', 'get_current', 'get_main', 'create', 'list_all',
-    'is_shareable',
     ]
 
 
