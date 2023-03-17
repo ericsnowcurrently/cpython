@@ -78,9 +78,9 @@ class Interpreter:
         """
         return _interpreters.destroy(self._id)
 
-    def run(self, src_str, /, *, channels=None):
+    def run(self, src_str, /):
         """Run the given source code in the interpreter.
 
         This blocks the current Python thread until done.
         """
-        _interpreters.run_string(self._id, src_str, channels)
+        _interpreters.run_string(self._id, src_str)
