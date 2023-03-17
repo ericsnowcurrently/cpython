@@ -9,7 +9,8 @@ from test import support
 from test.support import import_helper
 _interpreters = import_helper.import_module('_xxsubinterpreters')
 _channels = import_helper.import_module('_xxinterpchannels')
-from test.support import interpreters
+
+import interpreters
 
 
 def _captured_script(script):
@@ -92,7 +93,7 @@ class CreateTests(TestBase):
         main, = interpreters.list_all()
         interp = interpreters.create()
         out = _run_output(interp, dedent("""
-            from test.support import interpreters
+            import interpreters
             interp = interpreters.create()
             print(interp.id)
             """))
@@ -138,7 +139,7 @@ class GetCurrentTests(TestBase):
         main = _interpreters.get_main()
         interp = interpreters.create()
         out = _run_output(interp, dedent("""
-            from test.support import interpreters
+            import interpreters
             cur = interpreters.get_current()
             print(cur.id)
             """))
@@ -341,7 +342,7 @@ class TestInterpreterClose(TestBase):
         main, = interpreters.list_all()
         interp = interpreters.create()
         out = _run_output(interp, dedent(f"""
-            from test.support import interpreters
+            import interpreters
             interp = interpreters.Interpreter({int(interp.id)})
             try:
                 interp.close()
@@ -358,7 +359,7 @@ class TestInterpreterClose(TestBase):
         self.assertEqual(set(interpreters.list_all()),
                          {main, interp1, interp2})
         interp1.run(dedent(f"""
-            from test.support import interpreters
+            import interpreters
             interp2 = interpreters.Interpreter(int({interp2.id}))
             interp2.close()
             interp3 = interpreters.create()
@@ -594,7 +595,7 @@ class TestSendRecv(TestBase):
     def test_send_recv_same_interpreter(self):
         interp = interpreters.create()
         interp.run(dedent("""
-            from test.support import interpreters
+            import interpreters
             r, s = interpreters.create_channel()
             orig = b'spam'
             s.send_nowait(orig)
@@ -667,7 +668,7 @@ class TestSendRecv(TestBase):
     def test_send_recv_nowait_same_interpreter(self):
         interp = interpreters.create()
         interp.run(dedent("""
-            from test.support import interpreters
+            import interpreters
             r, s = interpreters.create_channel()
             orig = b'spam'
             s.send_nowait(orig)

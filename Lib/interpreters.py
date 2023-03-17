@@ -1,4 +1,4 @@
-"""Subinterpreters High Level Module."""
+"""Multiple interpreters High Level Module."""
 
 import time
 import _xxsubinterpreters as _interpreters
