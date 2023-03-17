@@ -35,8 +35,6 @@ IGNORE = {
     '_testinternalcapi',
     '_testmultiphase',
     '_testsinglephase',
-    '_xxsubinterpreters',
-    '_xxinterpchannels',
     '_xxtestfuzz',
     'idlelib.idle_test',
     'test',
