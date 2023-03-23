@@ -131,6 +131,8 @@ extern void _PyThreadState_InitDetached(PyThreadState *, PyInterpreterState *);
 extern void _PyThreadState_ClearDetached(PyThreadState *);
 
 extern PyObject * _Py_AddToGlobalDict(PyObject *, PyObject *, PyObject *);
+typedef int (*isstaticfunc)(PyObject *);
+extern void _Py_ClearGlobalDict(PyObject *, isstaticfunc);
 
 
 static inline void

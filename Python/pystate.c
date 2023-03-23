@@ -688,6 +688,48 @@ _Py_AddToGlobalDict(PyObject *dict, PyObject *key, PyObject *value)
     return actual;
 }
 
+void
+_Py_ClearGlobalDict(PyObject *dict, isstaticfunc is_static)
+{
+    assert(dict != NULL);
+    assert(PyDict_CheckExact(dict));
+    // XXX Verify that the dict is immortal.
+
+    /* All global objects are stored in _PyRuntime
+       and owned by the main interpreter. */
+    _PyRuntimeState *runtime = &_PyRuntime;
+    PyThreadState *curts = current_fast_get(runtime);
+    PyInterpreterState *interp = curts->interp;
+    assert(interp != NULL);  // The GIL must be held.
+
+    /* This should only be called when finalizing the main interpreter
+       (i.e. the runtime). */
+    assert(_Py_IsMainInterpreter(interp));
+
+    Py_ssize_t pos = 0;
+    PyObject *key, *value;
+    while (PyDict_Next(dict, &pos, &key, &value)) {
+        /* Make dynamically-allocated objects mortal again,
+           so they will get freed when the dict is cleared in a moment. */
+        if (key == value) {
+            if (!is_static(key)) {
+                Py_SET_REFCNT(key, 2);
+            }
+        }
+        else {
+            if (!is_static(key)) {
+                Py_SET_REFCNT(key, 1);
+            }
+            if (!is_static(value)) {
+                Py_SET_REFCNT(value, 1);
+            }
+        }
+    }
+
+    PyDict_Clear(dict);
+    // XXX Once dict is made immortal, we must make it mortal again here. */
+}
+
 
 /*************************************/
 /* the per-interpreter runtime state */
