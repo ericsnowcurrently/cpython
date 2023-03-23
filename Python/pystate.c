@@ -623,6 +623,30 @@ release_global_objects_lock(_PyRuntimeState *runtime)
 }
 
 PyObject *
+_Py_NewGlobalDict(void)
+{
+    /* This should only be called when initializing the main interpreter
+       (i.e. the runtime). */
+    _PyRuntimeState *runtime = &_PyRuntime;
+    assert(runtime->preinitialized && !runtime->core_initialized);
+    PyThreadState *curts = current_fast_get(runtime);
+    PyInterpreterState *interp = curts->interp;
+    /* The GIL must be held. */
+    assert(interp != NULL);
+    assert(_Py_IsMainInterpreter(interp));
+
+    /* All global objects are stored in _PyRuntime
+       and owned by the main interpreter. */
+
+    PyObject *dict = PyDict_New();
+    if (dict == NULL) {
+        return NULL;
+    }
+    // XXX Immortalize dict.
+    return dict;
+}
+
+PyObject *
 _Py_AddToGlobalDict(PyObject *dict, PyObject *key, PyObject *value)
 {
     assert(dict != NULL);
