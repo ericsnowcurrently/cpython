@@ -897,22 +897,32 @@ PyTypeObject PyWrapperDescr_Type = {
 };
 
 static PyDescrObject *
-descr_new(PyTypeObject *descrtype, PyTypeObject *type, const char *name)
+descr_new_from_nameobj(PyTypeObject *descrtype, PyTypeObject *type,
+                       PyObject *nameobj)
 {
+    assert(nameobj != NULL && PyUnicode_CheckExact(nameobj));
     PyDescrObject *descr;
 
     descr = (PyDescrObject *)PyType_GenericAlloc(descrtype, 0);
     if (descr != NULL) {
         descr->d_type = (PyTypeObject*)Py_XNewRef(type);
-        descr->d_name = PyUnicode_InternFromString(name);
-        if (descr->d_name == NULL) {
-            Py_SETREF(descr, NULL);
-        }
-        else {
-            descr->d_qualname = NULL;
-        }
+        descr->d_name = Py_NewRef(nameobj);
+        PyUnicode_InternInPlace(&descr->d_name);
+        descr->d_qualname = NULL;
     }
     return descr;
+}
+
+static inline PyDescrObject *
+descr_new(PyTypeObject *descrtype, PyTypeObject *type, const char *name)
+{
+    PyObject *nameobj = PyUnicode_FromString(name);
+    if (nameobj == NULL) {
+        return NULL;
+    }
+    PyDescrObject *self = descr_new_from_nameobj(descrtype, type, nameobj);
+    Py_DECREF(nameobj);
+    return self;
 }
 
 PyObject *
@@ -1002,8 +1012,15 @@ PyDescr_NewWrapper(PyTypeObject *type, struct wrapperbase *base, void *wrapped)
 {
     PyWrapperDescrObject *descr;
 
-    descr = (PyWrapperDescrObject *)descr_new(&PyWrapperDescr_Type,
-                                             type, base->name);
+    if (base->name_strobj != NULL) {
+        // XXX It must be statically allocated.
+        descr = (PyWrapperDescrObject *)descr_new_from_nameobj(
+                            &PyWrapperDescr_Type, type, base->name_strobj);
+    }
+    else {
+        descr = (PyWrapperDescrObject *)descr_new(&PyWrapperDescr_Type,
+                                                  type, base->name);
+    }
     if (descr != NULL) {
         descr->d_base = base;
         descr->d_wrapped = wrapped;
