@@ -238,16 +238,6 @@ static inline PyObject *get_interned_dict(void)
     return _Py_get_protected_global_object(_Py_INTERNED_STRINGS_DICT);
 }
 
-static inline void set_interned_dict(PyObject *dict)
-{
-    _Py_set_protected_global_object(_Py_INTERNED_STRINGS_DICT, dict);
-}
-
-static inline void clear_interned_dict(void)
-{
-    _Py_clear_protected_global_object(_Py_INTERNED_STRINGS_DICT);
-}
-
 #define _Py_RETURN_UNICODE_EMPTY()   \
     do {                             \
         return unicode_new_empty();  \
@@ -14541,13 +14531,10 @@ _PyUnicode_InitGlobalObjects(PyInterpreterState *interp)
     }
 
     // Initialize the global interned dict
-    PyObject *interned = PyDict_New();
-    if (interned == NULL) {
+    if (_Py_InitGlobalDict(_Py_INTERNED_STRINGS_DICT) < 0) {
         PyErr_Clear();
         return _PyStatus_ERR("failed to create interned dict");
     }
-
-    set_interned_dict(interned);
 
     /* Intern statically allocated string identifiers and deepfreeze strings.
      * This must be done before any module initialization so that statically
@@ -14615,8 +14602,7 @@ PyUnicode_InternInPlace(PyObject **p)
         return;
     }
 
-    PyObject *interned = get_interned_dict();
-    PyObject *t = _Py_AddToGlobalDict(interned, s, s);
+    PyObject *t = _Py_AddToGlobalDict(_Py_INTERNED_STRINGS_DICT, s, s);
     if (t != s) {
         if (t != NULL) {
             Py_SETREF(*p, Py_NewRef(t));
@@ -14695,9 +14681,7 @@ _PyUnicode_ClearInterned(PyInterpreterState *interp)
             total_length);
 #endif
 
-    PyDict_Clear(interned);
-    Py_DECREF(interned);
-    clear_interned_dict();
+    _Py_ClearGlobalDict(_Py_INTERNED_STRINGS_DICT);
 }
 
 

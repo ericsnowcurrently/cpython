@@ -622,48 +622,74 @@ release_global_objects_lock(_PyRuntimeState *runtime)
     assert(current_fast_get(runtime) != NULL);
 }
 
-PyObject *
-_Py_NewGlobalDict(void)
+/* All global objects are stored in _PyRuntime
+   and owned by the main interpreter. */
+
+int
+_Py_InitGlobalDict(_Py_protected_global_object which)
 {
-    /* This should only be called when initializing the main interpreter
-       (i.e. the runtime). */
     _PyRuntimeState *runtime = &_PyRuntime;
-    assert(runtime->preinitialized && !runtime->core_initialized);
     PyThreadState *curts = current_fast_get(runtime);
     PyInterpreterState *interp = curts->interp;
     /* The GIL must be held. */
     assert(interp != NULL);
-    assert(_Py_IsMainInterpreter(interp));
 
-    /* All global objects are stored in _PyRuntime
-       and owned by the main interpreter. */
+    /* This should only be called when initializing the main interpreter
+       (i.e. the runtime), so there is no need for locking. */
+    assert(runtime->preinitialized && !runtime->core_initialized);
+    assert(_Py_IsMainInterpreter(interp));
 
     PyObject *dict = PyDict_New();
     if (dict == NULL) {
-        return NULL;
+        return -1;
     }
     // XXX Immortalize dict.
-    return dict;
+    _Py_set_protected_global_object(which, dict);
+    return 0;
 }
 
-PyObject *
-_Py_AddToGlobalDict(PyObject *dict, PyObject *key, PyObject *value)
+void
+_Py_ClearGlobalDict(_Py_protected_global_object which)
 {
-    assert(dict != NULL);
-    assert(PyDict_CheckExact(dict));
-
-    /* All global objects are stored in _PyRuntime
-       and owned by the main interpreter. */
     _PyRuntimeState *runtime = &_PyRuntime;
     PyThreadState *curts = current_fast_get(runtime);
     PyInterpreterState *interp = curts->interp;
-    assert(interp != NULL);  // The GIL must be held.
+    /* The GIL must be held. */
+    assert(interp != NULL);
+
+    /* This should only be called when finalizing the main interpreter
+       (i.e. the runtime), so there is no need for locking. */
+    assert(runtime->preinitialized && !runtime->core_initialized);
+    assert(_Py_IsMainInterpreter(interp));
+
+    /* Clear the dict and its items. */
+    PyObject *dict = _Py_get_protected_global_object(which);
+    // XXX Un-immortalize the items, if not static.
+    PyDict_Clear(dict);
+
+    /* Free the dict itself. */
+    // XXX Once dict is made immortal, we must make it mortal again here. */
+    _Py_clear_protected_global_object(which);
+}
+
+PyObject *
+_Py_AddToGlobalDict(_Py_protected_global_object which,
+                    PyObject *key, PyObject *value)
+{
+    _PyRuntimeState *runtime = &_PyRuntime;
+    PyThreadState *curts = current_fast_get(runtime);
+    PyInterpreterState *interp = curts->interp;
+    /* The GIL must be held. */
+    assert(interp != NULL);
 
     /* Due to interpreter isolation we must hold a global lock,
        starting at this point and ending before we return.
        Note that the operations in this function are very fucused
        and we should not expect any reentrancy. */
     acquire_global_objects_lock(runtime);
+
+    PyObject *dict = _Py_get_protected_global_object(which);
+    assert(dict != NULL);
 
     /* We only swap interpreters if necessary. */
     PyObject *actual = PyDict_GetItemWithError(dict, key);
@@ -710,48 +736,6 @@ _Py_AddToGlobalDict(PyObject *dict, PyObject *key, PyObject *value)
     // XXX Immortalize the key and value.
 
     return actual;
-}
-
-void
-_Py_ClearGlobalDict(PyObject *dict, isstaticfunc is_static)
-{
-    assert(dict != NULL);
-    assert(PyDict_CheckExact(dict));
-    // XXX Verify that the dict is immortal.
-
-    /* All global objects are stored in _PyRuntime
-       and owned by the main interpreter. */
-    _PyRuntimeState *runtime = &_PyRuntime;
-    PyThreadState *curts = current_fast_get(runtime);
-    PyInterpreterState *interp = curts->interp;
-    assert(interp != NULL);  // The GIL must be held.
-
-    /* This should only be called when finalizing the main interpreter
-       (i.e. the runtime). */
-    assert(_Py_IsMainInterpreter(interp));
-
-    Py_ssize_t pos = 0;
-    PyObject *key, *value;
-    while (PyDict_Next(dict, &pos, &key, &value)) {
-        /* Make dynamically-allocated objects mortal again,
-           so they will get freed when the dict is cleared in a moment. */
-        if (key == value) {
-            if (!is_static(key)) {
-                Py_SET_REFCNT(key, 2);
-            }
-        }
-        else {
-            if (!is_static(key)) {
-                Py_SET_REFCNT(key, 1);
-            }
-            if (!is_static(value)) {
-                Py_SET_REFCNT(value, 1);
-            }
-        }
-    }
-
-    PyDict_Clear(dict);
-    // XXX Once dict is made immortal, we must make it mortal again here. */
 }
 
 

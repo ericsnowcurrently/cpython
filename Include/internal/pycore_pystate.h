@@ -130,10 +130,10 @@ PyAPI_FUNC(void) _PyThreadState_DeleteExcept(PyThreadState *tstate);
 extern void _PyThreadState_InitDetached(PyThreadState *, PyInterpreterState *);
 extern void _PyThreadState_ClearDetached(PyThreadState *);
 
-extern PyObject * _Py_NewGlobalDict(void);
-extern PyObject * _Py_AddToGlobalDict(PyObject *, PyObject *, PyObject *);
-typedef int (*isstaticfunc)(PyObject *);
-extern void _Py_ClearGlobalDict(PyObject *, isstaticfunc);
+extern int _Py_InitGlobalDict(_Py_protected_global_object);
+extern void _Py_ClearGlobalDict(_Py_protected_global_object);
+extern PyObject * _Py_AddToGlobalDict(_Py_protected_global_object,
+                                      PyObject *, PyObject *);
 
 
 static inline void
