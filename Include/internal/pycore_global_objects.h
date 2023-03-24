@@ -23,16 +23,67 @@ extern "C" {
 // Only immutable objects should be considered runtime-global.
 // All others must be per-interpreter.
 
-#define _Py_CACHED_OBJECT(NAME) \
-    _PyRuntime.cached_objects.NAME
-
 struct _Py_cached_objects {
-    PyObject *interned_strings;
     /* A thread state tied to the main interpreter,
        used exclusively for when a global object (e.g. interned strings)
        is resized (i.e. deallocated + allocated) from an arbitrary thread. */
     PyThreadState main_tstate;
+
+    /* Sharing an object between interpreters is currently messy and
+       there are few cases that justify the trouble.  The objects for
+       those few cases are all stored here. */
+
+    PyObject *interned_strings;
 };
+
+typedef enum {
+    _Py_INTERNED_STRINGS_DICT,
+} _Py_protected_global_object;
+
+static inline PyObject **
+_Py_find_protected_global_object(struct _Py_cached_objects *state,
+                                 _Py_protected_global_object which)
+{
+    switch (which) {
+    case _Py_INTERNED_STRINGS_DICT:
+        return &state->interned_strings;
+    }
+    _Py_FatalErrorFunc(__func__, "unsupported global object");
+}
+
+static inline PyObject *
+_Py_get_protected_global_object(struct _Py_cached_objects *state,
+                                _Py_protected_global_object which)
+{
+    PyObject **ptr = _Py_find_protected_global_object(state, which);
+    return *ptr;
+}
+#define _Py_get_protected_global_object(which) \
+    _Py_get_protected_global_object(&_PyRuntime.cached_objects, which)
+
+static inline void
+_Py_set_protected_global_object(struct _Py_cached_objects *state,
+                               _Py_protected_global_object which,
+                               PyObject *obj)
+{
+    PyObject **ptr = _Py_find_protected_global_object(state, which);
+    assert(*ptr == NULL);
+    *ptr = obj;
+}
+#define _Py_set_protected_global_object(which, obj) \
+    _Py_set_protected_global_object(&_PyRuntime.cached_objects, which, obj)
+
+static inline void
+_Py_clear_protected_global_object(struct _Py_cached_objects *state,
+                                  _Py_protected_global_object which)
+{
+    PyObject **ptr = _Py_find_protected_global_object(state, which);
+    assert(*ptr != NULL);
+    *ptr = NULL;
+}
+#define _Py_clear_protected_global_object(which) \
+    _Py_clear_protected_global_object(&_PyRuntime.cached_objects, which)
+
 
 #define _Py_GLOBAL_OBJECT(NAME) \
     _PyRuntime.static_objects.NAME

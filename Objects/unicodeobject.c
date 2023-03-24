@@ -224,21 +224,28 @@ static inline PyObject* unicode_new_empty(void)
     return Py_NewRef(empty);
 }
 
-/* This dictionary holds all interned unicode strings.  Note that references
-   to strings in this dictionary are *not* counted in the string's ob_refcnt.
-   When the interned string reaches a refcnt of 0 the string deallocation
-   function will delete the reference from this dictionary.
-   Another way to look at this is that to say that the actual reference
-   count of a string is:  s->ob_refcnt + (s->state ? 2 : 0)
+/* The "interned" dictionary holds all interned unicode strings.
+   Note that references to strings in this dictionary are *not* counted
+   in the string's ob_refcnt.  When the interned string reaches a refcnt
+   of 0 the string deallocation function will delete the reference from
+   this dictionary.  Another way to look at this is that to say that
+   the actual reference count of a string is:
+     s->ob_refcnt + (s->state ? 2 : 0)
 */
+
 static inline PyObject *get_interned_dict(void)
 {
-    return _Py_CACHED_OBJECT(interned_strings);
+    return _Py_get_protected_global_object(_Py_INTERNED_STRINGS_DICT);
 }
 
 static inline void set_interned_dict(PyObject *dict)
 {
-    _Py_CACHED_OBJECT(interned_strings) = dict;
+    _Py_set_protected_global_object(_Py_INTERNED_STRINGS_DICT, dict);
+}
+
+static inline void clear_interned_dict(void)
+{
+    _Py_clear_protected_global_object(_Py_INTERNED_STRINGS_DICT);
 }
 
 #define _Py_RETURN_UNICODE_EMPTY()   \
@@ -14690,7 +14697,7 @@ _PyUnicode_ClearInterned(PyInterpreterState *interp)
 
     PyDict_Clear(interned);
     Py_DECREF(interned);
-    set_interned_dict(NULL);
+    clear_interned_dict();
 }
 
 
