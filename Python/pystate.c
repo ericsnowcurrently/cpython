@@ -63,6 +63,7 @@ extern "C" {
 
 #ifdef HAVE_THREAD_LOCAL
 _Py_thread_local PyThreadState *_Py_tss_tstate = NULL;
+_Py_thread_local PyInterpreterState *_Py_tss_interp = NULL;
 #endif
 
 static inline PyThreadState *
@@ -76,12 +77,24 @@ current_fast_get(_PyRuntimeState *Py_UNUSED(runtime))
 #endif
 }
 
+static inline PyInterpreterState *
+current_interp_fast_get(_PyRuntimeState *Py_UNUSED(runtime))
+{
+#ifdef HAVE_THREAD_LOCAL
+    return _Py_tss_interp;
+#else
+    PyThreadState *tstate = current_fast_get();
+    return tstate != NULL ? tstate->interp : NULL;
+#endif
+}
+
 static inline void
 current_fast_set(_PyRuntimeState *Py_UNUSED(runtime), PyThreadState *tstate)
 {
     assert(tstate != NULL);
 #ifdef HAVE_THREAD_LOCAL
     _Py_tss_tstate = tstate;
+    _Py_tss_interp = tstate->interp;
 #else
     // XXX Fall back to the PyThread_tss_*() API.
 #  error "no supported thread-local variable storage classifier"
@@ -93,6 +106,7 @@ current_fast_clear(_PyRuntimeState *Py_UNUSED(runtime))
 {
 #ifdef HAVE_THREAD_LOCAL
     _Py_tss_tstate = NULL;
+    _Py_tss_interp = NULL;
 #else
     // XXX Fall back to the PyThread_tss_*() API.
 #  error "no supported thread-local variable storage classifier"
@@ -108,6 +122,12 @@ PyThreadState *
 _PyThreadState_GetCurrent(void)
 {
     return current_fast_get(&_PyRuntime);
+}
+
+PyInterpreterState *
+_PyInterpreterState_GetCurrent(void)
+{
+    return current_interp_fast_get(&_PyRuntime);
 }
 
 

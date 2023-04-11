@@ -66,8 +66,10 @@ _Py_ThreadCanHandlePendingCalls(void)
 
 #if defined(HAVE_THREAD_LOCAL) && !defined(Py_BUILD_CORE_MODULE)
 extern _Py_thread_local PyThreadState *_Py_tss_tstate;
+extern _Py_thread_local PyInterpreterState *_Py_tss_interp;
 #endif
 PyAPI_DATA(PyThreadState *) _PyThreadState_GetCurrent(void);
+PyAPI_DATA(PyInterpreterState *) _PyInterpreterState_GetCurrent(void);
 
 /* Get the current Python thread state.
 
@@ -118,11 +120,17 @@ _Py_EnsureFuncTstateNotNULL(const char *func, PyThreadState *tstate)
    See also _PyInterpreterState_Get()
    and _PyGILState_GetInterpreterStateUnsafe(). */
 static inline PyInterpreterState* _PyInterpreterState_GET(void) {
-    PyThreadState *tstate = _PyThreadState_GET();
-#ifdef Py_DEBUG
-    _Py_EnsureTstateNotNULL(tstate);
+#if defined(HAVE_THREAD_LOCAL) && !defined(Py_BUILD_CORE_MODULE)
+    PyInterpreterState *interp = _Py_tss_interp;
+#else
+    PyInterpreterState *interp = _PyInterpreterState_GetCurrent();
 #endif
-    return tstate->interp;
+#ifdef Py_DEBUG
+    if (interp == NULL) {
+        _Py_EnsureTstateNotNULL(NULL);
+    }
+#endif
+    return interp;
 }
 
 
