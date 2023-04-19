@@ -504,10 +504,10 @@ static PyObject *
 interp_create(PyObject *self, PyObject *args, PyObject *kwds)
 {
 
-    static char *kwlist[] = {"isolated", NULL};
-    int isolated = 1;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$i:create", kwlist,
-                                     &isolated)) {
+    static char *kwlist[] = {"isolated", "nosite", NULL};
+    int isolated = 1, nosite=1;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$ii:create", kwlist,
+                                     &isolated, &nosite)) {
         return NULL;
     }
 
@@ -515,8 +515,8 @@ interp_create(PyObject *self, PyObject *args, PyObject *kwds)
     PyThreadState *save_tstate = _PyThreadState_GET();
     assert(save_tstate != NULL);
     const _PyInterpreterConfig config = isolated
-        ? (_PyInterpreterConfig)_PyInterpreterConfig_INIT
-        : (_PyInterpreterConfig)_PyInterpreterConfig_LEGACY_INIT;
+        ? (_PyInterpreterConfig)_PyInterpreterConfig_INIT(nosite)
+        : (_PyInterpreterConfig)_PyInterpreterConfig_LEGACY_INIT(nosite);
     // XXX Possible GILState issues?
     PyThreadState *tstate = NULL;
     PyStatus status = _Py_NewInterpreterFromConfig(&tstate, &config);

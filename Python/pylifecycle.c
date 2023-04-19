@@ -634,7 +634,7 @@ pycore_create_interpreter(_PyRuntimeState *runtime,
         return status;
     }
 
-    _PyInterpreterConfig config = _PyInterpreterConfig_LEGACY_INIT;
+    _PyInterpreterConfig config = _PyInterpreterConfig_LEGACY_INIT(0);
     // The main interpreter always has its own GIL.
     config.own_gil = 1;
     status = init_interp_settings(interp, &config);
@@ -2078,6 +2078,7 @@ new_interpreter(PyThreadState **tstate_p, const _PyInterpreterConfig *config)
         goto error;
     }
 
+    interp->config.site_import = !config->no_site;
     status = init_interp_main(tstate);
     if (_PyStatus_EXCEPTION(status)) {
         goto error;
@@ -2115,7 +2116,7 @@ PyThreadState *
 Py_NewInterpreter(void)
 {
     PyThreadState *tstate = NULL;
-    const _PyInterpreterConfig config = _PyInterpreterConfig_LEGACY_INIT;
+    const _PyInterpreterConfig config = _PyInterpreterConfig_LEGACY_INIT(0);
     PyStatus status = _Py_NewInterpreterFromConfig(&tstate, &config);
     if (_PyStatus_EXCEPTION(status)) {
         Py_ExitStatusException(status);
