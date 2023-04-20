@@ -503,20 +503,23 @@ _run_script_in_interpreter(PyObject *mod, PyInterpreterState *interp,
 static PyObject *
 interp_create(PyObject *self, PyObject *args, PyObject *kwds)
 {
-
-    static char *kwlist[] = {"isolated", "nosite", NULL};
-    int isolated = 1, nosite=1;
+    static char *kwlist[] = {"isolated", "site", NULL};
+    int isolated = 1, site=1;
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$ii:create", kwlist,
-                                     &isolated, &nosite)) {
+                                     &isolated, &site)) {
         return NULL;
     }
-
+    if (!isolated && !site){
+        // no site requires isolated
+        PyErr_SetString(PyExc_ValueError, "isolated must be True when combined with site=False");
+        return NULL;
+    }
     // Create and initialize the new interpreter.
     PyThreadState *save_tstate = _PyThreadState_GET();
     assert(save_tstate != NULL);
     const _PyInterpreterConfig config = isolated
-        ? (_PyInterpreterConfig)_PyInterpreterConfig_INIT(nosite)
-        : (_PyInterpreterConfig)_PyInterpreterConfig_LEGACY_INIT(nosite);
+        ? (_PyInterpreterConfig)_PyInterpreterConfig_INIT(site)
+        : (_PyInterpreterConfig)_PyInterpreterConfig_LEGACY_INIT;
     // XXX Possible GILState issues?
     PyThreadState *tstate = NULL;
     PyStatus status = _Py_NewInterpreterFromConfig(&tstate, &config);
