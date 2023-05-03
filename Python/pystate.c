@@ -2091,12 +2091,36 @@ _none_shared(PyObject *obj, _PyCrossInterpreterData *data)
     return 0;
 }
 
+static PyObject *
+_new_bool_object(_PyCrossInterpreterData *data)
+{
+    if ((unsigned char)data->data == 1){
+        Py_RETURN_TRUE;
+    }
+    Py_RETURN_FALSE;
+}
+
+static int
+_bool_shared(PyObject *obj, _PyCrossInterpreterData *data)
+{
+    data->data = (void *) (Py_IsTrue ? 1 : 0);
+    data->obj = NULL;
+    data->new_object = _new_bool_object;
+    data->free = NULL;  // There is nothing to free.
+    return 0;
+}
+
 static void
 _register_builtins_for_crossinterpreter_data(struct _xidregistry *xidregistry)
 {
     // None
     if (_register_xidata(xidregistry, (PyTypeObject *)PyObject_Type(Py_None), _none_shared) != 0) {
         Py_FatalError("could not register None for cross-interpreter sharing");
+    }
+
+    // Bool
+    if (_register_xidata(xidregistry, &PyBool_Type, _bool_shared) != 0) {
+        Py_FatalError("could not register bool for cross-interpreter sharing");
     }
 
     // int

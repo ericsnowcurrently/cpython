@@ -313,6 +313,8 @@ class IsShareableTests(unittest.TestCase):
                 'spam',
                 10,
                 -10,
+                True,
+                False,
                 ]
         for obj in shareables:
             with self.subTest(obj):
@@ -331,8 +333,6 @@ class IsShareableTests(unittest.TestCase):
 
         not_shareables = [
                 # singletons
-                True,
-                False,
                 NotImplemented,
                 ...,
                 # builtin types and objects
@@ -399,6 +399,9 @@ class ShareableTypeTests(unittest.TestCase):
     def test_int(self):
         self._assert_values(itertools.chain(range(-1, 258),
                                             [sys.maxsize, -sys.maxsize - 1]))
+
+    def test_bool(self):
+        self._assert_values(True, False)
 
     def test_non_shareable_int(self):
         ints = [
