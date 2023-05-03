@@ -2074,6 +2074,25 @@ _long_shared(PyObject *obj, _PyCrossInterpreterData *data)
 }
 
 static PyObject *
+_new_float_object(_PyCrossInterpreterData *data)
+{
+    double * value_ptr = data->data;
+    return PyFloat_FromDouble(*value_ptr);
+}
+
+static int
+_float_shared(PyObject *obj, _PyCrossInterpreterData *data)
+{
+    double *shared = PyMem_NEW(double, 1);
+    data->data = (void *)shared;
+    Py_INCREF(obj);
+    data->obj = obj;  // Will be "released" (decref'ed) when data released.
+    data->new_object = _new_float_object;
+    data->free = PyMem_Free;
+    return 0;
+}
+
+static PyObject *
 _new_none_object(_PyCrossInterpreterData *data)
 {
     // XXX Singleton refcounts are problematic across interpreters...
@@ -2126,6 +2145,11 @@ _register_builtins_for_crossinterpreter_data(struct _xidregistry *xidregistry)
     // int
     if (_register_xidata(xidregistry, &PyLong_Type, _long_shared) != 0) {
         Py_FatalError("could not register int for cross-interpreter sharing");
+    }
+
+    // float
+    if (_register_xidata(xidregistry, &PyFloat_Type, _float_shared) != 0) {
+        Py_FatalError("could not register float for cross-interpreter sharing");
     }
 
     // bytes
