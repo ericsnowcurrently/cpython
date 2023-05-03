@@ -2094,7 +2094,7 @@ _none_shared(PyObject *obj, _PyCrossInterpreterData *data)
 static PyObject *
 _new_bool_object(_PyCrossInterpreterData *data)
 {
-    if ((unsigned char)data->data == 1){
+    if (data->data){
         Py_RETURN_TRUE;
     }
     Py_RETURN_FALSE;
@@ -2103,7 +2103,7 @@ _new_bool_object(_PyCrossInterpreterData *data)
 static int
 _bool_shared(PyObject *obj, _PyCrossInterpreterData *data)
 {
-    data->data = (void *) (Py_IsTrue ? 1 : 0);
+    data->data = (void *) (Py_IsTrue ? 1ll : 0ll);
     data->obj = NULL;
     data->new_object = _new_bool_object;
     data->free = NULL;  // There is nothing to free.
