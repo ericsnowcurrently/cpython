@@ -579,6 +579,10 @@ init_interp_settings(PyInterpreterState *interp, const _PyInterpreterConfig *con
         interp->feature_flags |= Py_RTFLAGS_MULTI_INTERP_EXTENSIONS;
     }
 
+    if (!config->site_import) {
+        interp->config.site_import = 0;
+    }
+
     return _PyStatus_OK();
 }
 
