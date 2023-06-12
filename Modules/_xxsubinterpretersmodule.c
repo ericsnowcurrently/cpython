@@ -359,32 +359,160 @@ exceptions_init(PyObject *mod)
     return 0;
 }
 
-static int
-_is_running(PyInterpreterState *interp)
+struct running_main_entry {
+    PyThreadState *tstate;
+    struct _running_main_entry *next;
+};
+
+struct running_main {
+    struct running_main_entry *head;
+    PyThread_type_lock mutex;
+};
+
+//#ifndef HAVE_THREAD_LOCAL
+//# error "must support thread-local variables"
+//#endif
+//
+//struct tstates_entry {
+//    PyThreadState *tstate;
+//    struct tstates_entry *next;
+//};
+//_Py_thread_local struct tstates_entry *current_tstates = NULL;
+//
+//static PyThreadState *
+//get_current_tstate(PyInterpreterState *interp)
+//{
+//    struct tstates_entry *current = current_tstates;
+//    while (current != NULL) {
+//        if (current->tstate->interp == interp) {
+//            return current->tstate;
+//        }
+//        current = current->next;
+//    }
+//    return NULL;
+//}
+//
+//static int
+//add_current_tstate(PyThreadState *tstate)
+//{
+//    if (get_current_tstate(tstate->interp) != NULL) {
+//        PyErr_SetString(PyExc_RuntimeError,
+//                        "interp already has a tstate bound for this thread");
+//        return -1;
+//    }
+//    struct tststates_entry *entry = PyMem_RawMalloc(sizeof(struct tstates_entry));
+//    if (entry == NULL) {
+//        PyErr_NoMemory();
+//        return -1;
+//    }
+//    entry->tstate = tstate;
+//    entry->next = current_tstates;
+//    current_tstates = entry;
+//    return 0;
+//}
+//
+//static PyThreadState *
+//remove_current_tstate(PyInterpreterState *interp)
+//{
+//    struct tstates_entry *prev = NULL;
+//    struct tstates_entry *current = current_tstates;
+//    while (current != NULL) {
+//        if (current->tstate->interp == interp) {
+//            if (prev == NULL) {
+//                current_tstates = current->next;
+//            }
+//            else {
+//                prev->next = current->next;
+//            }
+//            return current->tstate;
+//        }
+//        prev = current;
+//        current = current->next;
+//    }
+//    return NULL;
+//}
+
+static PyThreadState *
+get_running_main(struct running_main *running, PyInterpreterState *interp)
 {
-    PyThreadState *tstate = PyInterpreterState_ThreadHead(interp);
-    if (PyThreadState_Next(tstate) != NULL) {
-        PyErr_SetString(PyExc_RuntimeError,
-                        "interpreter has more than one thread");
-        return -1;
+    PyThread_acquire_lock(running->mutex, WAIT_LOCK);
+
+    struct running_main_entry *entry = running->head;
+    while (entry != NULL) {
+        if (entry->tstate->interp == interp) {
+            break;
+        }
+        entry = entry->next;
     }
 
-    assert(!PyErr_Occurred());
-    struct _PyInterpreterFrame *frame = tstate->cframe->current_frame;
-    if (frame == NULL) {
-        return 0;
-    }
-    return 1;
+    PyThread_release_lock(running->mutex);
+    return entry;
 }
 
 static int
-_ensure_not_running(PyInterpreterState *interp)
+set_running_main(struct running_main *running, PyThreadState *tstate)
 {
-    int is_running = _is_running(interp);
-    if (is_running < 0) {
+    if (get_running_main(tstate->interp) != NULL) {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "interp already has a thread running __main__");
         return -1;
     }
-    if (is_running) {
+    struct running_main_entry *entry = PyMem_RawMalloc(
+                                        sizeof(struct running_main_entry));
+    if (entry == NULL) {
+        PyErr_NoMemory();
+        return -1;
+    }
+    PyThread_acquire_lock(running->mutex, WAIT_LOCK);
+    entry->tstate = tstate;
+    entry->next = running->head;
+    running->head = entry;
+    PyThread_release_lock(running->mutex);
+    return 0;
+}
+
+static PyThreadState *
+unset_running_main(struct running_main *running, PyInterpreterState *interp)
+{
+    PyThreadState *tstate = NULL;
+    PyThread_acquire_lock(running->mutex, WAIT_LOCK);
+    struct running_main_entry *prev = NULL;
+    struct running_main_entry *entry = running->head;
+    while (entry != NULL) {
+        if (entry->tstate->interp == interp) {
+            tstate = entry->tstate;
+            if (prev == NULL) {
+                running->head = entry->next;
+            }
+            else {
+                prev->next = entry->next;
+            }
+            break;
+        }
+        prev = entry;
+        entry = entry->next;
+    }
+    PyThread_release_lock(running->mutex);
+    return tstate;
+}
+
+static void
+clear_running_main(struct running_main *running)
+{
+    PyThread_acquire_lock(running->mutex, WAIT_LOCK);
+    while (running->head != NULL) {
+        struct running_main_entry *entry = running->head;
+        running->head = entry->next;
+        PyMem_RawFree(entry);
+    }
+    PyThread_release_lock(running->mutex);
+}
+
+
+static int
+_ensure_not_running(struct running_main *running, PyInterpreterState *interp)
+{
+    if (get_running_main(running, interp) != NULL) {
         PyErr_Format(PyExc_RuntimeError, "interpreter already running");
         return -1;
     }
@@ -443,13 +571,18 @@ error:
 }
 
 static int
-_run_script_in_interpreter(PyObject *mod, PyInterpreterState *interp,
+_run_script_in_interpreter(PyObject *mod, struct running_main *running,
+                           PyInterpreterState *interp,
                            const char *codestr, PyObject *shareables)
-{
-    if (_ensure_not_running(interp) < 0) {
+    module_state *state = get_module_state(mod);
+
+    if (_ensure_not_running(running, interp) < 0) {
         return -1;
     }
-    module_state *state = get_module_state(mod);
+
+    if (running_main_set(running, tstate) < 0) {
+        return -1;
+    }
 
     _sharedns *shared = _get_shared_ns(shareables);
     if (shared == NULL && PyErr_Occurred()) {
@@ -459,6 +592,7 @@ _run_script_in_interpreter(PyObject *mod, PyInterpreterState *interp,
     // Switch to interpreter.
     PyThreadState *save_tstate = NULL;
     if (interp != PyInterpreterState_Get()) {
+        // XXX We mustn't run in the current interpreter?
         // XXX Using the "head" thread isn't strictly correct.
         PyThreadState *tstate = PyInterpreterState_ThreadHead(interp);
         // XXX Possible GILState issues?
@@ -473,6 +607,13 @@ _run_script_in_interpreter(PyObject *mod, PyInterpreterState *interp,
     if (save_tstate != NULL) {
         PyThreadState_Swap(save_tstate);
     }
+
+#ifdef NDEBUG
+    unset_running_main(running, interp);
+#else
+    PyThreadState *matched = unset_running_main(running, interp);
+    assert(matched == tstate);
+#endif
 
     // Propagate any exception out to the caller.
     if (exc.name != NULL) {
@@ -493,6 +634,54 @@ _run_script_in_interpreter(PyObject *mod, PyInterpreterState *interp,
 
 
 /* module level code ********************************************************/
+
+/* globals is the process-global state for the module.  It holds all
+   the data that we need to share between interpreters, so it cannot
+   hold PyObject values. */
+static struct globals {
+    int module_count;
+    struct running_main *running;
+} _globals = {0};
+
+static int
+_globals_init(void)
+{
+    // XXX This isn't thread-safe.
+    _globals.module_count++;
+    if (_globals.module_count > 1) {
+        // Already initialized.
+        return 0;
+    }
+
+    assert(_globals.running.mutex == NULL);
+    PyThread_type_lock mutex = PyThread_allocate_lock();
+    if (mutex == NULL) {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "can't initialize mutex for module");
+        return -1;
+    }
+    _globals.running.mutex = mutex;
+
+    return 0;
+}
+
+static void
+_globals_fini(void)
+{
+    // XXX This isn't thread-safe.
+    _globals.module_count--;
+    if (_globals.module_count > 0) {
+        return;
+    }
+
+    if (_globals.running.mutex != NULL) {
+        clear_running_main(&globals.running);
+
+        _PyThread_free_lock(globals.running.mutex);
+        globals.running.mutex = NULL;
+    }
+}
+
 
 static PyObject *
 interp_create(PyObject *self, PyObject *args, PyObject *kwds)
@@ -576,7 +765,13 @@ interp_destroy(PyObject *self, PyObject *args, PyObject *kwds)
     // Ensure the interpreter isn't running.
     /* XXX We *could* support destroying a running interpreter but
        aren't going to worry about it for now. */
-    if (_ensure_not_running(interp) < 0) {
+    PyThreadState *tstate = PyInterpreterState_ThreadHead(interp);
+    if (PyThreadState_Next(tstate) != NULL) {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "interpreter has more than one thread");
+        return NULL;
+    }
+    if (_ensure_not_running(&_globals.running, interp) < 0) {
         return NULL;
     }
 
@@ -698,7 +893,9 @@ interp_run_string(PyObject *self, PyObject *args, PyObject *kwds)
     }
 
     // Run the code in the interpreter.
-    if (_run_script_in_interpreter(self, interp, codestr, shared) != 0) {
+    if (_run_script_in_interpreter(self, &_globals.running,
+                                   interp, codestr, shared) != 0)
+    {
         return NULL;
     }
     Py_RETURN_NONE;
@@ -750,11 +947,7 @@ interp_is_running(PyObject *self, PyObject *args, PyObject *kwds)
     if (interp == NULL) {
         return NULL;
     }
-    int is_running = _is_running(interp);
-    if (is_running < 0) {
-        return NULL;
-    }
-    if (is_running) {
+    if (get_running_main(&_globals.running, interp) != NULL) {
         Py_RETURN_TRUE;
     }
     Py_RETURN_FALSE;
@@ -798,6 +991,10 @@ The 'interpreters' module provides a more convenient interface.");
 static int
 module_exec(PyObject *mod)
 {
+    if (_globals_init() != 0) {
+        return -1;
+    }
+
     /* Add exception types */
     if (exceptions_init(mod) != 0) {
         goto error;
@@ -811,6 +1008,7 @@ module_exec(PyObject *mod)
     return 0;
 
 error:
+    _globals_fini();
     return -1;
 }
 
@@ -844,6 +1042,7 @@ module_free(void *mod)
     module_state *state = get_module_state(mod);
     assert(state != NULL);
     clear_module_state(state);
+    _globals_fini();
 }
 
 static struct PyModuleDef moduledef = {
