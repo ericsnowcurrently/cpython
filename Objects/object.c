@@ -2244,6 +2244,7 @@ _Py_NewReferenceNoTotal(PyObject *op)
 void
 _Py_ForgetReference(PyObject *op)
 {
+    assert(!_Py_IsImmortal(op));
     if (Py_REFCNT(op) < 0) {
         _PyObject_ASSERT_FAILED_MSG(op, "negative refcnt");
     }
