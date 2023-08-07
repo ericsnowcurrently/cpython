@@ -199,24 +199,14 @@ init_refchain(PyInterpreterState *interp)
  * statically allocated singletons (like Py_True and Py_None).
  */
 void
-_Py_AddToAllObjects(PyObject *op, int force)
+_Py_AddToAllObjects(PyObject *op)
 {
     assert(!_Py_IsImmortal(op));
-#ifdef  Py_DEBUG
-    if (!force) {
-        /* If it's initialized memory, op must be in or out of
-         * the list unambiguously.
-         */
-        _PyObject_ASSERT(op, (op->_ob_prev == NULL) == (op->_ob_next == NULL));
-    }
-#endif
-    if (force || op->_ob_prev == NULL) {
-        PyObject *refchain = REFCHAIN(_PyInterpreterState_GET());
-        op->_ob_next = refchain->_ob_next;
-        op->_ob_prev = refchain;
-        refchain->_ob_next->_ob_prev = op;
-        refchain->_ob_next = op;
-    }
+    PyObject *refchain = REFCHAIN(_PyInterpreterState_GET());
+    op->_ob_next = refchain->_ob_next;
+    op->_ob_prev = refchain;
+    refchain->_ob_next->_ob_prev = op;
+    refchain->_ob_next = op;
 }
 #endif  /* Py_TRACE_REFS */
 
@@ -2235,7 +2225,7 @@ new_reference(PyObject *op)
     // Skip the immortal object check in Py_SET_REFCNT; always set refcnt to 1
     op->ob_refcnt = 1;
 #ifdef Py_TRACE_REFS
-    _Py_AddToAllObjects(op, 1);
+    _Py_AddToAllObjects(op);
 #endif
 }
 

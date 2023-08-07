@@ -7487,7 +7487,7 @@ type_ready(PyTypeObject *type, int rerunbuiltin)
      * Still, not all type objects go through PyType_Ready.
      */
     if (_PyType_HasFeature(type, Py_TPFLAGS_HEAPTYPE)) {
-        _Py_AddToAllObjects((PyObject *)type, 1);
+        _Py_AddToAllObjects((PyObject *)type);
     }
 #endif
 
