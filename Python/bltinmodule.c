@@ -3097,7 +3097,7 @@ _PyBuiltin_Init(PyInterpreterState *interp)
 #define SETBUILTIN(NAME, OBJECT) \
     if (PyDict_SetItemString(dict, NAME, (PyObject *)OBJECT) < 0)       \
         return NULL;                                                    \
-    assert(_Py_IsImmortal((PyObject *)OBJECT));
+    assert(_Py_IsImmortal(OBJECT));
 
     SETBUILTIN("None",                  Py_None);
     SETBUILTIN("Ellipsis",              Py_Ellipsis);

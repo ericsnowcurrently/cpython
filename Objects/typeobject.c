@@ -7486,7 +7486,7 @@ type_ready(PyTypeObject *type, int rerunbuiltin)
      * to get type objects into the doubly-linked list of all objects.
      * Still, not all type objects go through PyType_Ready.
      */
-    if (!_Py_IsImmortal((PyObject *)type)) {
+    if (!_Py_IsImmortal(type)) {
         _Py_AddToAllObjects((PyObject *)type, 0);
     }
 #endif
