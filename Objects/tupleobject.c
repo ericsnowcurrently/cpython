@@ -1154,6 +1154,8 @@ maybe_freelist_pop(Py_ssize_t size)
             // XXX Can we drop these?  See commit 68055ce6fe01 (GvR, Dec 1998).
             Py_SET_SIZE(op, size);
             Py_SET_TYPE(op, &PyTuple_Type);
+            assert(((PyObject *)op)->_ob_prev == NULL);
+            assert(((PyObject *)op)->_ob_next == NULL);
 #endif
             _Py_NewReference((PyObject *)op);
             /* END inlined _PyObject_InitVar() */
