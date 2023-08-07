@@ -9,7 +9,7 @@
 #include "pycore_dict.h"          // _PyDict_GetItemWithError()
 #include "pycore_long.h"          // _PyLong_CompactValue
 #include "pycore_modsupport.h"    // _PyArg_NoKwnames()
-#include "pycore_object.h"        // _Py_AddToAllObjects()
+#include "pycore_object.h"        // _PyObject_LookupSpecial()
 #include "pycore_pyerrors.h"      // _PyErr_NoMemory()
 #include "pycore_pystate.h"       // _PyThreadState_GET()
 #include "pycore_tuple.h"         // _PyTuple_FromArray()
@@ -3094,22 +3094,10 @@ _PyBuiltin_Init(PyInterpreterState *interp)
         return NULL;
     dict = PyModule_GetDict(mod);
 
-#ifdef Py_TRACE_REFS
-    /* "builtins" exposes a number of statically allocated objects
-     * that, before this code was added in 2.3, never showed up in
-     * the list of "all objects" maintained by Py_TRACE_REFS.  As a
-     * result, programs leaking references to None and False (etc)
-     * couldn't be diagnosed by examining sys.getobjects(0).
-     */
-#define ADD_TO_ALL(OBJECT) _Py_AddToAllObjects((PyObject *)(OBJECT), 0)
-#else
-#define ADD_TO_ALL(OBJECT) (void)0
-#endif
-
 #define SETBUILTIN(NAME, OBJECT) \
     if (PyDict_SetItemString(dict, NAME, (PyObject *)OBJECT) < 0)       \
         return NULL;                                                    \
-    ADD_TO_ALL(OBJECT)
+    assert(_Py_IsImmortal((PyObject *)OBJECT));
 
     SETBUILTIN("None",                  Py_None);
     SETBUILTIN("Ellipsis",              Py_Ellipsis);
