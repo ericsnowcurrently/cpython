@@ -184,6 +184,7 @@ init_refchain(PyInterpreterState *interp)
 void
 _Py_AddToAllObjects(PyObject *op, int force)
 {
+    assert(!_Py_IsImmortal(op));
 #ifdef  Py_DEBUG
     if (!force) {
         /* If it's initialized memory, op must be in or out of
