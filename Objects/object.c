@@ -160,14 +160,31 @@ _PyDebug_PrintTotalRefs(void) {
 
 #ifdef Py_TRACE_REFS
 
-#define REFCHAIN(interp) &interp->object_state.refchain
+#define REFCHAIN(interp) interp->object_state.refchain
 
 static inline void
 init_refchain(PyInterpreterState *interp)
 {
-    PyObject *refchain = REFCHAIN(interp);
-    refchain->_ob_prev = refchain;
-    refchain->_ob_next = refchain;
+    if (_Py_IsMainInterpreter(interp)) {
+        /* It was initialized statically for the main interpreter. */
+        return;
+    }
+
+    /* We initialize the interpreter's own refchain data,
+       regardless of whether or not we actually use it. */
+    PyObject *own_refchain = &interp->object_state._refchain;
+    own_refchain->_ob_prev = own_refchain;
+    own_refchain->_ob_next = own_refchain;
+
+    /* Now we set the refchain that actually gets used. */
+    if (interp->feature_flags & Py_RTFLAGS_USE_MAIN_OBMALLOC) {
+        /* If it's using the main interpreter's obmalloc state
+           then it's using the main interpreter's refchain. */
+        REFCHAIN(interp) = REFCHAIN(_PyInterpreterState_Main());
+    }
+    else {
+        REFCHAIN(interp) = &interp->object_state._refchain;
+    }
 }
 
 /* Insert op at the front of the list of all objects.  If force is true,
@@ -2033,9 +2050,7 @@ void
 _PyObject_InitState(PyInterpreterState *interp)
 {
 #ifdef Py_TRACE_REFS
-    if (!_Py_IsMainInterpreter(interp)) {
-        init_refchain(interp);
-    }
+    init_refchain(interp);
 #endif
 }
 

@@ -22,9 +22,12 @@ struct _py_object_state {
 #ifdef Py_TRACE_REFS
     /* Head of circular doubly-linked list of all objects.  These are linked
      * together via the _ob_prev and _ob_next members of a PyObject, which
-     * exist only in a Py_TRACE_REFS build.
+     * exist only in a Py_TRACE_REFS build.  This is shared with
+     * the main interpreter if this interpreter does not have
+     * its own object allocator.
      */
-    PyObject refchain;
+    PyObject *refchain;
+    PyObject _refchain;
 #endif
     int _not_used;
 };
