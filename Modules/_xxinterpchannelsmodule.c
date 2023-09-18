@@ -235,9 +235,8 @@ add_new_type(PyObject *mod, PyType_Spec *spec, crossinterpdatafunc shared,
 }
 
 static int
-wait_for_lock(PyThread_type_lock mutex)
+wait_for_lock(PyThread_type_lock mutex, PY_TIMEOUT_T timeout)
 {
-    PY_TIMEOUT_T timeout = -1;
     PyLockStatus res = PyThread_acquire_lock_timed_with_retries(mutex, timeout);
     if (res == PY_LOCK_INTR) {
         /* KeyboardInterrupt, etc. */
@@ -2552,7 +2551,8 @@ channel_send(PyObject *self, PyObject *args, PyObject *kwds)
         }
 
         /* Wait until the object is received. */
-        if (wait_for_lock(mutex) < 0) {
+        PY_TIMEOUT_T timeout = -1;
+        if (wait_for_lock(mutex, timeout) < 0) {
             return NULL;
         }
     }
@@ -2614,7 +2614,8 @@ channel_send_buffer(PyObject *self, PyObject *args, PyObject *kwds)
         }
 
         /* Wait until the buffer is received. */
-        if (wait_for_lock(mutex) < 0) {
+        PY_TIMEOUT_T timeout = -1;
+        if (wait_for_lock(mutex, timeout) < 0) {
             return NULL;
         }
     }
