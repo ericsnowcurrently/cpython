@@ -234,15 +234,25 @@ add_new_type(PyObject *mod, PyType_Spec *spec, crossinterpdatafunc shared,
     return cls;
 }
 
-static void
+static int
 wait_for_lock(PyThread_type_lock mutex)
 {
-    Py_BEGIN_ALLOW_THREADS
-    // XXX Handle eintr, etc.
-    PyThread_acquire_lock(mutex, WAIT_LOCK);
-    Py_END_ALLOW_THREADS
-
+    PY_TIMEOUT_T timeout = -1;
+    PyLockStatus res = PyThread_acquire_lock_timed_with_retries(mutex, timeout);
+    if (res == PY_LOCK_INTR) {
+        /* KeyboardInterrupt, etc. */
+        assert(PyErr_Occurred());
+        return -1;
+    }
+    else if (res == PY_LOCK_FAILURE) {
+        assert(!PyErr_Occurred());
+        assert(timeout > 0);
+        PyErr_SetString(PyExc_TimeoutError, "timed out");
+        return -1;
+    }
+    assert(res == PY_LOCK_ACQUIRED);
     PyThread_release_lock(mutex);
+    return 0;
 }
 
 
@@ -2542,7 +2552,9 @@ channel_send(PyObject *self, PyObject *args, PyObject *kwds)
         }
 
         /* Wait until the object is received. */
-        wait_for_lock(mutex);
+        if (wait_for_lock(mutex) < 0) {
+            return NULL;
+        }
     }
     else {
         /* Queue up the object. */
@@ -2602,7 +2614,9 @@ channel_send_buffer(PyObject *self, PyObject *args, PyObject *kwds)
         }
 
         /* Wait until the buffer is received. */
-        wait_for_lock(mutex);
+        if (wait_for_lock(mutex) < 0) {
+            return NULL;
+        }
     }
     else {
         /* Queue up the buffer. */
