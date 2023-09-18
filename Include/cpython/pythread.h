@@ -29,6 +29,11 @@ PyAPI_DATA(const long long) PY_TIMEOUT_MAX;
 #endif
 
 
+PyAPI_FUNC(int) PyThread_ParseTimeoutArg(
+    PyObject *arg,
+    int blocking,
+    PY_TIMEOUT_T *timeout);
+
 /* Helper to acquire an interruptible lock with a timeout.  If the lock acquire
  * is interrupted, signal handlers are run, and if they raise an exception,
  * PY_LOCK_INTR is returned.  Otherwise, PY_LOCK_ACQUIRED or PY_LOCK_FAILURE
