@@ -2521,27 +2521,32 @@ static PyObject *
 channel_send(PyObject *self, PyObject *args, PyObject *kwds)
 {
     // XXX Add a timeout arg.
-    static char *kwlist[] = {"cid", "obj", "wait", NULL};
-    int64_t cid;
+    static char *kwlist[] = {"cid", "obj", "blocking", "timeout", NULL};
     struct channel_id_converter_data cid_data = {
         .module = self,
     };
     PyObject *obj;
-    int wait = 1;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&O|$p:channel_send", kwlist,
+    int blocking = 1;
+    PyObject *timeout_obj = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&O|$pL:channel_send", kwlist,
                                      channel_id_converter, &cid_data, &obj,
-                                     &wait)) {
+                                     &blocking, &timeout_obj)) {
         return NULL;
     }
-    cid = cid_data.cid;
 
-    if (wait) {
+    int64_t cid = cid_data.cid;
+    PY_TIMEOUT_T timeout;
+    if (PyThread_ParseTimeoutArg(timeout_obj, blocking, &timeout) < 0) {
+        return NULL;
+    }
+
+    if (blocking) {
         PyThread_type_lock mutex = PyThread_allocate_lock();
         if (mutex == NULL) {
             PyErr_NoMemory();
             return NULL;
         }
-        PyThread_acquire_lock(mutex, WAIT_LOCK);
+        PyThread_acquire_lock(mutex, NOWAIT_LOCK);
 
         /* Queue up the object. */
         int err = _channel_send(&_globals.channels, cid, obj, mutex);
@@ -2551,7 +2556,6 @@ channel_send(PyObject *self, PyObject *args, PyObject *kwds)
         }
 
         /* Wait until the object is received. */
-        PY_TIMEOUT_T timeout = -1;
         if (wait_for_lock(mutex, timeout) < 0) {
             return NULL;
         }
@@ -2568,7 +2572,7 @@ channel_send(PyObject *self, PyObject *args, PyObject *kwds)
 }
 
 PyDoc_STRVAR(channel_send_doc,
-"channel_send(cid, obj, wait=True)\n\
+"channel_send(cid, obj, blocking=True)\n\
 \n\
 Add the object's data to the channel's queue.\n\
 By default this waits for the object to be received.");
@@ -2576,27 +2580,32 @@ By default this waits for the object to be received.");
 static PyObject *
 channel_send_buffer(PyObject *self, PyObject *args, PyObject *kwds)
 {
-    static char *kwlist[] = {"cid", "obj", "wait", NULL};
-    int64_t cid;
+    static char *kwlist[] = {"cid", "obj", "blocking", "timeout", NULL};
     struct channel_id_converter_data cid_data = {
         .module = self,
     };
     PyObject *obj;
-    int wait = 1;
+    int blocking = 1;
+    PyObject *timeout_obj = NULL;
     if (!PyArg_ParseTupleAndKeywords(args, kwds,
-                                     "O&O|$p:channel_send_buffer", kwlist,
+                                     "O&O|$pO:channel_send_buffer", kwlist,
                                      channel_id_converter, &cid_data, &obj,
-                                     &wait)) {
+                                     &blocking, &timeout_obj)) {
         return NULL;
     }
-    cid = cid_data.cid;
+
+    int64_t cid = cid_data.cid;
+    PY_TIMEOUT_T timeout;
+    if (PyThread_ParseTimeoutArg(timeout_obj, blocking, &timeout) < 0) {
+        return NULL;
+    }
 
     PyObject *tempobj = PyMemoryView_FromObject(obj);
     if (tempobj == NULL) {
         return NULL;
     }
 
-    if (wait) {
+    if (blocking) {
         PyThread_type_lock mutex = PyThread_allocate_lock();
         if (mutex == NULL) {
             Py_DECREF(tempobj);
@@ -2614,7 +2623,6 @@ channel_send_buffer(PyObject *self, PyObject *args, PyObject *kwds)
         }
 
         /* Wait until the buffer is received. */
-        PY_TIMEOUT_T timeout = -1;
         if (wait_for_lock(mutex, timeout) < 0) {
             return NULL;
         }
@@ -2632,7 +2640,7 @@ channel_send_buffer(PyObject *self, PyObject *args, PyObject *kwds)
 }
 
 PyDoc_STRVAR(channel_send_buffer_doc,
-"channel_send_buffer(cid, obj, wait=True)\n\
+"channel_send_buffer(cid, obj, blocking=True)\n\
 \n\
 Add the object's buffer to the channel's queue.\n\
 By default this waits for the object to be received.");
