@@ -28,6 +28,18 @@ PyAPI_DATA(const long long) PY_TIMEOUT_MAX;
 #   error "Require native threads. See https://bugs.python.org/issue31370"
 #endif
 
+
+/* Helper to acquire an interruptible lock with a timeout.  If the lock acquire
+ * is interrupted, signal handlers are run, and if they raise an exception,
+ * PY_LOCK_INTR is returned.  Otherwise, PY_LOCK_ACQUIRED or PY_LOCK_FAILURE
+ * are returned, depending on whether the lock can be acquired within the
+ * timeout.
+ */
+PyAPI_FUNC(PyLockStatus) PyThread_acquire_lock_timed_with_retries(
+    PyThread_type_lock,
+    PY_TIMEOUT_T microseconds);
+
+
 /* When Py_LIMITED_API is not defined, the type layout of Py_tss_t is
    exposed to allow static allocation in the API clients.  Even in this case,
    you must handle TSS keys through API functions due to compatibility.
