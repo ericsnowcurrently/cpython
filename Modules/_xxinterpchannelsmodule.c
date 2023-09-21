@@ -610,7 +610,7 @@ static void
 _channelitem_clear(_channelitem *item)
 {
     if (item->data != NULL) {
-        // It was allocated in _channel_send().
+        // It was allocated in channel_send().
         (void)_release_xid_data(item->data, XID_IGNORE_EXC & XID_FREE);
         item->data = NULL;
     }
@@ -1574,7 +1574,7 @@ _channel_finish_closing(struct _channel *chan) {
 /* "high"-level channel-related functions */
 
 static int64_t
-_channel_create(_channels *channels)
+channel_create(_channels *channels)
 {
     PyThread_type_lock mutex = PyThread_allocate_lock();
     if (mutex == NULL) {
@@ -1593,7 +1593,7 @@ _channel_create(_channels *channels)
 }
 
 static int
-_channel_destroy(_channels *channels, int64_t id)
+channel_destroy(_channels *channels, int64_t id)
 {
     _PyChannelState *chan = NULL;
     int err = _channels_remove(channels, id, &chan);
@@ -1607,7 +1607,7 @@ _channel_destroy(_channels *channels, int64_t id)
 }
 
 static int
-_channel_send(_channels *channels, int64_t id, PyObject *obj,
+channel_send(_channels *channels, int64_t id, PyObject *obj,
               PyThread_type_lock recv_mutex)
 {
     PyInterpreterState *interp = _get_current_interp();
@@ -1657,7 +1657,7 @@ _channel_send(_channels *channels, int64_t id, PyObject *obj,
 }
 
 static int
-_channel_recv(_channels *channels, int64_t id, PyObject **res)
+channel_recv(_channels *channels, int64_t id, PyObject **res)
 {
     int err;
     *res = NULL;
@@ -1697,11 +1697,11 @@ _channel_recv(_channels *channels, int64_t id, PyObject **res)
     PyObject *obj = _PyCrossInterpreterData_NewObject(data);
     if (obj == NULL) {
         assert(PyErr_Occurred());
-        // It was allocated in _channel_send(), so we free it.
+        // It was allocated in channel_send(), so we free it.
         (void)_release_xid_data(data, XID_IGNORE_EXC | XID_FREE);
         return -1;
     }
-    // It was allocated in _channel_send(), so we free it.
+    // It was allocated in channel_send(), so we free it.
     int release_res = _release_xid_data(data, XID_FREE);
     if (release_res < 0) {
         // The source interpreter has been destroyed already.
@@ -1715,7 +1715,7 @@ _channel_recv(_channels *channels, int64_t id, PyObject **res)
 }
 
 static int
-_channel_drop(_channels *channels, int64_t id, int send, int recv)
+channel_drop(_channels *channels, int64_t id, int send, int recv)
 {
     PyInterpreterState *interp = _get_current_interp();
     if (interp == NULL) {
@@ -1738,13 +1738,13 @@ _channel_drop(_channels *channels, int64_t id, int send, int recv)
 }
 
 static int
-_channel_close(_channels *channels, int64_t id, int end, int force)
+channel_close(_channels *channels, int64_t id, int end, int force)
 {
     return _channels_close(channels, id, NULL, end, force);
 }
 
 static int
-_channel_is_associated(_channels *channels, int64_t cid, int64_t interp,
+channel_is_associated(_channels *channels, int64_t cid, int64_t interp,
                        int send)
 {
     _PyChannelState *chan = NULL;
@@ -2356,7 +2356,7 @@ clear_interpreter(void *data)
 static PyObject *
 channelsmod_create(PyObject *self, PyObject *Py_UNUSED(ignored))
 {
-    int64_t cid = _channel_create(&_globals.channels);
+    int64_t cid = channel_create(&_globals.channels);
     if (cid < 0) {
         (void)handle_channel_error(-1, self, cid);
         return NULL;
@@ -2371,7 +2371,7 @@ channelsmod_create(PyObject *self, PyObject *Py_UNUSED(ignored))
                            (channelid **)&id);
     if (handle_channel_error(err, self, cid)) {
         assert(id == NULL);
-        err = _channel_destroy(&_globals.channels, cid);
+        err = channel_destroy(&_globals.channels, cid);
         if (handle_channel_error(err, self, cid)) {
             // XXX issue a warning?
         }
@@ -2401,7 +2401,7 @@ channelsmod_destroy(PyObject *self, PyObject *args, PyObject *kwds)
     }
     cid = cid_data.cid;
 
-    int err = _channel_destroy(&_globals.channels, cid);
+    int err = channel_destroy(&_globals.channels, cid);
     if (handle_channel_error(err, self, cid)) {
         return NULL;
     }
@@ -2489,7 +2489,7 @@ channelsmod_list_interpreters(PyObject *self, PyObject *args, PyObject *kwds)
     while (interp != NULL) {
         id = PyInterpreterState_GetID(interp);
         assert(id >= 0);
-        int res = _channel_is_associated(&_globals.channels, cid, id, send);
+        int res = channel_is_associated(&_globals.channels, cid, id, send);
         if (res < 0) {
             (void)handle_channel_error(res, self, cid);
             goto except;
@@ -2558,7 +2558,7 @@ channelsmod_send(PyObject *self, PyObject *args, PyObject *kwds)
         PyThread_acquire_lock(mutex, NOWAIT_LOCK);
 
         /* Queue up the object. */
-        int err = _channel_send(&_globals.channels, cid, obj, mutex);
+        int err = channel_send(&_globals.channels, cid, obj, mutex);
         if (handle_channel_error(err, self, cid)) {
             PyThread_release_lock(mutex);
             return NULL;
@@ -2571,7 +2571,7 @@ channelsmod_send(PyObject *self, PyObject *args, PyObject *kwds)
     }
     else {
         /* Queue up the object. */
-        int err = _channel_send(&_globals.channels, cid, obj, NULL);
+        int err = channel_send(&_globals.channels, cid, obj, NULL);
         if (handle_channel_error(err, self, cid)) {
             return NULL;
         }
@@ -2624,7 +2624,7 @@ channelsmod_send_buffer(PyObject *self, PyObject *args, PyObject *kwds)
         PyThread_acquire_lock(mutex, WAIT_LOCK);
 
         /* Queue up the buffer. */
-        int err = _channel_send(&_globals.channels, cid, tempobj, mutex);
+        int err = channel_send(&_globals.channels, cid, tempobj, mutex);
         Py_DECREF(tempobj);
         if (handle_channel_error(err, self, cid)) {
             PyThread_acquire_lock(mutex, WAIT_LOCK);
@@ -2638,7 +2638,7 @@ channelsmod_send_buffer(PyObject *self, PyObject *args, PyObject *kwds)
     }
     else {
         /* Queue up the buffer. */
-        int err = _channel_send(&_globals.channels, cid, tempobj, NULL);
+        int err = channel_send(&_globals.channels, cid, tempobj, NULL);
         Py_DECREF(tempobj);
         if (handle_channel_error(err, self, cid)) {
             return NULL;
@@ -2670,7 +2670,7 @@ channelsmod_recv(PyObject *self, PyObject *args, PyObject *kwds)
     cid = cid_data.cid;
 
     PyObject *obj = NULL;
-    int err = _channel_recv(&_globals.channels, cid, &obj);
+    int err = channel_recv(&_globals.channels, cid, &obj);
     if (handle_channel_error(err, self, cid)) {
         return NULL;
     }
@@ -2714,7 +2714,7 @@ channelsmod_close(PyObject *self, PyObject *args, PyObject *kwds)
     }
     cid = cid_data.cid;
 
-    int err = _channel_close(&_globals.channels, cid, send-recv, force);
+    int err = channel_close(&_globals.channels, cid, send-recv, force);
     if (handle_channel_error(err, self, cid)) {
         return NULL;
     }
@@ -2775,7 +2775,7 @@ channelsmod_release(PyObject *self, PyObject *args, PyObject *kwds)
     // XXX Handle force is True.
     // XXX Fix implicit release.
 
-    int err = _channel_drop(&_globals.channels, cid, send, recv);
+    int err = channel_drop(&_globals.channels, cid, send, recv);
     if (handle_channel_error(err, self, cid)) {
         return NULL;
     }
