@@ -21,7 +21,7 @@ _globals (static struct globals):
         next_id; (int64_t)
         mutex (PyThread_type_lock)
         head (linked list of struct _channelref *):
-            id (int64_t)
+            cid (int64_t)
             objcount (Py_ssize_t)
             next (struct _channelref *):
                 ...
@@ -1162,7 +1162,7 @@ done:
 struct _channelref;
 
 typedef struct _channelref {
-    int64_t id;
+    int64_t cid;
     _PyChannelState *chan;
     struct _channelref *next;
     // The number of ChannelID objects referring to this channel.
@@ -1170,13 +1170,13 @@ typedef struct _channelref {
 } _channelref;
 
 static _channelref *
-_channelref_new(int64_t id, _PyChannelState *chan)
+_channelref_new(int64_t cid, _PyChannelState *chan)
 {
     _channelref *ref = GLOBAL_MALLOC(_channelref);
     if (ref == NULL) {
         return NULL;
     }
-    ref->id = id;
+    ref->cid = cid;
     ref->chan = chan;
     ref->next = NULL;
     ref->objcount = 0;
@@ -1186,7 +1186,7 @@ _channelref_new(int64_t id, _PyChannelState *chan)
 //static void
 //_channelref_clear(_channelref *ref)
 //{
-//    ref->id = -1;
+//    ref->cid = -1;
 //    ref->chan = NULL;
 //    ref->next = NULL;
 //    ref->objcount = 0;
@@ -1203,12 +1203,12 @@ _channelref_free(_channelref *ref)
 }
 
 static _channelref *
-_channelref_find(_channelref *first, int64_t id, _channelref **pprev)
+_channelref_find(_channelref *first, int64_t cid, _channelref **pprev)
 {
     _channelref *prev = NULL;
     _channelref *ref = first;
     while (ref != NULL) {
-        if (ref->id == id) {
+        if (ref->cid == cid) {
             break;
         }
         prev = ref;
@@ -1250,17 +1250,17 @@ _channels_fini(_channels *channels)
 static int64_t
 _channels_next_id(_channels *channels)  // needs lock
 {
-    int64_t id = channels->next_id;
-    if (id < 0) {
+    int64_t cid = channels->next_id;
+    if (cid < 0) {
         /* overflow */
         return -1;
     }
     channels->next_id += 1;
-    return id;
+    return cid;
 }
 
 static int
-_channels_lookup(_channels *channels, int64_t id, PyThread_type_lock *pmutex,
+_channels_lookup(_channels *channels, int64_t cid, PyThread_type_lock *pmutex,
                  _PyChannelState **res)
 {
     int err = -1;
@@ -1270,7 +1270,7 @@ _channels_lookup(_channels *channels, int64_t id, PyThread_type_lock *pmutex,
         *pmutex = NULL;
     }
 
-    _channelref *ref = _channelref_find(channels->head, id, NULL);
+    _channelref *ref = _channelref_find(channels->head, cid, NULL);
     if (ref == NULL) {
         err = ERR_CHANNEL_NOT_FOUND;
         goto done;
@@ -1303,12 +1303,12 @@ _channels_add(_channels *channels, _PyChannelState *chan)
     PyThread_acquire_lock(channels->mutex, WAIT_LOCK);
 
     // Create a new ref.
-    int64_t id = _channels_next_id(channels);
-    if (id < 0) {
+    int64_t _cid = _channels_next_id(channels);
+    if (_cid < 0) {
         cid = ERR_NO_NEXT_CHANNEL_ID;
         goto done;
     }
-    _channelref *ref = _channelref_new(id, chan);
+    _channelref *ref = _channelref_new(_cid, chan);
     if (ref == NULL) {
         goto done;
     }
@@ -1319,7 +1319,7 @@ _channels_add(_channels *channels, _PyChannelState *chan)
     channels->head = ref;
     channels->numopen += 1;
 
-    cid = id;
+    cid = _cid;
 done:
     PyThread_release_lock(channels->mutex);
     return cid;
@@ -1412,7 +1412,7 @@ _channels_remove_ref(_channels *channels, _channelref *ref, _channelref *prev,
 }
 
 static int
-_channels_remove(_channels *channels, int64_t id, _PyChannelState **pchan)
+_channels_remove(_channels *channels, int64_t cid, _PyChannelState **pchan)
 {
     int res = -1;
     PyThread_acquire_lock(channels->mutex, WAIT_LOCK);
@@ -1422,7 +1422,7 @@ _channels_remove(_channels *channels, int64_t id, _PyChannelState **pchan)
     }
 
     _channelref *prev = NULL;
-    _channelref *ref = _channelref_find(channels->head, id, &prev);
+    _channelref *ref = _channelref_find(channels->head, cid, &prev);
     if (ref == NULL) {
         res = ERR_CHANNEL_NOT_FOUND;
         goto done;
@@ -1437,12 +1437,12 @@ done:
 }
 
 static int
-_channels_add_id_object(_channels *channels, int64_t id)
+_channels_add_id_object(_channels *channels, int64_t cid)
 {
     int res = -1;
     PyThread_acquire_lock(channels->mutex, WAIT_LOCK);
 
-    _channelref *ref = _channelref_find(channels->head, id, NULL);
+    _channelref *ref = _channelref_find(channels->head, cid, NULL);
     if (ref == NULL) {
         res = ERR_CHANNEL_NOT_FOUND;
         goto done;
@@ -1456,12 +1456,12 @@ done:
 }
 
 static void
-_channels_drop_id_object(_channels *channels, int64_t id)
+_channels_drop_id_object(_channels *channels, int64_t cid)
 {
     PyThread_acquire_lock(channels->mutex, WAIT_LOCK);
 
     _channelref *prev = NULL;
-    _channelref *ref = _channelref_find(channels->head, id, &prev);
+    _channelref *ref = _channelref_find(channels->head, cid, &prev);
     if (ref == NULL) {
         // Already destroyed.
         goto done;
@@ -1492,7 +1492,7 @@ _channels_list_all(_channels *channels, int64_t *count)
     }
     _channelref *ref = channels->head;
     for (int64_t i=0; ref != NULL; ref = ref->next, i++) {
-        ids[i] = ref->id;
+        ids[i] = ref->cid;
     }
     *count = channels->numopen;
 
@@ -1588,19 +1588,19 @@ channel_create(_channels *channels)
         PyThread_free_lock(mutex);
         return -1;
     }
-    int64_t id = _channels_add(channels, chan);
-    if (id < 0) {
+    int64_t cid = _channels_add(channels, chan);
+    if (cid < 0) {
         _channel_free(chan);
     }
-    return id;
+    return cid;
 }
 
 // Completely destroy the channel.
 static int
-channel_destroy(_channels *channels, int64_t id)
+channel_destroy(_channels *channels, int64_t cid)
 {
     _PyChannelState *chan = NULL;
-    int err = _channels_remove(channels, id, &chan);
+    int err = _channels_remove(channels, cid, &chan);
     if (err != 0) {
         return err;
     }
@@ -1614,7 +1614,7 @@ channel_destroy(_channels *channels, int64_t id)
 // The current interpreter gets associated with the send end of the channel.
 // Optionally wait for it to be received.
 static int
-channel_send(_channels *channels, int64_t id, PyObject *obj,
+channel_send(_channels *channels, int64_t cid, PyObject *obj,
               PyThread_type_lock recv_mutex)
 {
     PyInterpreterState *interp = _get_current_interp();
@@ -1626,7 +1626,7 @@ channel_send(_channels *channels, int64_t id, PyObject *obj,
     // Look up the channel.
     PyThread_type_lock mutex = NULL;
     _PyChannelState *chan = NULL;
-    int err = _channels_lookup(channels, id, &mutex, &chan);
+    int err = _channels_lookup(channels, cid, &mutex, &chan);
     if (err != 0) {
         return err;
     }
@@ -1667,7 +1667,7 @@ channel_send(_channels *channels, int64_t id, PyObject *obj,
 // The current interpreter gets associated with the recv end of the channel.
 // XXX Support a "wait" mutex?
 static int
-channel_recv(_channels *channels, int64_t id, PyObject **res)
+channel_recv(_channels *channels, int64_t cid, PyObject **res)
 {
     int err;
     *res = NULL;
@@ -1685,7 +1685,7 @@ channel_recv(_channels *channels, int64_t id, PyObject **res)
     // Look up the channel.
     PyThread_type_lock mutex = NULL;
     _PyChannelState *chan = NULL;
-    err = _channels_lookup(channels, id, &mutex, &chan);
+    err = _channels_lookup(channels, cid, &mutex, &chan);
     if (err != 0) {
         return err;
     }
@@ -1740,7 +1740,7 @@ channel_release(_channels *channels, int64_t cid, int send, int recv)
     // Look up the channel.
     PyThread_type_lock mutex = NULL;
     _PyChannelState *chan = NULL;
-    int err = _channels_lookup(channels, id, &mutex, &chan);
+    int err = _channels_lookup(channels, cid, &mutex, &chan);
     if (err != 0) {
         return err;
     }
@@ -1756,9 +1756,9 @@ channel_release(_channels *channels, int64_t cid, int send, int recv)
 // Close immediately if it's empty.  Otherwise, disallow sending and
 // finally close once empty.  Optionally, immediately clear and close it.
 static int
-channel_close(_channels *channels, int64_t id, int end, int force)
+channel_close(_channels *channels, int64_t cid, int end, int force)
 {
-    return _channels_close(channels, id, NULL, end, force);
+    return _channels_close(channels, cid, NULL, end, force);
 }
 
 // Return true if the identified interpreter is associated
@@ -1787,7 +1787,7 @@ channel_is_associated(_channels *channels, int64_t cid, int64_t interp,
 
 typedef struct channelid {
     PyObject_HEAD
-    int64_t id;
+    int64_t cid;
     int end;
     int resolve;
     _channels *channels;
@@ -1808,7 +1808,7 @@ channel_id_converter(PyObject *arg, void *ptr)
     module_state *state = get_module_state(data->module);
     assert(state != NULL);
     if (PyObject_TypeCheck(arg, state->ChannelIDType)) {
-        cid = ((channelid *)arg)->id;
+        cid = ((channelid *)arg)->cid;
         end = ((channelid *)arg)->end;
     }
     else if (PyIndex_Check(arg)) {
@@ -1843,7 +1843,7 @@ newchannelid(PyTypeObject *cls, int64_t cid, int end, _channels *channels,
     if (self == NULL) {
         return -1;
     }
-    self->id = cid;
+    self->cid = cid;
     self->end = end;
     self->resolve = resolve;
     self->channels = channels;
@@ -1908,22 +1908,22 @@ _channelid_new(PyObject *mod, PyTypeObject *cls,
         end = CHANNEL_RECV;
     }
 
-    PyObject *id = NULL;
+    PyObject *cidobj = NULL;
     int err = newchannelid(cls, cid, end, _global_channels(),
                            force, resolve,
-                           (channelid **)&id);
+                           (channelid **)&cidobj);
     if (handle_channel_error(err, mod, cid)) {
-        assert(id == NULL);
+        assert(cidobj == NULL);
         return NULL;
     }
-    assert(id != NULL);
-    return id;
+    assert(cidobj != NULL);
+    return cidobj;
 }
 
 static void
 channelid_dealloc(PyObject *self)
 {
-    int64_t cid = ((channelid *)self)->id;
+    int64_t cid = ((channelid *)self)->cid;
     _channels *channels = ((channelid *)self)->channels;
 
     PyTypeObject *tp = Py_TYPE(self);
@@ -1945,44 +1945,44 @@ channelid_repr(PyObject *self)
     PyTypeObject *type = Py_TYPE(self);
     const char *name = _PyType_Name(type);
 
-    channelid *cid = (channelid *)self;
+    channelid *cidobj = (channelid *)self;
     const char *fmt;
-    if (cid->end == CHANNEL_SEND) {
+    if (cidobj->end == CHANNEL_SEND) {
         fmt = "%s(%" PRId64 ", send=True)";
     }
-    else if (cid->end == CHANNEL_RECV) {
+    else if (cidobj->end == CHANNEL_RECV) {
         fmt = "%s(%" PRId64 ", recv=True)";
     }
     else {
         fmt = "%s(%" PRId64 ")";
     }
-    return PyUnicode_FromFormat(fmt, name, cid->id);
+    return PyUnicode_FromFormat(fmt, name, cidobj->cid);
 }
 
 static PyObject *
 channelid_str(PyObject *self)
 {
-    channelid *cid = (channelid *)self;
-    return PyUnicode_FromFormat("%" PRId64 "", cid->id);
+    channelid *cidobj = (channelid *)self;
+    return PyUnicode_FromFormat("%" PRId64 "", cidobj->cid);
 }
 
 static PyObject *
 channelid_int(PyObject *self)
 {
-    channelid *cid = (channelid *)self;
-    return PyLong_FromLongLong(cid->id);
+    channelid *cidobj = (channelid *)self;
+    return PyLong_FromLongLong(cidobj->cid);
 }
 
 static Py_hash_t
 channelid_hash(PyObject *self)
 {
-    channelid *cid = (channelid *)self;
-    PyObject *id = PyLong_FromLongLong(cid->id);
-    if (id == NULL) {
+    channelid *cidobj = (channelid *)self;
+    PyObject *pyid = PyLong_FromLongLong(cidobj->cid);
+    if (pyid == NULL) {
         return -1;
     }
-    Py_hash_t hash = PyObject_Hash(id);
-    Py_DECREF(id);
+    Py_hash_t hash = PyObject_Hash(pyid);
+    Py_DECREF(pyid);
     return hash;
 }
 
@@ -2008,11 +2008,11 @@ channelid_richcompare(PyObject *self, PyObject *other, int op)
         goto done;
     }
 
-    channelid *cid = (channelid *)self;
+    channelid *cidobj = (channelid *)self;
     int equal;
     if (PyObject_TypeCheck(other, state->ChannelIDType)) {
-        channelid *othercid = (channelid *)other;
-        equal = (cid->end == othercid->end) && (cid->id == othercid->id);
+        channelid *othercidobj = (channelid *)other;
+        equal = (cidobj->end == othercidobj->end) && (cidobj->cid == othercidobj->cid);
     }
     else if (PyLong_Check(other)) {
         /* Fast path */
@@ -2021,10 +2021,10 @@ channelid_richcompare(PyObject *self, PyObject *other, int op)
         if (othercid == -1 && PyErr_Occurred()) {
             goto done;
         }
-        equal = !overflow && (othercid >= 0) && (cid->id == othercid);
+        equal = !overflow && (othercid >= 0) && (cidobj->cid == othercid);
     }
     else if (PyNumber_Check(other)) {
-        PyObject *pyid = PyLong_FromLongLong(cid->id);
+        PyObject *pyid = PyLong_FromLongLong(cidobj->cid);
         if (pyid == NULL) {
             goto done;
         }
@@ -2052,13 +2052,13 @@ done:
 static PyTypeObject * _get_current_channelend_type(int end);
 
 static PyObject *
-_channelobj_from_cid(PyObject *cid, int end)
+_channelobj_from_cidobj(PyObject *cidobj, int end)
 {
     PyObject *cls = (PyObject *)_get_current_channelend_type(end);
     if (cls == NULL) {
         return NULL;
     }
-    PyObject *chan = PyObject_CallFunctionObjArgs(cls, cid, NULL);
+    PyObject *chan = PyObject_CallFunctionObjArgs(cls, cidobj, NULL);
     Py_DECREF(cls);
     if (chan == NULL) {
         return NULL;
@@ -2067,7 +2067,7 @@ _channelobj_from_cid(PyObject *cid, int end)
 }
 
 struct _channelid_xid {
-    int64_t id;
+    int64_t cid;
     int end;
     int resolve;
 };
@@ -2089,16 +2089,16 @@ _channelid_from_xid(_PyCrossInterpreterData *data)
     }
 
     // Note that we do not preserve the "resolve" flag.
-    PyObject *cid = NULL;
-    int err = newchannelid(state->ChannelIDType, xid->id, xid->end,
+    PyObject *cidobj = NULL;
+    int err = newchannelid(state->ChannelIDType, xid->cid, xid->end,
                            _global_channels(), 0, 0,
-                           (channelid **)&cid);
+                           (channelid **)&cidobj);
     if (err != 0) {
-        assert(cid == NULL);
-        (void)handle_channel_error(err, mod, xid->id);
+        assert(cidobj == NULL);
+        (void)handle_channel_error(err, mod, xid->cid);
         goto done;
     }
-    assert(cid != NULL);
+    assert(cidobj != NULL);
     if (xid->end == 0) {
         goto done;
     }
@@ -2107,17 +2107,17 @@ _channelid_from_xid(_PyCrossInterpreterData *data)
     }
 
     /* Try returning a high-level channel end but fall back to the ID. */
-    PyObject *chan = _channelobj_from_cid(cid, xid->end);
+    PyObject *chan = _channelobj_from_cidobj(cidobj, xid->end);
     if (chan == NULL) {
         PyErr_Clear();
         goto done;
     }
-    Py_DECREF(cid);
-    cid = chan;
+    Py_DECREF(cidobj);
+    cidobj = chan;
 
 done:
     Py_DECREF(mod);
-    return cid;
+    return cidobj;
 }
 
 static int
@@ -2132,7 +2132,7 @@ _channelid_shared(PyThreadState *tstate, PyObject *obj,
         return -1;
     }
     struct _channelid_xid *xid = (struct _channelid_xid *)data->data;
-    xid->id = ((channelid *)obj)->id;
+    xid->cid = ((channelid *)obj)->cid;
     xid->end = ((channelid *)obj)->end;
     xid->resolve = ((channelid *)obj)->resolve;
     return 0;
@@ -2142,30 +2142,30 @@ static PyObject *
 channelid_end(PyObject *self, void *end)
 {
     int force = 1;
-    channelid *cid = (channelid *)self;
+    channelid *cidobj = (channelid *)self;
     if (end != NULL) {
-        PyObject *id = NULL;
-        int err = newchannelid(Py_TYPE(self), cid->id, *(int *)end,
-                               cid->channels, force, cid->resolve,
-                               (channelid **)&id);
+        PyObject *obj = NULL;
+        int err = newchannelid(Py_TYPE(self), cidobj->cid, *(int *)end,
+                               cidobj->channels, force, cidobj->resolve,
+                               (channelid **)&obj);
         if (err != 0) {
-            assert(id == NULL);
+            assert(obj == NULL);
             PyObject *mod = get_module_from_type(Py_TYPE(self));
             if (mod == NULL) {
                 return NULL;
             }
-            (void)handle_channel_error(err, mod, cid->id);
+            (void)handle_channel_error(err, mod, cidobj->cid);
             Py_DECREF(mod);
             return NULL;
         }
-        assert(id != NULL);
-        return id;
+        assert(obj != NULL);
+        return obj;
     }
 
-    if (cid->end == CHANNEL_SEND) {
+    if (cidobj->end == CHANNEL_SEND) {
         return PyUnicode_InternFromString("send");
     }
-    if (cid->end == CHANNEL_RECV) {
+    if (cidobj->end == CHANNEL_RECV) {
         return PyUnicode_InternFromString("recv");
     }
     return PyUnicode_InternFromString("both");
@@ -2253,17 +2253,17 @@ _get_current_channelend_type(int end)
 static PyObject *
 _channelend_from_xid(_PyCrossInterpreterData *data)
 {
-    channelid *cid = (channelid *)_channelid_from_xid(data);
-    if (cid == NULL) {
+    channelid *cidobj = (channelid *)_channelid_from_xid(data);
+    if (cidobj == NULL) {
         return NULL;
     }
-    PyTypeObject *cls = _get_current_channelend_type(cid->end);
+    PyTypeObject *cls = _get_current_channelend_type(cidobj->end);
     if (cls == NULL) {
         Py_DECREF(cid);
         return NULL;
     }
-    PyObject *obj = PyObject_CallOneArg((PyObject *)cls, (PyObject *)cid);
-    Py_DECREF(cid);
+    PyObject *obj = PyObject_CallOneArg((PyObject *)cls, (PyObject *)cidobj);
+    Py_DECREF(cidobj);
     return obj;
 }
 
@@ -2368,8 +2368,8 @@ clear_interpreter(void *data)
     }
     PyInterpreterState *interp = (PyInterpreterState *)data;
     assert(interp == _get_current_interp());
-    int64_t id = PyInterpreterState_GetID(interp);
-    _channels_drop_interpreter(&_globals.channels, id);
+    int64_t interpid = PyInterpreterState_GetID(interp);
+    _channels_drop_interpreter(&_globals.channels, interpid);
 }
 
 
@@ -2385,21 +2385,21 @@ channelsmod_create(PyObject *self, PyObject *Py_UNUSED(ignored))
     if (state == NULL) {
         return NULL;
     }
-    PyObject *id = NULL;
+    PyObject *cidobj = NULL;
     int err = newchannelid(state->ChannelIDType, cid, 0,
                            &_globals.channels, 0, 0,
-                           (channelid **)&id);
+                           (channelid **)&cidobj);
     if (handle_channel_error(err, self, cid)) {
-        assert(id == NULL);
+        assert(cidobj == NULL);
         err = channel_destroy(&_globals.channels, cid);
         if (handle_channel_error(err, self, cid)) {
             // XXX issue a warning?
         }
         return NULL;
     }
-    assert(id != NULL);
-    assert(((channelid *)id)->channels != NULL);
-    return id;
+    assert(cidobj != NULL);
+    assert(((channelid *)cidobj)->channels != NULL);
+    return cidobj;
 }
 
 PyDoc_STRVAR(channelsmod_create_doc,
@@ -2457,17 +2457,17 @@ channelsmod_list_all(PyObject *self, PyObject *Py_UNUSED(ignored))
     }
     int64_t *cur = cids;
     for (int64_t i=0; i < count; cur++, i++) {
-        PyObject *id = NULL;
+        PyObject *cidobj = NULL;
         int err = newchannelid(state->ChannelIDType, *cur, 0,
                                &_globals.channels, 0, 0,
-                               (channelid **)&id);
+                               (channelid **)&cidobj);
         if (handle_channel_error(err, self, *cur)) {
-            assert(id == NULL);
+            assert(cidobj == NULL);
             Py_SETREF(ids, NULL);
             break;
         }
-        assert(id != NULL);
-        PyList_SET_ITEM(ids, (Py_ssize_t)i, id);
+        assert(cidobj != NULL);
+        PyList_SET_ITEM(ids, (Py_ssize_t)i, cidobj);
     }
 
 finally:
@@ -2489,8 +2489,8 @@ channelsmod_list_interpreters(PyObject *self, PyObject *args, PyObject *kwds)
         .module = self,
     };
     int send = 0;           /* Send or receive end? */
-    int64_t id;
-    PyObject *ids, *id_obj;
+    int64_t interpid;
+    PyObject *ids, *interpid_obj;
     PyInterpreterState *interp;
 
     if (!PyArg_ParseTupleAndKeywords(
@@ -2507,20 +2507,20 @@ channelsmod_list_interpreters(PyObject *self, PyObject *args, PyObject *kwds)
 
     interp = PyInterpreterState_Head();
     while (interp != NULL) {
-        id = PyInterpreterState_GetID(interp);
-        assert(id >= 0);
-        int res = channel_is_associated(&_globals.channels, cid, id, send);
+        interpid = PyInterpreterState_GetID(interp);
+        assert(interpid >= 0);
+        int res = channel_is_associated(&_globals.channels, cid, interpid, send);
         if (res < 0) {
             (void)handle_channel_error(res, self, cid);
             goto except;
         }
         if (res) {
-            id_obj = PyInterpreterState_GetIDObject(interp);
-            if (id_obj == NULL) {
+            interpid_obj = PyInterpreterState_GetIDObject(interp);
+            if (interpid_obj == NULL) {
                 goto except;
             }
-            res = PyList_Insert(ids, 0, id_obj);
-            Py_DECREF(id_obj);
+            res = PyList_Insert(ids, 0, interpid_obj);
+            Py_DECREF(interpid_obj);
             if (res < 0) {
                 goto except;
             }
