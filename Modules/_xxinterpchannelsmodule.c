@@ -1611,6 +1611,7 @@ channel_destroy(_channels *channels, int64_t id)
 }
 
 // Push an object onto the channel.
+// The current interpreter gets associated with the send end of the channel.
 // Optionally wait for it to be received.
 static int
 channel_send(_channels *channels, int64_t id, PyObject *obj,
@@ -1620,6 +1621,7 @@ channel_send(_channels *channels, int64_t id, PyObject *obj,
     if (interp == NULL) {
         return -1;
     }
+    int64_t interpid = PyInterpreterState_GetID(interp);
 
     // Look up the channel.
     PyThread_type_lock mutex = NULL;
@@ -1649,8 +1651,7 @@ channel_send(_channels *channels, int64_t id, PyObject *obj,
     }
 
     // Add the data to the channel.
-    int res = _channel_add(chan, PyInterpreterState_GetID(interp), data,
-                           recv_mutex);
+    int res = _channel_add(chan, interpid, data, recv_mutex);
     PyThread_release_lock(mutex);
     if (res != 0) {
         // We may chain an exception here:
@@ -1663,6 +1664,7 @@ channel_send(_channels *channels, int64_t id, PyObject *obj,
 }
 
 // Pop the next object off the channel.  Fail if empty.
+// The current interpreter gets associated with the recv end of the channel.
 // XXX Support a "wait" mutex?
 static int
 channel_recv(_channels *channels, int64_t id, PyObject **res)
@@ -1678,6 +1680,7 @@ channel_recv(_channels *channels, int64_t id, PyObject **res)
         }
         return 0;
     }
+    int64_t interpid = PyInterpreterState_GetID(interp);
 
     // Look up the channel.
     PyThread_type_lock mutex = NULL;
@@ -1691,7 +1694,7 @@ channel_recv(_channels *channels, int64_t id, PyObject **res)
 
     // Pop off the next item from the channel.
     _PyCrossInterpreterData *data = NULL;
-    err = _channel_next(chan, PyInterpreterState_GetID(interp), &data);
+    err = _channel_next(chan, interpid, &data);
     PyThread_release_lock(mutex);
     if (err != 0) {
         return err;
@@ -1726,12 +1729,13 @@ channel_recv(_channels *channels, int64_t id, PyObject **res)
 // The channel is marked as closed if no other interpreters
 // are currently associated.
 static int
-channel_drop(_channels *channels, int64_t id, int send, int recv)
+channel_release(_channels *channels, int64_t cid, int send, int recv)
 {
     PyInterpreterState *interp = _get_current_interp();
     if (interp == NULL) {
         return -1;
     }
+    int64_t interpid = PyInterpreterState_GetID(interp);
 
     // Look up the channel.
     PyThread_type_lock mutex = NULL;
@@ -1743,12 +1747,12 @@ channel_drop(_channels *channels, int64_t id, int send, int recv)
     // Past this point we are responsible for releasing the mutex.
 
     // Close one or both of the two ends.
-    int res = _channel_close_interpreter(chan, PyInterpreterState_GetID(interp), send-recv);
+    int res = _channel_close_interpreter(chan, interpid, send-recv);
     PyThread_release_lock(mutex);
     return res;
 }
 
-// Close the channel.  Fail if it's already closed.
+// Close the channel (for all interpreters).  Fail if it's already closed.
 // Close immediately if it's empty.  Otherwise, disallow sending and
 // finally close once empty.  Optionally, immediately clear and close it.
 static int
@@ -1757,6 +1761,8 @@ channel_close(_channels *channels, int64_t id, int end, int force)
     return _channels_close(channels, id, NULL, end, force);
 }
 
+// Return true if the identified interpreter is associated
+// with the given end of the channel.
 static int
 channel_is_associated(_channels *channels, int64_t cid, int64_t interp,
                        int send)
