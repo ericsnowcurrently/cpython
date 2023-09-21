@@ -488,6 +488,7 @@ _get_current_xibufferview_type(void)
 #define CHANNEL_BOTH 0
 #define CHANNEL_RECV -1
 
+
 /* channel errors */
 
 #define ERR_CHANNEL_NOT_FOUND -2
@@ -580,6 +581,7 @@ handle_channel_error(int err, PyObject *mod, int64_t cid)
     }
     return 1;
 }
+
 
 /* the channel queue */
 
@@ -739,6 +741,7 @@ _channelqueue_drop_interpreter(_channelqueue *queue, int64_t interp)
         }
     }
 }
+
 
 /* channel-interpreter associations */
 
@@ -976,7 +979,8 @@ _channelends_close_all(_channelends *ends, int which, int force)
     }
 }
 
-/* channels */
+
+/* each channel's state */
 
 struct _channel;
 struct _channel_closing;
@@ -1150,6 +1154,7 @@ done:
     PyThread_release_lock(chan->mutex);
     return res;
 }
+
 
 /* the set of channels */
 
@@ -1510,6 +1515,7 @@ _channels_drop_interpreter(_channels *channels, int64_t interp)
     PyThread_release_lock(channels->mutex);
 }
 
+
 /* support for closing non-empty channels */
 
 struct _channel_closing {
@@ -1563,6 +1569,7 @@ _channel_finish_closing(struct _channel *chan) {
     ref->chan = NULL;
     _channel_free(chan);
 }
+
 
 /* "high"-level channel-related functions */
 
@@ -1754,6 +1761,7 @@ _channel_is_associated(_channels *channels, int64_t cid, int64_t interp,
 
     return (end != NULL && end->open);
 }
+
 
 /* ChannelID class */
 
