@@ -1164,6 +1164,7 @@ typedef struct _channelref {
     int64_t id;
     _PyChannelState *chan;
     struct _channelref *next;
+    // The number of ChannelID objects referring to this channel.
     Py_ssize_t objcount;
 } _channelref;
 
@@ -1573,6 +1574,7 @@ _channel_finish_closing(struct _channel *chan) {
 
 /* "high"-level channel-related functions */
 
+// Create a new channel.
 static int64_t
 channel_create(_channels *channels)
 {
@@ -1592,6 +1594,7 @@ channel_create(_channels *channels)
     return id;
 }
 
+// Completely destroy the channel.
 static int
 channel_destroy(_channels *channels, int64_t id)
 {
@@ -1606,6 +1609,8 @@ channel_destroy(_channels *channels, int64_t id)
     return 0;
 }
 
+// Push an object onto the channel.
+// Optionally wait for it to be received.
 static int
 channel_send(_channels *channels, int64_t id, PyObject *obj,
               PyThread_type_lock recv_mutex)
@@ -1656,6 +1661,7 @@ channel_send(_channels *channels, int64_t id, PyObject *obj,
     return 0;
 }
 
+// Pop the next object off the channel.  Fail if empty.
 static int
 channel_recv(_channels *channels, int64_t id, PyObject **res)
 {
@@ -1714,6 +1720,9 @@ channel_recv(_channels *channels, int64_t id, PyObject **res)
     return 0;
 }
 
+// Disallow send/recv for the current interpreter.
+// The channel is marked as closed if no other interpreters
+// are currently associated.
 static int
 channel_drop(_channels *channels, int64_t id, int send, int recv)
 {
@@ -1737,6 +1746,9 @@ channel_drop(_channels *channels, int64_t id, int send, int recv)
     return res;
 }
 
+// Close the channel.  Fail if it's already closed.
+// Close immediately if it's empty.  Otherwise, disallow sending and
+// finally close once empty.  Optionally, immediately clear and close it.
 static int
 channel_close(_channels *channels, int64_t id, int end, int force)
 {
