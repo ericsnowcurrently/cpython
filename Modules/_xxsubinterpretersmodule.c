@@ -196,6 +196,9 @@ exceptions_init(PyObject *mod)
 
     // An uncaught exception came out of interp_run_string().
     ADD(RunFailedError, PyExc_RuntimeError);
+    if (PyObject_SetAttrString(state->RunFailedError, "snapshot", Py_None) < 0) {
+        return -1;
+    }
 #undef ADD
 
     return 0;

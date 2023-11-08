@@ -955,6 +955,10 @@ class RunFailedTests(TestBase):
                 class NeverError(Exception): pass
                 raise NeverError  # never raised
                 """).format(dedent(text))
+            #print()
+            #print('####################')
+            #print(script)
+            #print('####################')
             if fails:
                 with self.assertRaises(excwrapper) as caught:
                     interpreters.run_string(self.id, script)
@@ -989,6 +993,11 @@ class RunFailedTests(TestBase):
             self.assertEqual(str(exc),
                              '{}: {}'.format(exctype_name, msg))
 
+        # Check the propagated exception.
+        snap = exc.snapshot
+        if exctype is not None:
+            self.assertIs(snap.exc_type, exctype)
+
         return exc
 
     def assert_run_failed(self, exctype, script):
@@ -998,6 +1007,150 @@ class RunFailedTests(TestBase):
     def assert_run_failed_msg(self, exctype, msg, script):
         exc = self._assert_run_failed(exctype, msg, script)
         return exc.snapshot
+
+    def test_preserved_info(self):
+        msg = 'module "spam" not found'
+        exc = self.assert_run_failed_msg('ModuleNotFoundError', msg, f"""
+            raise ModuleNotFoundError({msg!r}, name='spam')
+            """)
+        self.assertEqual(str(exc), msg)
+        self.assertIs(exc.__notes__, None)
+
+        with self.subTest('__notes__'):
+            exc = self.assert_run_failed('Exception', """
+                exc = Exception('spam')
+                exc.__notes__ = 'eggs'
+                raise exc
+            """)
+            self.assertEqual(exc.__notes__, 'eggs')
+
+    def test_traceback(self):
+        self.maxDiff = None
+
+        def check_stack(stack, expected):
+            # We don't bother checking "line".
+            fields = 'filename name lineno colno end_lineno end_colno'.split()
+            stack = list(stack)
+            expected = list(expected)
+            self.assertEqual(len(stack), len(expected))
+            for i, entry in enumerate(stack):
+                stack[i] = {f: getattr(entry, f) for f in fields}
+                expected[i] = dict(zip(fields, expected[i]))
+                assert len(expected[i]) == len(fields), expected[i]
+            self.assertEqual(stack, expected)
+
+        with self.subTest('lean traceback'):
+            exc = self.assert_run_failed('ValueError', f"""
+                raise ValueError('bad value')
+                """)
+            self.assertIs(exc.__cause__, None)
+            self.assertIs(exc.__context__, None)
+            check_stack(exc.stack, [
+                ('<string>', '<module>', 7, 0, 7, 29),
+            ])
+
+        with self.subTest('deep traceback'):
+            modname = 'spam_spam_spam'
+            filename = self.add_module(modname, dedent("""
+                def incr(val):
+                    return val + 1
+
+                def decr(val):
+                    return val - 1
+
+                def apply_incr_seq(func, args):
+                    args = [incr(v) for v in args]
+                    return func(*args)
+
+                def apply_incr_2(func, arg1, arg2):
+                    return apply_incr_seq(func, (arg1, arg2))
+                """))
+            exc = self.assert_run_failed('ValueError', f"""
+                import {modname}
+
+                def do_work(arg1, arg2):
+                    raise ValueError('bad value')
+
+                {modname}.apply_incr_2(do_work, 1, 2)
+                """)
+            self.assertIs(exc.__cause__, None)
+            self.assertIs(exc.__context__, None)
+            check_stack(exc.stack, [
+                ('<string>', '<module>', 12, 0, 12, 42),
+                (filename, 'apply_incr_2', 13, 11, 13, 45),
+                (filename, 'apply_incr_seq', 10, 11, 10, 22),
+                ('<string>', 'do_work', 10, 4, 10, 33),
+            ])
+
+        with self.subTest('cause'):
+            exc = self.assert_run_failed('ValueError', f"""
+                try:
+                    raise ImportError('spam')
+                except Exception as exc:
+                    cause = exc
+                raise ValueError('bad value') from cause
+                """)
+            self.assertIs(exc.__context__, None)
+            cause = exc.__cause__
+            self.assertIs(cause.exc_type, ImportError)
+            self.assertEqual(str(cause), 'spam')
+            check_stack(cause.stack, [
+                ('<string>', '<module>', 8, 4, 8, 29),
+            ])
+
+        with self.subTest('context'):
+            exc = self.assert_run_failed('ValueError', f"""
+                try:
+                    raise ImportError('spam')
+                except Exception as exc:
+                    raise ValueError('bad value')
+                """)
+            self.assertIs(exc.__cause__, None)
+            context = exc.__context__
+            self.assertIs(context.exc_type, ImportError)
+            self.assertEqual(str(context), 'spam')
+            check_stack(context.stack, [
+                ('<string>', '<module>', 8, 4, 8, 29),
+            ])
+
+        with self.subTest('chained'):
+            exc = self.assert_run_failed('ValueError', f"""
+                try:
+                    try:
+                        try:
+                            raise ImportError('spam')
+                        except Exception as exc:
+                            raise TypeError('eggs') from exc
+                    except Exception:
+                        raise Exception(42)
+                except Exception:
+                    try:
+                        raise OSError
+                    except Exception as exc:
+                        cause = exc
+                raise ValueError('bad value') from cause
+                """)
+            cause1 = exc.__cause__
+            context1 = exc.__context__
+            cause2 = cause1.__cause__
+            context2 = cause1.__context__
+            cause3 = context2.__cause__
+            context3 = context2.__context__
+            cause4 = context3.__cause__
+            context4 = context3.__context__
+            cause5 = cause4.__cause__
+            context5 = cause4.__context__
+
+            self.assertIs(cause1.exc_type, OSError)
+            self.assertIs(context1, None)
+            self.assertIs(cause2, None)
+            self.assertIs(context2.exc_type, Exception)
+            self.assertIs(cause3, None)
+            self.assertIs(context3.exc_type, TypeError)
+            self.assertIs(cause4.exc_type, ImportError)
+            self.assertIs(context4, None)
+            self.assertIs(context5, None)
+            self.assertIs(context5, None)
 
     def test_exit(self):
         with self.subTest('sys.exit(0)'):
@@ -1044,34 +1197,67 @@ class RunFailedTests(TestBase):
             """)
 
         with self.subTest('script'):
-            self.assert_run_failed(SyntaxError, script)
+            exc = self.assert_run_failed(SyntaxError, script)
+            self.assertEqual(exc.filename, '<string>')
+            self.assertEqual(exc.lineno, '12')
+            self.assertEqual(exc.end_lineno, '12')
+            self.assertEqual(exc.text, 'print("spam"')
+            self.assertEqual(exc.offset, 6)
+            self.assertEqual(exc.end_offset, 0)
+            self.assertEqual(exc.msg, "'(' was never closed")
 
         with self.subTest('module'):
             modname = 'spam_spam_spam'
             filename = self.add_module(modname, script)
-            self.assert_run_failed(SyntaxError, f"""
+            exc = self.assert_run_failed(SyntaxError, f"""
                 import {modname}
                 """)
+            self.assertEqual(exc.filename, filename)
+            self.assertEqual(exc.lineno, '7')
+            self.assertEqual(exc.end_lineno, '7')
+            self.assertEqual(exc.text.strip(), 'print("spam"')
+            self.assertEqual(exc.offset, 6)
+            self.assertEqual(exc.end_offset, 0)
+            self.assertEqual(exc.msg, "'(' was never closed")
 
     def test_NameError(self):
-        self.assert_run_failed(NameError, """
-            res = spam + eggs
-            """)
-        # XXX check preserved suggestions
+        with self.subTest('no suggestion'):
+            exc = self.assert_run_failed(NameError, """
+                res = spam + eggs
+                """)
+            self.assertNotIn('Did you mean:', str(exc))
+
+        with self.subTest('suggestion'):
+            exc = self.assert_run_failed(NameError, """
+                spam = 1
+                eggs = 2
+                res = span + eggs
+                """)
+            self.assertIn('Did you mean:', str(exc))
 
     def test_AttributeError(self):
-        self.assert_run_failed(AttributeError, """
-            object().spam
-            """)
-        # XXX check preserved suggestions
+        with self.subTest('no suggestion'):
+            exc = self.assert_run_failed(AttributeError, """
+                object().spam
+                """)
+            self.assertNotIn('Did you mean:', str(exc))
+
+        with self.subTest('suggestion'):
+            exc = self.assert_run_failed(AttributeError, """
+                object().__repr_
+                """)
+            self.assertIn('Did you mean:', str(exc))
 
     def test_ExceptionGroup(self):
-        self.assert_run_failed(ExceptionGroup, """
+        exc = self.assert_run_failed(ExceptionGroup, """
             raise ExceptionGroup('exceptions', [
                 Exception('spam'),
                 ImportError('eggs'),
             ])
             """)
+        exc1, exc2 = exc.exceptions
+        self.assertIs(exc1.exc_type, Exception)
+        self.assertIs(exc2.exc_type, ImportError)
 
     def test_user_defined_exception(self):
         self.assert_run_failed_msg('MyError', 'spam', """

@@ -172,6 +172,8 @@ extern void _PyXI_Fini(PyInterpreterState *interp);
 typedef struct _excinfo {
     const char *type;
     const char *msg;
+    const char *pickled;
+    Py_ssize_t pickled_size;
 } _Py_excinfo;
 
 
@@ -193,7 +195,8 @@ typedef struct _sharedexception {
     // The kind of error to propagate.
     _PyXI_errcode code;
     // The exception information to propagate, if applicable.
-    // This is populated only for _PyXI_ERR_UNCAUGHT_EXCEPTION.
+    // This is populated only for some error codes,
+    // but always for _PyXI_ERR_UNCAUGHT_EXCEPTION.
     _Py_excinfo uncaught;
 } _PyXI_exception_info;
 

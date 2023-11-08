@@ -1009,7 +1009,134 @@ _Py_excinfo_Clear(_Py_excinfo *info)
     if (info->msg != NULL) {
         PyMem_RawFree((void *)info->msg);
     }
+    if (info->pickled != NULL) {
+        PyMem_RawFree((void *)info->pickled);
+    }
     *info = (_Py_excinfo){ NULL };
+}
+
+static int
+_get_exc_snapshot(PyObject *exc, PyObject **p_snapshot)
+{
+    // This is inspired by _PyErr_Display().
+    PyObject *tbmod = PyImport_ImportModule("traceback");
+    if (tbmod == NULL) {
+        return -1;
+    }
+    PyObject *snapshot_type = PyObject_GetAttrString(tbmod, "TracebackException");
+    Py_DECREF(tbmod);
+    if (snapshot_type == NULL) {
+        return -1;
+    }
+
+    // Build the call args.
+    PyObject *tb = PyException_GetTraceback(exc);
+    if (tb == NULL) {
+        tb = Py_NewRef(Py_None);
+    }
+    PyObject *args = PyTuple_Pack(3, Py_TYPE(exc), exc, tb);
+    Py_DECREF(tb);
+    if (args == NULL) {
+        Py_DECREF(snapshot_type);
+        return -1;
+    }
+    PyObject *kwargs = PyDict_New();
+    if (kwargs == NULL) {
+        Py_DECREF(snapshot_type);
+        Py_DECREF(args);
+        return -1;
+    }
+    if (PyDict_SetItemString(kwargs, "lookup_lines", Py_False) < 0) {
+        Py_DECREF(snapshot_type);
+        Py_DECREF(args);
+        Py_DECREF(kwargs);
+        return -1;
+    }
+    PyObject *snapshot = PyObject_Call(snapshot_type, args, kwargs);
+    Py_DECREF(snapshot_type);
+    Py_DECREF(args);
+    Py_DECREF(kwargs);
+    *p_snapshot = snapshot;
+    return 0;
+}
+
+static int
+_pickle_exc_snapshot(PyObject *snapshot,
+                     const char **p_pickled, Py_ssize_t *p_size)
+{
+    // XXX Turn snapshot.exc_type into a string before picling,
+    // if not a builtin exception.
+    assert(!PyErr_Occurred());
+    PyObject *picklemod = PyImport_ImportModule("_pickle");
+    if (picklemod == NULL) {
+        PyErr_Clear();
+        picklemod = PyImport_ImportModule("pickle");
+        if (picklemod == NULL) {
+            return -1;
+        }
+    }
+    PyObject *dumps = PyObject_GetAttrString(picklemod, "dumps");
+    Py_DECREF(picklemod);
+    if (dumps == NULL) {
+        return -1;
+    }
+    // XXX Do not pickle the exception/type/tb objects.
+    PyObject *pickledobj = PyObject_CallOneArg(dumps, snapshot);
+    Py_DECREF(dumps);
+    if (pickledobj == NULL) {
+        return -1;
+    }
+
+    char *pickled = NULL;
+    Py_ssize_t size = 0;
+    if (PyBytes_AsStringAndSize(pickledobj, &pickled, &size) < 0) {
+        Py_DECREF(pickledobj);
+        return -1;
+    }
+    char *copied = PyMem_RawMalloc(size+1);
+    if (copied == NULL) {
+        Py_DECREF(pickledobj);
+        return -1;
+    }
+    memcpy(copied, pickled, size+1);
+    Py_DECREF(pickledobj);
+
+    *p_pickled = copied;
+    *p_size = size;
+    return 0;
+}
+
+static int
+_unpickle_exc_snapshot(const char *pickled, Py_ssize_t size,
+                       PyObject **p_snapshot)
+{
+    assert(!PyErr_Occurred());
+    PyObject *picklemod = PyImport_ImportModule("_pickle");
+    if (picklemod == NULL) {
+        PyErr_Clear();
+        picklemod = PyImport_ImportModule("pickle");
+        if (picklemod == NULL) {
+            return -1;
+        }
+    }
+    PyObject *loads = PyObject_GetAttrString(picklemod, "loads");
+    Py_DECREF(picklemod);
+    if (loads == NULL) {
+        return -1;
+    }
+    PyObject *pickledobj = PyBytes_FromStringAndSize(pickled, size);
+    if (pickledobj == NULL) {
+        Py_DECREF(loads);
+        return -1;
+    }
+    PyObject *snapshot = PyObject_CallOneArg(loads, pickledobj);
+    Py_DECREF(loads);
+    Py_DECREF(pickledobj);
+    if (snapshot == NULL) {
+        return -1;
+    }
+    *p_snapshot = snapshot;
+    return 0;
 }
 
 static const char *
@@ -1017,28 +1144,83 @@ _Py_excinfo_InitFromException(_Py_excinfo *info, PyObject *exc)
 {
     assert(exc != NULL);
 
-    // Extract the exception type name.
+    if (PyErr_GivenExceptionMatches(exc, PyExc_MemoryError)) {
+        _Py_excinfo_Clear(info);
+        return NULL;
+    }
+    const char *failure = NULL;
     const char *typename = NULL;
+    const char *msg = NULL;
+    PyObject *snapshot = NULL;
+    const char *pickled = NULL;
+
+    // Extract the exception type name.
     if (_exc_type_name_as_utf8(exc, &typename) < 0) {
         assert(typename != NULL);
-        return typename;
+        failure = typename;
+        typename = NULL;
+        goto error;
     }
 
     // Extract the exception message.
-    const char *msg = NULL;
     if (_exc_msg_as_utf8(exc, &msg) < 0) {
         assert(msg != NULL);
-        return msg;
+        failure = msg;
+        msg = NULL;
+        goto error;
+    }
+
+    // Pickle a traceback.TracebackException.
+    Py_ssize_t size = 0;
+    if (_get_exc_snapshot(exc, &snapshot) < 0) {
+#ifdef Py_DEBUG
+        PyErr_FormatUnraisable("Exception ignored when creating snapshot");
+#endif
+        PyErr_Clear();
+    }
+    else {
+        if (_pickle_exc_snapshot(snapshot, &pickled, &size) < 0) {
+#ifdef Py_DEBUG
+        PyErr_FormatUnraisable("Exception ignored when pickling snapshot");
+#endif
+            PyErr_Clear();
+        }
+        Py_DECREF(snapshot);
     }
 
     info->type = typename;
     info->msg = msg;
+    info->pickled = pickled;
+    info->pickled_size = size;
     return NULL;
+
+error:
+    assert(failure != NULL);
+    if (pickled != NULL) {
+        PyMem_RawFree((void *)pickled);
+    }
+    Py_XDECREF(snapshot);
+    if (typename != NULL) {
+        PyMem_RawFree((void *)typename);
+    }
+    if (msg != NULL) {
+        PyMem_RawFree((void *)msg);
+    }
+    return failure;
 }
 
 static void
 _Py_excinfo_Apply(_Py_excinfo *info, PyObject *exctype)
 {
+    PyObject *snapshot = NULL;
+    if (info->pickled != NULL) {
+        if (_unpickle_exc_snapshot(info->pickled, info->pickled_size,
+                                   &snapshot) < 0)
+        {
+            PyErr_Clear();
+        }
+    }
+
     if (info->type != NULL) {
         if (info->msg != NULL) {
             PyErr_Format(exctype, "%s: %s",  info->type, info->msg);
@@ -1052,6 +1234,18 @@ _Py_excinfo_Apply(_Py_excinfo *info, PyObject *exctype)
     }
     else {
         PyErr_SetNone(exctype);
+    }
+
+    if (snapshot != NULL) {
+        PyObject *exc = PyErr_GetRaisedException();
+        if (PyObject_SetAttrString(exc, "snapshot", snapshot) < 0) {
+#ifdef Py_DEBUG
+            PyErr_FormatUnraisable("Exception ignored when setting snapshot");
+#endif
+            PyErr_Clear();
+        }
+        Py_DECREF(snapshot);
+        PyErr_SetRaisedException(exc);
     }
 }
 
