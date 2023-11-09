@@ -882,6 +882,10 @@ class TracebackException:
     def __str__(self):
         return self._str
 
+    @property
+    def __traceback__(self):
+        return self.stack
+
     def format_exception_only(self, *, show_group=False, _depth=0):
         """Format the exception part of the traceback.
 
