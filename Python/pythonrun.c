@@ -1034,6 +1034,7 @@ print_exception_recursive(struct exception_print_context *ctx, PyObject *value)
             goto error;
         }
     }
+    // XXX What if value is a traceback.TraebackException?
     if (print_exception(ctx, value) < 0) {
         goto error;
     }

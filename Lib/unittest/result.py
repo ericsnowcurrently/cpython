@@ -230,6 +230,8 @@ class TestResult(object):
             if value is not None:
                 for c in (value.__cause__, value.__context__):
                     if c is not None and id(c) not in seen:
+                        if not isinstance(c, Exception):
+                            continue
                         excs.append((type(c), c, c.__traceback__))
                         seen.add(id(c))
         return ret

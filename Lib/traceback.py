@@ -803,16 +803,19 @@ class TracebackException:
                 te, e = queue.pop()
                 if (e and e.__cause__ is not None
                     and id(e.__cause__) not in _seen):
-                    cause = TracebackException(
-                        type(e.__cause__),
-                        e.__cause__,
-                        e.__cause__.__traceback__,
-                        limit=limit,
-                        lookup_lines=lookup_lines,
-                        capture_locals=capture_locals,
-                        max_group_width=max_group_width,
-                        max_group_depth=max_group_depth,
-                        _seen=_seen)
+                    if isinstance(e.__cause__, TracebackException):
+                        cause = e.__cause__
+                    else:
+                        cause = TracebackException(
+                            type(e.__cause__),
+                            e.__cause__,
+                            e.__cause__.__traceback__,
+                            limit=limit,
+                            lookup_lines=lookup_lines,
+                            capture_locals=capture_locals,
+                            max_group_width=max_group_width,
+                            max_group_depth=max_group_depth,
+                            _seen=_seen)
                 else:
                     cause = None
 
@@ -824,16 +827,19 @@ class TracebackException:
                     need_context = True
                 if (e and e.__context__ is not None
                     and need_context and id(e.__context__) not in _seen):
-                    context = TracebackException(
-                        type(e.__context__),
-                        e.__context__,
-                        e.__context__.__traceback__,
-                        limit=limit,
-                        lookup_lines=lookup_lines,
-                        capture_locals=capture_locals,
-                        max_group_width=max_group_width,
-                        max_group_depth=max_group_depth,
-                        _seen=_seen)
+                    if isinstance(e.__context__, TracebackException):
+                        context = e.__context__
+                    else:
+                        context = TracebackException(
+                            type(e.__context__),
+                            e.__context__,
+                            e.__context__.__traceback__,
+                            limit=limit,
+                            lookup_lines=lookup_lines,
+                            capture_locals=capture_locals,
+                            max_group_width=max_group_width,
+                            max_group_depth=max_group_depth,
+                            _seen=_seen)
                 else:
                     context = None
 
@@ -857,9 +863,10 @@ class TracebackException:
                 te.__cause__ = cause
                 te.__context__ = context
                 te.exceptions = exceptions
-                if cause:
+                if cause and not isinstance(e.__cause__, TracebackException):
                     queue.append((te.__cause__, e.__cause__))
-                if context:
+                if (context
+                    and not isinstance(e.__context__, TracebackException)):
                     queue.append((te.__context__, e.__context__))
                 if exceptions:
                     queue.extend(zip(te.exceptions, e.exceptions))
