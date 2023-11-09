@@ -754,7 +754,22 @@ class TracebackException:
             _walk_tb_with_full_positions(exc_traceback),
             limit=limit, lookup_lines=lookup_lines,
             capture_locals=capture_locals)
-        self.exc_type = exc_type
+        if isinstance(exc_type, str):
+            modname, _, name = exc_type.rpartition('.')
+            if not modname:
+                if hasattr(__builtins__, name):
+                    modname = 'builtins'
+                else:
+                    modname = '<unknown>'
+            self.exc_type = type(sys.implementation)(
+                __qualname__=exc_type,
+                __name__=name,
+                __module__=modname,
+            )
+            exc_type = None
+        else:
+            self.exc_type = exc_type
+        self._exc_type = exc_type
         # Capture now to permit freeing resources: only complication is in the
         # unofficial API _format_final_exc_line
         self._str = _safe_string(exc_value, 'exception')
@@ -912,7 +927,7 @@ class TracebackException:
         """
 
         indent = 3 * _depth * ' '
-        if self.exc_type is None:
+        if self._exc_type is None:
             yield indent + _format_final_exc_line(None, self._str)
             return
 
@@ -923,7 +938,7 @@ class TracebackException:
                 smod = "<unknown>"
             stype = smod + '.' + stype
 
-        if not issubclass(self.exc_type, SyntaxError):
+        if not self._exc_type or not issubclass(self.exc_type, SyntaxError):
             if _depth > 0:
                 # Nested exceptions needs correct handling of multiline messages.
                 formatted = _format_final_exc_line(
