@@ -1000,6 +1000,9 @@ class RunFailedTests(TestBase):
         snap = exc.snapshot
         if exctype is not None:
             self.assertIs(snap.exc_type, exctype)
+        else:
+            self.assertFalse(isinstance(snap.exc_type, Exception))
+        self.assertEqual(snap.exc_type.__name__, exctype_name)
 
         return exc
 

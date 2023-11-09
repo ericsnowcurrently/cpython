@@ -1029,12 +1029,25 @@ _get_exc_snapshot(PyObject *exc, PyObject **p_snapshot)
         return -1;
     }
 
+    // Handle the exception type.
+    PyTypeObject *_exctype = Py_TYPE(exc);
+    PyObject *exctype = Py_NewRef(_exctype);
+    if (PyDict_GetItemString(PyEval_GetBuiltins(), _exctype->tp_name) == NULL) {
+        if (PyErr_Occurred()) {
+            Py_DECREF(snapshot_type);
+            return 0;
+        }
+        Py_DECREF(exctype);
+        exctype = PyType_GetQualName(_exctype);
+    }
+
     // Build the call args.
     PyObject *tb = PyException_GetTraceback(exc);
     if (tb == NULL) {
         tb = Py_NewRef(Py_None);
     }
-    PyObject *args = PyTuple_Pack(3, Py_TYPE(exc), exc, tb);
+    PyObject *args = PyTuple_Pack(3, exctype, exc, tb);
+    Py_DECREF(exctype);
     Py_DECREF(tb);
     if (args == NULL) {
         Py_DECREF(snapshot_type);
