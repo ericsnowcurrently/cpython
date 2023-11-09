@@ -929,15 +929,17 @@ class RunFailedTests(TestBase):
         super().setUp()
         self.id = interpreters.create()
 
-    def add_module(self, modname, text):
+    def add_module(self, modname, text, *, fixsyspath=True):
         import tempfile
         tempdir = tempfile.mkdtemp()
         self.addCleanup(lambda: os_helper.rmtree(tempdir))
-        interpreters.run_string(self.id, dedent(f"""
-            import sys
-            sys.path.insert(0, {tempdir!r})
-            """))
-        return script_helper.make_script(tempdir, modname, text)
+        if fixsyspath:
+            interpreters.run_string(self.id, dedent(f"""
+                import sys
+                sys.path.insert(0, {tempdir!r})
+                """))
+        filename = script_helper.make_script(tempdir, modname, text)
+        return filename, tempdir
 
     def run_script(self, text, *, fails=False):
         excwrapper = interpreters.RunFailedError
@@ -992,6 +994,7 @@ class RunFailedTests(TestBase):
         else:
             self.assertEqual(str(exc),
                              '{}: {}'.format(exctype_name, msg))
+        self.assertIs(exc.__cause__, exc.snapshot)
 
         # Check the propagated exception.
         snap = exc.snapshot
@@ -1051,7 +1054,7 @@ class RunFailedTests(TestBase):
 
         with self.subTest('deep traceback'):
             modname = 'spam_spam_spam'
-            filename = self.add_module(modname, dedent("""
+            filename, _ = self.add_module(modname, dedent("""
                 def incr(val):
                     return val + 1
 
@@ -1152,6 +1155,57 @@ class RunFailedTests(TestBase):
             self.assertIs(context5, None)
             self.assertIs(context5, None)
 
+    def test_err_display(self):
+        self.maxDiff = None
+        _, dirname = self.add_module('spam', dedent("""
+            def func1():
+                raise ValueError('bad value')
+
+            def func2():
+                return func1()
+
+            def func3():
+                return func1()
+
+            def func4():
+                return func1()
+
+            func4()
+            """))
+        filename = script_helper.make_script(dirname, 'script', dedent("""
+            import _xxsubinterpreters as _interpreters
+            interpid = _interpreters.create()
+            _interpreters.run_string(interpid, 'import spam')
+            """))
+
+        # First we get the exception via the current process.
+        with self.assertRaises(interpreters.RunFailedError) as caught:
+            interpreters.run_string(self.id, 'import spam')
+        exc = caught.exception
+        self.assertIs(exc.snapshot.exc_type, ValueError)
+        import traceback
+        expected = []
+        for line in traceback.format_exception(exc):
+            expected.extend(line.splitlines())
+
+        # Now we get the traceback text via a subprocess.
+        # We expect the default sys.excepthook() to match
+        # the behavior of the traceback module.
+        import subprocess
+        proc = subprocess.run(
+            [sys.executable, filename],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        lines = proc.stdout.splitlines()
+        while lines[-2] != 'Traceback (most recent call last):':
+            del lines[-2]
+        del lines[-2]
+
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(lines, expected)
+
     def test_exit(self):
         with self.subTest('sys.exit(0)'):
             # XXX Should an unhandled SystemExit(0) be handled as not-an-error?
@@ -1208,7 +1262,7 @@ class RunFailedTests(TestBase):
 
         with self.subTest('module'):
             modname = 'spam_spam_spam'
-            filename = self.add_module(modname, script)
+            filename, _ = self.add_module(modname, script)
             exc = self.assert_run_failed(SyntaxError, f"""
                 import {modname}
                 """)

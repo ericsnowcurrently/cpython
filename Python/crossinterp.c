@@ -1244,6 +1244,9 @@ _Py_excinfo_Apply(_Py_excinfo *info, PyObject *exctype)
 #endif
             PyErr_Clear();
         }
+        else {
+            PyException_SetCause(exc, Py_NewRef(snapshot));
+        }
         Py_DECREF(snapshot);
         PyErr_SetRaisedException(exc);
     }
@@ -1952,6 +1955,7 @@ _capture_current_exception(_PyXI_session *session)
     else {
         failure = _PyXI_InitExceptionInfo(exc, excval,
                                           _PyXI_ERR_UNCAUGHT_EXCEPTION);
+        Py_DECREF(excval);
         if (failure == NULL && override != NULL) {
             exc->code = errcode;
         }
@@ -1964,18 +1968,6 @@ _capture_current_exception(_PyXI_session *session)
                 "RunFailedError: script raised an uncaught exception (%s)",
                 failure);
         exc = NULL;
-    }
-
-    // a temporary hack  (famous last words)
-    if (excval != NULL) {
-        // XXX Store the traceback info (or rendered traceback) on
-        // _PyXI_excinfo, attach it to the exception when applied,
-        // and teach PyErr_Display() to print it.
-#ifdef Py_DEBUG
-        // XXX Drop this once _Py_excinfo picks up the slack.
-        PyErr_Display(NULL, excval, NULL);
-#endif
-        Py_DECREF(excval);
     }
 
     // Finished!
