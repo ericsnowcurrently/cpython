@@ -23,6 +23,7 @@
 #include "pycore_unionobject.h"   // _PyUnion_Type
 
 #include "interpreteridobject.h"  // _PyInterpreterID_Type
+#include "pycore_simpleid.h"      // PySimpleID_Type
 
 #ifdef Py_LIMITED_API
    // Prevent recursive call _Py_IncRef() <=> Py_INCREF()
@@ -2250,6 +2251,7 @@ static PyTypeObject* static_types[] = {
     &PySeqIter_Type,
     &PySetIter_Type,
     &PySet_Type,
+    &PySimpleID_Type,
     &PySlice_Type,
     &PyStaticMethod_Type,
     &PyStdPrinter_Type,

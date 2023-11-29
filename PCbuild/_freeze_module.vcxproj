@@ -155,6 +155,7 @@
     <ClCompile Include="..\Objects\picklebufobject.c" />
     <ClCompile Include="..\Objects\rangeobject.c" />
     <ClCompile Include="..\Objects\setobject.c" />
+    <ClCompile Include="..\Objects\simpleidobject.c" />
     <ClCompile Include="..\Objects\sliceobject.c" />
     <ClCompile Include="..\Objects\structseq.c" />
     <ClCompile Include="..\Objects\tupleobject.c" />

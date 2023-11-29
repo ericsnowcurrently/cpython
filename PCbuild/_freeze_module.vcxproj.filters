@@ -232,6 +232,9 @@
     <ClCompile Include="..\Objects\interpreteridobject.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\Objects\simpleidobject.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\PC\invalid_parameter_handler.c">
       <Filter>Source Files</Filter>
     </ClCompile>
