@@ -1180,17 +1180,16 @@ _PyInterpreterState_IDInitref(PyInterpreterState *interp)
 }
 
 
-int
+void
 _PyInterpreterState_IDIncref(PyInterpreterState *interp)
 {
-    if (_PyInterpreterState_IDInitref(interp) < 0) {
-        return -1;
-    }
+    // The caller must call _PyInterpreterState_IDInitref() at some
+    // point before this is called.
+    assert(interp->id_mutex != NULL);
 
     PyThread_acquire_lock(interp->id_mutex, WAIT_LOCK);
     interp->id_refcount += 1;
     PyThread_release_lock(interp->id_mutex);
-    return 0;
 }
 
 
