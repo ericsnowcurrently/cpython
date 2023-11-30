@@ -2228,7 +2228,6 @@ static PyTypeObject* static_types[] = {
     &PyGen_Type,
     &PyGetSetDescr_Type,
     &PyInstanceMethod_Type,
-    &PyInterpreterID_Type,
     &PyListIter_Type,
     &PyListRevIter_Type,
     &PyList_Type,
@@ -2299,6 +2298,9 @@ static PyTypeObject* static_types[] = {
     &_PyWeakref_ProxyType,
     &_PyWeakref_RefType,
     &_PyTypeAlias_Type,
+
+    // Static subclasses of other builtin types.
+    &PyInterpreterID_Type,
 
     // subclasses: _PyTypes_FiniTypes() deallocates them before their base
     // class
