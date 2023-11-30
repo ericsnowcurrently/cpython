@@ -2251,6 +2251,7 @@ static PyTypeObject* static_types[] = {
     &PySeqIter_Type,
     &PySetIter_Type,
     &PySet_Type,
+    &_PySimpleID_Type_Type,
     &PySimpleID_Type,
     &PySlice_Type,
     &PyStaticMethod_Type,

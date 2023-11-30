@@ -12,6 +12,7 @@ extern "C" {
 typedef int64_t simpleid_t;
 #define Py_SIMPLEID_MAX INT64_MAX
 
+extern PyTypeObject _PySimpleID_Type_Type;
 extern PyTypeObject PySimpleID_Type;
 
 extern PyObject * PySimpleID_New(simpleid_t id);
