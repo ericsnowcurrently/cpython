@@ -15,7 +15,19 @@ typedef int64_t simpleid_t;
 extern PyTypeObject _PySimpleID_Type_Type;
 extern PyTypeObject PySimpleID_Type;
 
-extern PyObject * PySimpleID_New(simpleid_t id);
+struct simpleid_lifetime_t {
+    void *ctx;
+    void (*incref)(void *ctx, simpleid_t id, void **value);
+    void (*decref)(void *ctx, simpleid_t id, void **value);
+};
+
+extern PyTypeObject * _PySimpleID_NewSubclass(
+    const char *name,
+    PyObject *module,
+    const char *doc,
+    struct simpleid_lifetime_t *lifetime);
+
+extern PyObject * PySimpleID_New(simpleid_t id, PyTypeObject *subclass);
 
 
 #ifdef __cplusplus

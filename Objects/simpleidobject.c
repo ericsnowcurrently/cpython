@@ -5,12 +5,59 @@
 #include "pycore_simpleid.h"
 
 
+typedef struct simpleid {
+    PyObject_HEAD
+    simpleid_t id;
+} PySimpleIDObject;
+
+
+static int
+validate_simpleid(simpleid_t id)
+{
+    if (id < 0) {
+        PyErr_Format(PyExc_ValueError,
+                     "ID must be a non-negative int, got %lld", id);
+        return -1;
+    }
+    return 0;
+}
+
+static int
+simpleid_converter(PyObject *arg, void *ptr)
+{
+    simpleid_t id;
+    if (PyObject_TypeCheck(arg, &PySimpleID_Type)) {
+        id = ((PySimpleIDObject *)arg)->id;
+    }
+    else if (_PyIndex_Check(arg)) {
+        assert(PY_LLONG_MAX <= Py_SIMPLEID_MAX);
+        id = (simpleid_t)PyLong_AsLongLong(arg);
+        if (id == -1 && PyErr_Occurred()) {
+            return 0;
+        }
+        if (validate_simpleid(id) < 0) {
+            return 0;
+        }
+    }
+    else {
+        PyErr_Format(PyExc_TypeError,
+                     "ID must be an int, got %.100s",
+                     Py_TYPE(arg)->tp_name);
+        return 0;
+    }
+    *(simpleid_t *)ptr = id;
+    return 1;
+}
+
+
 /***********************/
 /* simple ID metaclass */
 /***********************/
 
 typedef struct {
     PyTypeObject base;
+    struct simpleid_lifetime_t *lifetime;
+    struct simpleid_lifetime_t _lifetime;
 } simpleidtype;
 
 PyTypeObject _PySimpleID_Type_Type = {
@@ -48,35 +95,13 @@ PyTypeObject _PySimpleID_Type_Type = {
 };
 
 
-/**************/
-/* simple IDs */
-/**************/
-
-static int
-validate_simpleid(simpleid_t id)
-{
-    if (id < 0) {
-        PyErr_Format(PyExc_ValueError,
-                     "ID must be a non-negative int, got %lld", id);
-        return -1;
-    }
-    return 0;
-}
-
-typedef struct simpleid {
-    PyObject_HEAD
-    simpleid_t id;
-} PySimpleIDObject;
+/*********************/
+/* simple ID objects */
+/*********************/
 
 static PySimpleIDObject *
 newsimpleid(PyTypeObject *cls, simpleid_t id)
 {
-    if (!PyType_IsSubtype(cls, &PySimpleID_Type)) {
-        PyErr_Format(PyExc_TypeError,
-                     "ID must be a SimpleIDType subclass, got %R", cls);
-        return NULL;
-    }
-
     PySimpleIDObject *self = PyObject_New(PySimpleIDObject, cls);
     if (self == NULL) {
         return NULL;
@@ -84,33 +109,6 @@ newsimpleid(PyTypeObject *cls, simpleid_t id)
     self->id = id;
 
     return self;
-}
-
-static int
-simpleid_converter(PyObject *arg, void *ptr)
-{
-    simpleid_t id;
-    if (PyObject_TypeCheck(arg, &PySimpleID_Type)) {
-        id = ((PySimpleIDObject *)arg)->id;
-    }
-    else if (_PyIndex_Check(arg)) {
-        assert(PY_LLONG_MAX <= Py_SIMPLEID_MAX);
-        id = (simpleid_t)PyLong_AsLongLong(arg);
-        if (id == -1 && PyErr_Occurred()) {
-            return 0;
-        }
-        if (validate_simpleid(id) < 0) {
-            return 0;
-        }
-    }
-    else {
-        PyErr_Format(PyExc_TypeError,
-                     "ID must be an int, got %.100s",
-                     Py_TYPE(arg)->tp_name);
-        return 0;
-    }
-    *(simpleid_t *)ptr = id;
-    return 1;
 }
 
 static PyObject *
@@ -298,8 +296,110 @@ PyTypeObject PySimpleID_Type = {
     simpleid_new,                   /* tp_new */
 };
 
-PyObject *
-PySimpleID_New(simpleid_t id)
+
+/***********************/
+/* simple ID lifetimes */
+/***********************/
+
+static PySimpleIDObject *
+newsimpleid_subclass(PyTypeObject *cls, simpleid_t id, int force)
 {
-    return (PyObject *)newsimpleid(&PySimpleID_Type, id);
+    PySimpleIDObject *self = newsimpleid(cls, id);
+    if (self == NULL) {
+        return NULL;
+    }
+
+    struct simpleid_lifetime_t *lifetime = ((simpleidtype *)cls)->lifetime;
+    assert(lifetime != NULL);
+    void *value = NULL;
+    lifetime->incref(lifetime->ctx, id, &value);
+    if (value == NULL) {
+        // No matching item was found.
+        Py_DECREF(self);
+        if (!force) {
+            PyErr_Format(PyExc_RuntimeError,
+                         "ID %lld not found", id);
+            return NULL;
+        }
+    }
+
+    return self;
+}
+
+static PyObject *
+simpleid_subclass_new(PyTypeObject *cls, PyObject *args, PyObject *kwds)
+{
+    static char *kwlist[] = {"id", "force", NULL};
+    int force = 0;
+    simpleid_t id;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds,
+                                     "O&|$p:SimpleID.__init__", kwlist,
+                                     simpleid_converter, &id, &force)) {
+        return NULL;
+    }
+
+    return (PyObject *)newsimpleid_subclass(cls, id, force);
+}
+
+static void
+simpleid_subclass_dealloc(PyObject *v)
+{
+    simpleid_t id = ((PySimpleIDObject *)v)->id;
+    simpleidtype *sidtype = (simpleidtype *)Py_TYPE(v);
+    sidtype->lifetime->decref(sidtype->lifetime->ctx, id, NULL);
+
+    simpleid_dealloc(v);
+}
+
+PyTypeObject *
+_PySimpleID_NewSubclass(const char *name, PyObject *module, const char *doc,
+                        struct simpleid_lifetime_t *lifetime)
+{
+    assert(lifetime != NULL);
+    assert(lifetime->incref != NULL);
+    assert(lifetime->decref != NULL);
+
+    PyType_Slot slots[] = {
+        {Py_tp_new, simpleid_subclass_new},
+        {Py_tp_dealloc, simpleid_subclass_dealloc},
+        {Py_tp_doc, (void *)doc},
+        {0, NULL},
+    };
+    PyType_Spec spec = {
+        .name = name,
+        .slots = slots,
+    };
+    PyObject *bases = (PyObject *)&PySimpleID_Type;
+    PyObject *cls = PyType_FromMetaclass(&_PySimpleID_Type_Type,
+                                         module, &spec, bases);
+    if (cls == NULL) {
+        return NULL;
+    }
+
+    simpleidtype *sidtype = (simpleidtype *)cls;
+    sidtype->_lifetime = *lifetime;
+    sidtype->lifetime = &sidtype->_lifetime;
+
+    return (PyTypeObject *)cls;
+}
+
+
+/***********************/
+/* other API functions */
+/***********************/
+
+PyObject *
+PySimpleID_New(simpleid_t id, PyTypeObject *subclass)
+{
+    PyTypeObject *cls = &PySimpleID_Type;
+    if (subclass == NULL) {
+        return (PyObject *)newsimpleid(cls, id);
+    }
+
+    if (!PyType_IsSubtype(subclass, &PySimpleID_Type)) {
+        PyErr_Format(PyExc_TypeError,
+                     "expected a SimpleID subclass, got %R", subclass);
+        return NULL;
+    }
+    return (PyObject *)newsimpleid_subclass(subclass, id, 0);
 }
