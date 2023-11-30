@@ -3,6 +3,7 @@
 #include "Python.h"
 #include "pycore_abstract.h"   // _PyIndex_Check()
 #include "pycore_simpleid.h"
+#include "pycore_typeobject.h"  // _PyType_IsReady()
 
 
 typedef struct simpleid {
@@ -48,51 +49,6 @@ simpleid_converter(PyObject *arg, void *ptr)
     *(simpleid_t *)ptr = id;
     return 1;
 }
-
-
-/***********************/
-/* simple ID metaclass */
-/***********************/
-
-typedef struct {
-    PyTypeObject base;
-    struct simpleid_lifetime_t *lifetime;
-    struct simpleid_lifetime_t _lifetime;
-} simpleidtype;
-
-PyTypeObject _PySimpleID_Type_Type = {
-    PyVarObject_HEAD_INIT(&PyType_Type, 0)
-    "_SimpleIDType",                /* tp_name */
-    sizeof(simpleidtype),           /* tp_basicsize */
-    0,                              /* tp_itemsize */
-    0,                              /* tp_dealloc */
-    0,                              /* tp_vectorcall_offset */
-    0,                              /* tp_getattr */
-    0,                              /* tp_setattr */
-    0,                              /* tp_as_async */
-    0,                              /* tp_repr */
-    0,                              /* tp_as_number */
-    0,                              /* tp_as_sequence */
-    0,                              /* tp_as_mapping */
-    0,                              /* tp_hash */
-    0,                              /* tp_call */
-    0,                              /* tp_str */
-    0,                              /* tp_getattro */
-    0,                              /* tp_setattro */
-    0,                              /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT | Py_TPFLAGS_TYPE_SUBCLASS,  /* tp_flags */
-    0,                              /* tp_doc */
-    0,                              /* tp_traverse */
-    0,                              /* tp_clear */
-    0,                              /* tp_richcompare */
-    0,                              /* tp_weaklistoffset */
-    0,                              /* tp_iter */
-    0,                              /* tp_iternext */
-    0,                              /* tp_methods */
-    0,                              /* tp_members */
-    0,                              /* tp_getset */
-    &PyType_Type,                   /* tp_base */
-};
 
 
 /*********************/
@@ -256,7 +212,7 @@ PyDoc_STRVAR(simpleid_doc,
 "A simple ID uniquely identifies some resource and may be used as an int.");
 
 PyTypeObject PySimpleID_Type = {
-    PyVarObject_HEAD_INIT(&_PySimpleID_Type_Type, 0)
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)
     "SimpleID",                     /* tp_name */
     sizeof(PySimpleIDObject),       /* tp_basicsize */
     0,                              /* tp_itemsize */
@@ -301,6 +257,43 @@ PyTypeObject PySimpleID_Type = {
 /* simple ID lifetimes */
 /***********************/
 
+// We stash extra info in tp_as_buffer:
+struct fake_buffer {
+    PyBufferProcs ignored;
+    struct simpleid_lifetime_t lifetime;
+};
+
+static int
+set_lifetime(PyTypeObject *cls, struct simpleid_lifetime_t *lifetime)
+{
+    assert(PyType_IsSubtype(cls, &PySimpleID_Type));
+    assert(_PyType_IsReady(cls));
+    assert(cls->tp_as_buffer == NULL);
+    assert(lifetime != NULL);
+    assert(lifetime->incref != NULL);
+    assert(lifetime->decref != NULL);
+
+    struct fake_buffer *fake = PyMem_RawMalloc(sizeof(struct fake_buffer));
+    if (fake == NULL) {
+        PyErr_NoMemory();
+        return -1;
+    }
+    *fake = (struct fake_buffer){
+        .lifetime = *lifetime,
+    };
+
+    cls->tp_as_buffer = (PyBufferProcs *)fake;
+    return 0;
+}
+
+static struct simpleid_lifetime_t *
+get_lifetime(PyTypeObject *cls)
+{
+    assert(PyType_IsSubtype(cls, &PySimpleID_Type));
+    assert(cls->tp_as_buffer != NULL);
+    return &((struct fake_buffer *)cls->tp_as_buffer)->lifetime;
+}
+
 static PySimpleIDObject *
 newsimpleid_subclass(PyTypeObject *cls, simpleid_t id, int force)
 {
@@ -309,9 +302,14 @@ newsimpleid_subclass(PyTypeObject *cls, simpleid_t id, int force)
         return NULL;
     }
 
-    struct simpleid_lifetime_t *lifetime = ((simpleidtype *)cls)->lifetime;
-    assert(lifetime != NULL);
+    struct simpleid_lifetime_t *lifetime = get_lifetime(cls);
     void *value = NULL;
+    if (lifetime->init != NULL) {
+        if (lifetime->init(lifetime->ctx, id, &value) < 0) {
+            Py_DECREF(self);
+            return NULL;
+        }
+    }
     lifetime->incref(lifetime->ctx, id, &value);
     if (value == NULL) {
         // No matching item was found.
@@ -344,9 +342,9 @@ simpleid_subclass_new(PyTypeObject *cls, PyObject *args, PyObject *kwds)
 static void
 simpleid_subclass_dealloc(PyObject *v)
 {
+    struct simpleid_lifetime_t *lifetime = get_lifetime(Py_TYPE(v));
     simpleid_t id = ((PySimpleIDObject *)v)->id;
-    simpleidtype *sidtype = (simpleidtype *)Py_TYPE(v);
-    sidtype->lifetime->decref(sidtype->lifetime->ctx, id, NULL);
+    lifetime->decref(lifetime->ctx, id, NULL);
 
     simpleid_dealloc(v);
 }
@@ -355,10 +353,6 @@ PyTypeObject *
 _PySimpleID_NewSubclass(const char *name, PyObject *module, const char *doc,
                         struct simpleid_lifetime_t *lifetime)
 {
-    assert(lifetime != NULL);
-    assert(lifetime->incref != NULL);
-    assert(lifetime->decref != NULL);
-
     PyType_Slot slots[] = {
         {Py_tp_new, simpleid_subclass_new},
         {Py_tp_dealloc, simpleid_subclass_dealloc},
@@ -370,23 +364,56 @@ _PySimpleID_NewSubclass(const char *name, PyObject *module, const char *doc,
         .slots = slots,
     };
     PyObject *bases = (PyObject *)&PySimpleID_Type;
-    PyObject *cls = PyType_FromMetaclass(&_PySimpleID_Type_Type,
-                                         module, &spec, bases);
+    PyObject *cls = PyType_FromMetaclass(NULL, module, &spec, bases);
     if (cls == NULL) {
         return NULL;
     }
 
-    simpleidtype *sidtype = (simpleidtype *)cls;
-    sidtype->_lifetime = *lifetime;
-    sidtype->lifetime = &sidtype->_lifetime;
+    if (set_lifetime((PyTypeObject *)cls, lifetime) < 0) {
+        Py_DECREF(cls);
+        return NULL;
+    }
 
     return (PyTypeObject *)cls;
+}
+int
+_PySimpleID_SubclassInitialized(PyTypeObject *cls)
+{
+    assert(cls->tp_flags & _Py_TPFLAGS_STATIC_BUILTIN);
+    return cls->tp_as_buffer != NULL;
+}
+
+int
+_PySimpleID_InitSubclass(PyTypeObject *cls, struct simpleid_lifetime_t *lifetime)
+{
+    assert(cls->tp_flags & _Py_TPFLAGS_STATIC_BUILTIN);
+    assert(_PyType_IsReady(cls));
+    assert(cls->tp_as_buffer == NULL);
+    return set_lifetime(cls, lifetime);
+}
+
+PyObject *
+_PySimpleID_tp_new(PyTypeObject *cls, PyObject *args, PyObject *kwds)
+{
+    return simpleid_subclass_new(cls, args, kwds);
+}
+
+void
+_PySimpleID_tp_dealloc(PyObject *v)
+{
+    simpleid_subclass_dealloc(v);
 }
 
 
 /***********************/
 /* other API functions */
 /***********************/
+
+int
+_PySimpleID_converter(PyObject *arg, void *ptr)
+{
+    return simpleid_converter(arg, ptr);
+}
 
 PyObject *
 PySimpleID_New(simpleid_t id, PyTypeObject *subclass)
