@@ -202,7 +202,8 @@ _Py_CheckPython3(void)
 
 dl_funcptr _PyImport_FindSharedFuncptrWindows(const char *prefix,
                                               const char *shortname,
-                                              PyObject *pathname, FILE *fp)
+                                              PyObject *pathname, FILE *fp,
+                                              MODULE_HANDLE *p_handle)
 {
     dl_funcptr p;
     char funcname[258], *import_python;
@@ -322,6 +323,8 @@ dl_funcptr _PyImport_FindSharedFuncptrWindows(const char *prefix,
         Py_BEGIN_ALLOW_THREADS
         p = GetProcAddress(hDLL, funcname);
         Py_END_ALLOW_THREADS
+
+        *p_handle = hDLL;
     }
 
     return p;

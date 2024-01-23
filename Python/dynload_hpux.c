@@ -17,7 +17,8 @@ const char *_PyImport_DynLoadFiletab[] = {SHLIB_EXT, ".sl", NULL};
 
 dl_funcptr _PyImport_FindSharedFuncptr(const char *prefix,
                                        const char *shortname,
-                                       const char *pathname, FILE *fp)
+                                       const char *pathname, FILE *fp,
+                                       MODULE_HANDLE *p_handle)
 {
     int flags = BIND_FIRST | BIND_DEFERRED;
     int verbose = _Py_GetConfig()->verbose;
@@ -69,7 +70,10 @@ dl_funcptr _PyImport_FindSharedFuncptr(const char *prefix,
         shl_unload(lib);
         p = NULL;
     }
-    if (p == NULL && verbose) {
+    if (p != NULL) {
+        *p_handle = lib;
+    }
+    else if (verbose) {
         perror(funcname);
     }
     return p;

@@ -52,7 +52,8 @@ const char *_PyImport_DynLoadFiletab[] = {
 dl_funcptr
 _PyImport_FindSharedFuncptr(const char *prefix,
                             const char *shortname,
-                            const char *pathname, FILE *fp)
+                            const char *pathname, FILE *fp,
+                            MODULE_HANDLE *p_handle)
 {
     dl_funcptr p;
     void *handle;
@@ -107,5 +108,6 @@ _PyImport_FindSharedFuncptr(const char *prefix,
         return NULL;
     }
     p = (dl_funcptr) dlsym(handle, funcname);
+    *p_handle = handle;
     return p;
 }

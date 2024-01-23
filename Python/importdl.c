@@ -21,11 +21,13 @@
 extern dl_funcptr _PyImport_FindSharedFuncptrWindows(const char *prefix,
                                                      const char *shortname,
                                                      PyObject *pathname,
-                                                     FILE *fp);
+                                                     FILE *fp,
+                                                     MODULE_HANDLE);
 #else
 extern dl_funcptr _PyImport_FindSharedFuncptr(const char *prefix,
                                               const char *shortname,
-                                              const char *pathname, FILE *fp);
+                                              const char *pathname, FILE *fp,
+                                              MODULE_HANDLE);
 #endif
 
 static const char * const ascii_only_prefix = "PyInit";
@@ -152,19 +154,20 @@ get_spec_info(PyObject *spec, struct spec_info *info)
 
 static PyModInitFunction
 get_init_func(const char *prefix, const char *name, PyObject *nameobj,
-              PyObject *path, FILE *fp)
+              PyObject *path, FILE *fp, MODULE_HANDLE *p_handle)
 {
     dl_funcptr exportfunc;
 #ifdef MS_WINDOWS
-    exportfunc = _PyImport_FindSharedFuncptrWindows(prefix, name, path, fp);
+    exportfunc = _PyImport_FindSharedFuncptrWindows(prefix, name, path, fp,
+                                                    p_handle);
 #else
     PyObject *pathbytes = PyUnicode_EncodeFSDefault(path);
     if (pathbytes == NULL) {
         return NULL;
     }
     exportfunc = _PyImport_FindSharedFuncptr(prefix, name,
-                                             PyBytes_AS_STRING(pathbytes),
-                                             fp);
+                                             PyBytes_AS_STRING(pathbytes), fp,
+                                             p_handle);
     Py_DECREF(pathbytes);
 #endif
 
@@ -274,6 +277,7 @@ PyObject *
 _PyImport_LoadDynamicModuleWithSpec(PyObject *spec, FILE *fp)
 {
     struct spec_info info;
+    MODULE_HANDLE handle = NULL;
     PyModInitFunction p0;
     PyObject *m = NULL;
 
@@ -284,33 +288,41 @@ _PyImport_LoadDynamicModuleWithSpec(PyObject *spec, FILE *fp)
     if (PySys_Audit("import", "OOOOO", info.nameobj, info.path,
                     Py_None, Py_None, Py_None) < 0)
     {
-        goto finally;
+        goto error;
     }
 
-    p0 = get_init_func(info.prefix, info.name, info.nameobj, info.path, fp);
+    p0 = get_init_func(info.prefix, info.name, info.nameobj, info.path, fp,
+                       &handle);
     if (p0 == NULL) {
-        goto finally;
+        goto error;
     }
 
     m = load_module(p0, info.name, info.nameobj);
     if (m == NULL) {
-        goto finally;
+        goto error;
     }
     if (PyObject_TypeCheck(m, &PyModuleDef_Type)) {
         PyModuleDef *def = (PyModuleDef *)m;
         m = PyModule_FromDefAndSpec(def, spec);
         // XXX Py_DECREF(def)?
         if (m == NULL) {
-            goto finally;
+            goto error;
         }
     }
     /* Fall back to single-phase init mechanism */
     else if (finish_single_phase_init(m, p0, info.path, info.prefix, info.name,
                                       info.nameobj) < 0)
     {
-        Py_CLEAR(m);
-        goto finally;
+        goto error;
     }
+
+    ((PyModuleObject *)m)->md_handle = handle;
+    // XXX Also track the handle globally, to ensure it gets closed?
+
+    goto finally;
+
+error:
+    Py_CLEAR(m);
 
 finally:
     clear_spec_info(&info);

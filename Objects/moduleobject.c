@@ -84,6 +84,7 @@ new_module_notrack(PyTypeObject *mt)
     if (m == NULL)
         return NULL;
     m->md_def = NULL;
+    m->md_handle = NULL;
     m->md_state = NULL;
     m->md_weaklist = NULL;
     m->md_name = NULL;

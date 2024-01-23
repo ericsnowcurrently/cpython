@@ -8,6 +8,9 @@ extern "C" {
 #  error "this header requires Py_BUILD_CORE define"
 #endif
 
+#include "pycore_importdl.h"
+
+
 extern void _PyModule_Clear(PyObject *);
 extern void _PyModule_ClearDict(PyObject *);
 extern int _PyModuleSpec_IsInitializing(PyObject *);
@@ -18,6 +21,7 @@ typedef struct {
     PyObject_HEAD
     PyObject *md_dict;
     PyModuleDef *md_def;
+    MODULE_HANDLE *md_handle;
     void *md_state;
     PyObject *md_weaklist;
     // for logging purposes after md_dict is cleared
