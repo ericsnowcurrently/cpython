@@ -956,7 +956,7 @@ _extensions_cache_get(PyObject *filename, PyObject *name)
     void *key = NULL;
     extensions_lock_acquire();
 
-    if (EXTENSIONS.hashtable == NULL) {
+    if (EXTENSIONS.defs == NULL) {
         goto finally;
     }
 
@@ -965,7 +965,7 @@ _extensions_cache_get(PyObject *filename, PyObject *name)
         goto finally;
     }
     _Py_hashtable_entry_t *entry = _Py_hashtable_get_entry(
-            EXTENSIONS.hashtable, key);
+            EXTENSIONS.defs, key);
     if (entry == NULL) {
         goto finally;
     }
@@ -985,9 +985,9 @@ _extensions_cache_set(PyObject *filename, PyObject *name, PyModuleDef *def)
     int res = -1;
     extensions_lock_acquire();
 
-    if (EXTENSIONS.hashtable == NULL) {
+    if (EXTENSIONS.defs == NULL) {
         _Py_hashtable_allocator_t alloc = {PyMem_RawMalloc, PyMem_RawFree};
-        EXTENSIONS.hashtable = _Py_hashtable_new_full(
+        EXTENSIONS.defs = _Py_hashtable_new_full(
             hashtable_hash_str,
             hashtable_compare_str,
             hashtable_destroy_str,  // key
@@ -995,7 +995,7 @@ _extensions_cache_set(PyObject *filename, PyObject *name, PyModuleDef *def)
             NULL,  // value
             &alloc
         );
-        if (EXTENSIONS.hashtable == NULL) {
+        if (EXTENSIONS.defs == NULL) {
             PyErr_NoMemory();
             goto finally;
         }
@@ -1008,9 +1008,9 @@ _extensions_cache_set(PyObject *filename, PyObject *name, PyModuleDef *def)
 
     int already_set = 0;
     _Py_hashtable_entry_t *entry = _Py_hashtable_get_entry(
-            EXTENSIONS.hashtable, key);
+            EXTENSIONS.defs, key);
     if (entry == NULL) {
-        if (_Py_hashtable_set(EXTENSIONS.hashtable, key, def) < 0) {
+        if (_Py_hashtable_set(EXTENSIONS.defs, key, def) < 0) {
             PyMem_RawFree(key);
             PyErr_NoMemory();
             goto finally;
@@ -1045,7 +1045,7 @@ _extensions_cache_delete(PyObject *filename, PyObject *name)
     void *key = NULL;
     extensions_lock_acquire();
 
-    if (EXTENSIONS.hashtable == NULL) {
+    if (EXTENSIONS.defs == NULL) {
         /* It was never added. */
         goto finally;
     }
@@ -1056,7 +1056,7 @@ _extensions_cache_delete(PyObject *filename, PyObject *name)
     }
 
     _Py_hashtable_entry_t *entry = _Py_hashtable_get_entry(
-            EXTENSIONS.hashtable, key);
+            EXTENSIONS.defs, key);
     if (entry == NULL) {
         /* It was never added. */
         goto finally;
@@ -1084,8 +1084,8 @@ _extensions_cache_clear_all(void)
 {
     /* The runtime (i.e. main interpreter) must be finalizing,
        so we don't need to worry about the lock. */
-    _Py_hashtable_destroy(EXTENSIONS.hashtable);
-    EXTENSIONS.hashtable = NULL;
+    _Py_hashtable_destroy(EXTENSIONS.defs);
+    EXTENSIONS.defs = NULL;
 }
 
 #undef HTSEP

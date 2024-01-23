@@ -55,7 +55,7 @@ struct _import_runtime_state {
            or are imported in the main interpreter.
            This is initialized lazily in _PyImport_FixupExtensionObject().
            Modules are added there and looked up in _imp.find_extension(). */
-        _Py_hashtable_t *hashtable;
+        _Py_hashtable_t *defs;
     } extensions;
     /* Package context -- the full module name for package imports */
     const char * pkgcontext;
