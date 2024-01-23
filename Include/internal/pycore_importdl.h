@@ -17,6 +17,7 @@ extern const char *_PyImport_DynLoadFiletab[];
 typedef void * MODULE_HANDLE;
 
 extern PyObject *_PyImport_LoadDynamicModuleWithSpec(PyObject *spec, FILE *fp);
+extern int _PyImport_ReleaseDynamicModule(MODULE_HANDLE);
 
 typedef PyObject *(*PyModInitFunction)(void);
 

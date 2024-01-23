@@ -200,6 +200,62 @@ _Py_CheckPython3(void)
 }
 #endif /* Py_ENABLE_SHARED */
 
+static void
+set_error(const char *op, const char *shortname, PyObject *pathname)
+{
+    PyObject *message;
+    unsigned int errorCode;
+
+    /* Get an error string from Win32 error code */
+    wchar_t theInfo[256]; /* Pointer to error text
+                          from system */
+    int theLength; /* Length of error text */
+
+    errorCode = GetLastError();
+
+    theLength = FormatMessageW(
+        FORMAT_MESSAGE_FROM_SYSTEM |
+        FORMAT_MESSAGE_IGNORE_INSERTS, /* flags */
+        NULL, /* message source */
+        errorCode, /* the message (error) ID */
+        MAKELANGID(LANG_NEUTRAL,
+                   SUBLANG_DEFAULT),
+                   /* Default language */
+        theInfo, /* the buffer */
+        sizeof(theInfo) / sizeof(wchar_t), /* size in wchars */
+        NULL); /* no additional format args. */
+
+    /* Problem: could not get the error message.
+       This should not happen if called correctly. */
+    if (theLength == 0) {
+        message = PyUnicode_FromFormat(
+            "DLL %s failed with error code %u while importing %s",
+            op, errorCode, shortname);
+    } else {
+        /* For some reason a \r\n
+           is appended to the text */
+        if (theLength >= 2 &&
+            theInfo[theLength-2] == '\r' &&
+            theInfo[theLength-1] == '\n') {
+            theLength -= 2;
+            theInfo[theLength] = '\0';
+        }
+        message = PyUnicode_FromFormat(
+            "DLL %s failed while importing %s: ", op, shortname);
+
+        PyUnicode_AppendAndDel(&message,
+            PyUnicode_FromWideChar(
+                theInfo,
+                theLength));
+    }
+    if (message != NULL) {
+        PyObject *shortname_obj = PyUnicode_FromString(shortname);
+        PyErr_SetImportError(message, shortname_obj, pathname);
+        Py_XDECREF(shortname_obj);
+        Py_DECREF(message);
+    }
+}
+
 dl_funcptr _PyImport_FindSharedFuncptrWindows(const char *prefix,
                                               const char *shortname,
                                               PyObject *pathname, FILE *fp,
@@ -244,57 +300,7 @@ dl_funcptr _PyImport_FindSharedFuncptrWindows(const char *prefix,
 #endif
 
         if (hDLL==NULL){
-            PyObject *message;
-            unsigned int errorCode;
-
-            /* Get an error string from Win32 error code */
-            wchar_t theInfo[256]; /* Pointer to error text
-                                  from system */
-            int theLength; /* Length of error text */
-
-            errorCode = GetLastError();
-
-            theLength = FormatMessageW(
-                FORMAT_MESSAGE_FROM_SYSTEM |
-                FORMAT_MESSAGE_IGNORE_INSERTS, /* flags */
-                NULL, /* message source */
-                errorCode, /* the message (error) ID */
-                MAKELANGID(LANG_NEUTRAL,
-                           SUBLANG_DEFAULT),
-                           /* Default language */
-                theInfo, /* the buffer */
-                sizeof(theInfo) / sizeof(wchar_t), /* size in wchars */
-                NULL); /* no additional format args. */
-
-            /* Problem: could not get the error message.
-               This should not happen if called correctly. */
-            if (theLength == 0) {
-                message = PyUnicode_FromFormat(
-                    "DLL load failed with error code %u while importing %s",
-                    errorCode, shortname);
-            } else {
-                /* For some reason a \r\n
-                   is appended to the text */
-                if (theLength >= 2 &&
-                    theInfo[theLength-2] == '\r' &&
-                    theInfo[theLength-1] == '\n') {
-                    theLength -= 2;
-                    theInfo[theLength] = '\0';
-                }
-                message = PyUnicode_FromFormat(
-                    "DLL load failed while importing %s: ", shortname);
-
-                PyUnicode_AppendAndDel(&message,
-                    PyUnicode_FromWideChar(
-                        theInfo,
-                        theLength));
-            }
-            if (message != NULL) {
-                PyObject *shortname_obj = PyUnicode_FromString(shortname);
-                PyErr_SetImportError(message, shortname_obj, pathname);
-                Py_XDECREF(shortname_obj);
-                Py_DECREF(message);
-            }
+            set_error("load", shortname, pathname);
             return NULL;
         } else {
             char buffer[256];
@@ -328,4 +334,14 @@ dl_funcptr _PyImport_FindSharedFuncptrWindows(const char *prefix,
     }
 
     return p;
+}
+
+int
+_PyImport_ReleaseDynamicModule(MODULE_HANDLE handle)
+{
+    if (FreeLibrary((HMODULE)handle) != 0) {
+        set_error("unload", "module", NULL);
+        return -1;
+    }
+    return 0;
 }

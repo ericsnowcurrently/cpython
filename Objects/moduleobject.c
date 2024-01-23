@@ -737,8 +737,17 @@ module_dealloc(PyModuleObject *m)
     }
     Py_XDECREF(m->md_dict);
     Py_XDECREF(m->md_name);
-    if (m->md_state != NULL)
+    if (m->md_state != NULL) {
         PyMem_Free(m->md_state);
+    }
+    if (m->md_handle != NULL) {
+        // XXX We need to handle possible threads running the module's code,
+        // or registered callbacks.
+        // Either one would make closing the shared lib handle a problem.
+        if (_PyImport_ReleaseDynamicModule(m->md_handle) < 0) {
+            // XXX Emit a warning or something?
+        }
+    }
     Py_TYPE(m)->tp_free((PyObject *)m);
 }
 

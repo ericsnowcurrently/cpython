@@ -323,6 +323,15 @@ _PyImport_LoadDynamicModuleWithSpec(PyObject *spec, FILE *fp)
 
 error:
     Py_CLEAR(m);
+    if (handle != NULL) {
+        // For now we ignore the possibility that the module init func
+        // may have started a thread or registered a callback function.
+        // Either one would make closing the shared lib handle a problem.
+        if (_PyImport_ReleaseDynamicModule(handle) < 0) {
+            // XXX Emit a warning or something?
+        }
+        handle = NULL;
+    }
 
 finally:
     clear_spec_info(&info);

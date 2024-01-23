@@ -111,3 +111,21 @@ _PyImport_FindSharedFuncptr(const char *prefix,
     *p_handle = handle;
     return p;
 }
+
+int
+_PyImport_ReleaseDynamicModule(MODULE_HANDLE handle)
+{
+    if (dlclose(handle) != 0) {
+        const char *error = dlerror();
+        if (error == NULL) {
+            error = "unknown dlopen() error";
+        }
+        PyObject *error_ob = PyUnicode_DecodeLocale(error, "surrogateescape");
+        if (error_ob != NULL) {
+            PyErr_SetObject(PyExc_ImportError, error_ob);
+            Py_DECREF(error_ob);
+        }
+        return -1;
+    }
+    return 0;
+}

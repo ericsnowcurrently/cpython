@@ -78,3 +78,14 @@ dl_funcptr _PyImport_FindSharedFuncptr(const char *prefix,
     }
     return p;
 }
+
+int
+_PyImport_ReleaseDynamicModule(MODULE_HANDLE handle)
+{
+    if (shl_unload((shl_t)handle) != 0) {
+        PyErr_SetString(PyExc_ImportError,
+                        "error while unloading shared library");
+        return -1;
+    }
+    return 0;
+}
