@@ -1017,6 +1017,11 @@ _PyInterpreterState_SetRunningMain(PyInterpreterState *interp)
                         "current tstate has wrong interpreter");
         return -1;
     }
+#ifdef Py_DEBUG
+    if (_Py_IsMainInterpreter(interp) && tstate != (PyThreadState *)&interp->_initial_thread) {
+        // XXX Emit a warning.
+    }
+#endif
     interp->threads.main = tstate;
     return 0;
 }
