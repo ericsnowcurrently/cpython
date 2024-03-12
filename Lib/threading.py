@@ -1599,10 +1599,11 @@ def current_thread():
     module, a dummy thread object with limited functionality is returned.
 
     """
+    ident = get_ident()
     try:
-        return _active[get_ident()]
+        return _active[ident]
     except KeyError:
-        return _DummyThread()
+        return _DummyThread(ident)
 
 def currentThread():
     """Return the current Thread object, corresponding to the caller's thread of control.
