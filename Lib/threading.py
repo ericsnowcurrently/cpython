@@ -1500,22 +1500,26 @@ class _DummyThread(Thread):
         _DeleteDummyThreadOnDel(self)
 
     def _stop(self):
-        pass
+        if self._tstate_lock is None:
+            return
+        super()._stop()
 
     def is_alive(self):
-        if not self._is_stopped and self._started.is_set():
-            return True
-        raise RuntimeError("thread is not alive")
+        if self._tstate_lock is None:
+            if not self._is_stopped and self._started.is_set():
+                return True
+            raise RuntimeError("thread is not alive")
+        return super().is_alive()
 
     def join(self, timeout=None):
-        raise RuntimeError("cannot join a dummy thread")
+        if self._tstate_lock is None:
+            raise RuntimeError("cannot join a dummy thread")
+        return super().join(timeout)
 
     def _after_fork(self, new_ident=None):
         if new_ident is not None:
-            self.__class__ = _MainThread
-            self._name = 'MainThread'
-            self._daemonic = False
-            self._set_tstate_lock()
+            if self._tstate_lock is None:
+                _MainThread._init(self)
         Thread._after_fork(self, new_ident=new_ident)
 
 
@@ -1532,7 +1536,15 @@ class _MainThread(Thread):
             self._set_native_id()
         with _active_limbo_lock:
             _active[self._ident] = self
+        #self._init()
 
+    def _init(self):
+        self.__class__ = _MainThread
+        self._name = 'MainThread'
+        self._daemonic = False
+        self._set_tstate_lock()
+
+    # XXX Drop this.
     def _join_os_thread(self):
         # No ThreadHandle for main thread
         pass
