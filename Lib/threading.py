@@ -1040,8 +1040,10 @@ class Thread:
                 return
             raise
 
-    def _set_ident(self):
-        self._ident = get_ident()
+    def _set_ident(self, ident=None):
+        if ident is None:
+            ident = get_ident()
+        self._ident = ident
 
     if _HAVE_THREAD_NATIVE_ID:
         def _set_native_id(self):
@@ -1486,11 +1488,11 @@ class _DeleteDummyThreadOnDel:
 
 class _DummyThread(Thread):
 
-    def __init__(self):
+    def __init__(self, ident=None):
         Thread.__init__(self, name=_newname("Dummy-%d"),
                         daemon=_daemon_threads_allowed())
         self._started.set()
-        self._set_ident()
+        self._set_ident(ident)
         if _HAVE_THREAD_NATIVE_ID:
             self._set_native_id()
         with _active_limbo_lock:
@@ -1521,11 +1523,11 @@ class _DummyThread(Thread):
 
 class _MainThread(Thread):
 
-    def __init__(self):
+    def __init__(self, ident=None):
         Thread.__init__(self, name="MainThread", daemon=False)
         self._set_tstate_lock()
         self._started.set()
-        self._set_ident()
+        self._set_ident(ident)
         if _HAVE_THREAD_NATIVE_ID:
             self._set_native_id()
         with _active_limbo_lock:
