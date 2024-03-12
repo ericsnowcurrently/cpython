@@ -1585,7 +1585,7 @@ class _MainThread(_DummyThread):
 
 # Global API functions
 
-def main_thread():
+def main_thread(*, _create=True):
     """Return the main thread object.
 
     In normal conditions, the main thread is the thread from which the
@@ -1596,7 +1596,7 @@ def main_thread():
     try:
         t = _active[ident]
     except KeyError:
-        return _MainThread(ident)
+        return _MainThread(ident) if _create else None
     else:
         if type(t) is not _MainThread:
             t.__class__ = _MainThread
@@ -1710,11 +1710,12 @@ def _shutdown():
     # the main thread's tstate_lock - that won't happen until the interpreter
     # is nearly dead.  So we release it here.  Note that just calling _stop()
     # isn't enough:  other threads may already be waiting on _tstate_lock.
-    _main_thread = main_thread()
-    # XXX Checking for the main interpreter is wrong?
-    if _main_thread._is_stopped and _is_main_interpreter():
-        # _shutdown() was already called
-        return
+    _main_thread = main_thread(_create=False)
+    if _main_thread is not None:
+        if _main_thread._is_stopped:
+            # _shutdown() was already called
+            return
+#        main_ident =
 
     global _SHUTTING_DOWN
     _SHUTTING_DOWN = True
@@ -1725,7 +1726,7 @@ def _shutdown():
         atexit_call()
 
     # Main thread
-    if _main_thread.ident == get_ident():
+    if _main_thread is not None and _main_thread.ident == get_ident():
         tlock = _main_thread._tstate_lock
         # The main thread isn't finished yet, so its thread state lock can't
         # have been released.

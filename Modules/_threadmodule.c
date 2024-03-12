@@ -1920,7 +1920,11 @@ Return True if the current interpreter is the main Python interpreter.");
 static PyObject *
 thread__get_main_thread_ident(PyObject *module, PyObject *Py_UNUSED(ignored))
 {
-    return PyLong_FromUnsignedLongLong(_PyRuntime.main_thread);
+    PyInterpreterState *interp = PyInterpreterState_Get();
+    if (interp->threads.main == NULL) {
+        Py_RETURN_NONE;
+    }
+    return PyLong_FromUnsignedLongLong(interp->threads.main->thread_id);
 }
 
 PyDoc_STRVAR(thread__get_main_thread_ident_doc,
