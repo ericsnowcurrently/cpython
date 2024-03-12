@@ -1450,25 +1450,6 @@ class Timer(Thread):
         self.finished.set()
 
 
-# Special thread class to represent the main thread
-
-class _MainThread(Thread):
-
-    def __init__(self):
-        Thread.__init__(self, name="MainThread", daemon=False)
-        self._set_tstate_lock()
-        self._started.set()
-        self._set_ident()
-        if _HAVE_THREAD_NATIVE_ID:
-            self._set_native_id()
-        with _active_limbo_lock:
-            _active[self._ident] = self
-
-    def _join_os_thread(self):
-        # No ThreadHandle for main thread
-        pass
-
-
 # Helper thread-local instance to detect when a _DummyThread
 # is collected. Not a part of the public API.
 _thread_local_info = local()
@@ -1536,7 +1517,42 @@ class _DummyThread(Thread):
         Thread._after_fork(self, new_ident=new_ident)
 
 
+# Special thread class to represent the main thread
+
+class _MainThread(Thread):
+
+    def __init__(self):
+        Thread.__init__(self, name="MainThread", daemon=False)
+        self._set_tstate_lock()
+        self._started.set()
+        self._set_ident()
+        if _HAVE_THREAD_NATIVE_ID:
+            self._set_native_id()
+        with _active_limbo_lock:
+            _active[self._ident] = self
+
+    def _join_os_thread(self):
+        # No ThreadHandle for main thread
+        pass
+
+
+# Create the main thread object,
+# and make it available for the interpreter
+# (Py_Main) as threading._shutdown.
+
+_main_thread = _MainThread()
+
+
 # Global API functions
+
+def main_thread():
+    """Return the main thread object.
+
+    In normal conditions, the main thread is the thread from which the
+    Python interpreter was started.
+    """
+    # XXX Figure this out for subinterpreters.  (See gh-75698.)
+    return _main_thread
 
 def current_thread():
     """Return the current Thread object, corresponding to the caller's thread of control.
@@ -1621,11 +1637,6 @@ def _register_atexit(func, *arg, **kwargs):
 
 from _thread import stack_size
 
-# Create the main thread object,
-# and make it available for the interpreter
-# (Py_Main) as threading._shutdown.
-
-_main_thread = _MainThread()
 
 def _shutdown():
     """
@@ -1684,16 +1695,6 @@ def _shutdown():
 
         # new threads can be spawned while we were waiting for the other
         # threads to complete
-
-
-def main_thread():
-    """Return the main thread object.
-
-    In normal conditions, the main thread is the thread from which the
-    Python interpreter was started.
-    """
-    # XXX Figure this out for subinterpreters.  (See gh-75698.)
-    return _main_thread
 
 
 def _after_fork():
