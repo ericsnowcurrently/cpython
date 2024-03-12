@@ -763,8 +763,9 @@ class ThreadTests(BaseTestCase):
         data = out.decode().replace('\r', '')
         self.assertEqual(err.decode('utf-8'), "")
         self.assertEqual(data,
+                         # The "main" thread is "Thread-1".
                          "current ident True\n"
-                         "main Thread-1 (func) Thread\n"
+                         "main Thread-2 (func) Thread\n"
                          "main ident True\n"
                          "current is main True\n"
                          )
@@ -826,7 +827,8 @@ class ThreadTests(BaseTestCase):
         data = out.decode().replace('\r', '')
         self.assertEqual(err.decode(), "")
         self.assertEqual(data,
-                         ("current Dummy-1 _DummyThread\n" if create_dummy else "") +
+                         # The "main" thread is "Dummy-1".
+                         ("current Dummy-2 _DummyThread\n" if create_dummy else "") +
                          f"ident in _active {create_dummy!s}\n" +
                          "current ident True\n"
                          "main MainThread _MainThread\n"

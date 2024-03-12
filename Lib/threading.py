@@ -1505,6 +1505,9 @@ class _DeleteDummyThreadOnDel:
 
     def __del__(self):
         # Could we just use self._dummy_thread._unset_active()?
+        if _active_limbo_lock is None:
+            # It must be the main thread during shutdown.
+            return
         with _active_limbo_lock:
             # XXX Is this check still necessary?
             if _active.get(self._tident) is self._dummy_thread:
@@ -1545,7 +1548,7 @@ class _DummyThread(_Thread):
         return super().is_alive()
 
     def join(self, timeout=None):
-        if self._tstate_lock is None:
+        if self._tstate_lock is None and type(self) is not _MainThread:
             raise RuntimeError("cannot join a dummy thread")
         return super().join(timeout)
 
@@ -1553,22 +1556,16 @@ class _DummyThread(_Thread):
         if new_ident is not None:
             if self._tstate_lock is None:
                 _MainThread._init(self)
-        _Thread._after_fork(self, new_ident=new_ident)
+        super()._after_fork(new_ident=new_ident)
 
 
 # Special thread class to represent the main thread
 
-class _MainThread(_Thread):
+class _MainThread(_DummyThread):
 
     def __init__(self, ident=None):
-        super().__init__(name="MainThread", daemon=False)
-        self._set_tstate_lock()
-        self._started.set()
-        self._set_ident(ident)
-        if _HAVE_THREAD_NATIVE_ID:
-            self._set_native_id()
-        self._set_active()
-        #self._init()
+        super().__init__(ident)
+        self._init()
 
     def _init(self):
         self.__class__ = _MainThread
