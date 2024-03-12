@@ -869,7 +869,286 @@ def _maintain_shutdown_locks():
 
 # Main class for threads
 
-class Thread:
+class _Thread:
+
+    _initialized = False
+
+    def __init__(self, name=None, daemon=None):
+        if name:
+            name = str(name)
+        else:
+            name = _newname("Thread-%d")
+        self._name = name
+
+        if daemon is not None:
+            if daemon and not _daemon_threads_allowed():
+                raise RuntimeError('daemon threads are disabled in this (sub)interpreter')
+            self._daemonic = daemon
+        else:
+            self._daemonic = current_thread().daemon
+
+        self._ident = None
+        if _HAVE_THREAD_NATIVE_ID:
+            self._native_id = None
+        self._tstate_lock = None
+
+        self._started = Event()
+        self._is_stopped = False
+        self._initialized = True
+
+        # For debugging and _after_fork()
+        _dangling.add(self)
+
+    def __repr__(self):
+        assert self._initialized, "Thread.__init__() was not called"
+        status = "initial"
+        if self._started.is_set():
+            status = "started"
+        self.is_alive() # easy way to get ._is_stopped set when appropriate
+        if self._is_stopped:
+            status = "stopped"
+        if self._daemonic:
+            status += " daemon"
+        if self._ident is not None:
+            status += " %s" % self._ident
+        return "<%s(%s, %s)>" % (self.__class__.__name__, self._name, status)
+
+    @property
+    def name(self):
+        """A string used for identification purposes only.
+
+        It has no semantics. Multiple threads may be given the same name. The
+        initial name is set by the constructor.
+
+        """
+        assert self._initialized, "Thread.__init__() not called"
+        return self._name
+
+    @name.setter
+    def name(self, name):
+        assert self._initialized, "Thread.__init__() not called"
+        self._name = str(name)
+
+    @property
+    def ident(self):
+        """Thread identifier of this thread or None if it has not been started.
+
+        This is a nonzero integer. See the get_ident() function. Thread
+        identifiers may be recycled when a thread exits and another thread is
+        created. The identifier is available even after the thread has exited.
+
+        """
+        assert self._initialized, "Thread.__init__() not called"
+        return self._ident
+
+    if _HAVE_THREAD_NATIVE_ID:
+        @property
+        def native_id(self):
+            """Native integral thread ID of this thread, or None if it has not been started.
+
+            This is a non-negative integer. See the get_native_id() function.
+            This represents the Thread ID as reported by the kernel.
+
+            """
+            assert self._initialized, "Thread.__init__() not called"
+            return self._native_id
+
+    @property
+    def daemon(self):
+        """A boolean value indicating whether this thread is a daemon thread.
+
+        This must be set before start() is called, otherwise RuntimeError is
+        raised. Its initial value is inherited from the creating thread; the
+        main thread is not a daemon thread and therefore all threads created in
+        the main thread default to daemon = False.
+
+        The entire Python program exits when only daemon threads are left.
+
+        """
+        assert self._initialized, "Thread.__init__() not called"
+        return self._daemonic
+
+    @daemon.setter
+    def daemon(self, daemonic):
+        if not self._initialized:
+            raise RuntimeError("Thread.__init__() not called")
+        if daemonic and not _daemon_threads_allowed():
+            raise RuntimeError('daemon threads are disabled in this interpreter')
+        if self._started.is_set():
+            raise RuntimeError("cannot set daemon status of active thread")
+        self._daemonic = daemonic
+
+    def _set_ident(self, ident=None):
+        if ident is None:
+            ident = get_ident()
+        self._ident = ident
+
+    if _HAVE_THREAD_NATIVE_ID:
+        def _set_native_id(self):
+            self._native_id = get_native_id()
+
+    def _set_tstate_lock(self):
+        """
+        Set a lock object which will be released by the interpreter when
+        the underlying thread state (see pystate.h) gets deleted.
+        """
+        self._tstate_lock = _set_sentinel()
+        self._tstate_lock.acquire()
+
+        if not self.daemon:
+            with _shutdown_locks_lock:
+                _maintain_shutdown_locks()
+                _shutdown_locks.add(self._tstate_lock)
+
+    def _set_active(self):
+        with _active_limbo_lock:
+            _active[self._ident] = self
+
+    def _unset_active(self):
+        "Remove current thread from the dict of currently running threads."
+        with _active_limbo_lock:
+            del _active[self._ident]
+            # There must not be any python code between the previous line
+            # and after the lock is released.  Otherwise a tracing function
+            # could try to acquire the lock again in the same thread, (in
+            # current_thread()), and would block.
+
+    def _after_fork(self, new_ident=None):
+        # Private!  Called by threading._after_fork().
+        self._started._at_fork_reinit()
+        if new_ident is not None:
+            # This thread is alive.
+            self._ident = new_ident
+            # bpo-42350: If the fork happens when the thread is already stopped
+            # (ex: after threading._shutdown() has been called), _tstate_lock
+            # is None. Do nothing in this case.
+            if self._tstate_lock is not None:
+                self._tstate_lock._at_fork_reinit()
+                self._tstate_lock.acquire()
+        else:
+            # This thread isn't alive after fork: it doesn't have a tstate
+            # anymore.
+            self._is_stopped = True
+            self._tstate_lock = None
+
+    def _stop(self):
+        # After calling ._stop(), .is_alive() returns False and .join() returns
+        # immediately.  ._tstate_lock must be released before calling ._stop().
+        #
+        # Normal case:  C code at the end of the thread's life
+        # (release_sentinel in _threadmodule.c) releases ._tstate_lock, and
+        # that's detected by our ._wait_for_tstate_lock(), called by .join()
+        # and .is_alive().  Any number of threads _may_ call ._stop()
+        # simultaneously (for example, if multiple threads are blocked in
+        # .join() calls), and they're not serialized.  That's harmless -
+        # they'll just make redundant rebindings of ._is_stopped and
+        # ._tstate_lock.  Obscure:  we rebind ._tstate_lock last so that the
+        # "assert self._is_stopped" in ._wait_for_tstate_lock() always works
+        # (the assert is executed only if ._tstate_lock is None).
+        #
+        # Special case:  _main_thread releases ._tstate_lock via this
+        # module's _shutdown() function.
+        lock = self._tstate_lock
+        if lock is not None:
+            assert not lock.locked()
+        self._is_stopped = True
+        self._tstate_lock = None
+        if not self.daemon:
+            with _shutdown_locks_lock:
+                # Remove our lock and other released locks from _shutdown_locks
+                _maintain_shutdown_locks()
+
+    def join(self, timeout=None):
+        """Wait until the thread terminates.
+
+        This blocks the calling thread until the thread whose join() method is
+        called terminates -- either normally or through an unhandled exception
+        or until the optional timeout occurs.
+
+        When the timeout argument is present and not None, it should be a
+        floating point number specifying a timeout for the operation in seconds
+        (or fractions thereof). As join() always returns None, you must call
+        is_alive() after join() to decide whether a timeout happened -- if the
+        thread is still alive, the join() call timed out.
+
+        When the timeout argument is not present or None, the operation will
+        block until the thread terminates.
+
+        A thread can be join()ed many times.
+
+        join() raises a RuntimeError if an attempt is made to join the current
+        thread as that would cause a deadlock. It is also an error to join() a
+        thread before it has been started and attempts to do so raises the same
+        exception.
+
+        """
+        if not self._initialized:
+            raise RuntimeError("Thread.__init__() not called")
+        if not self._started.is_set():
+            raise RuntimeError("cannot join thread before it is started")
+        if self is current_thread():
+            raise RuntimeError("cannot join current thread")
+
+        if timeout is None:
+            self._wait_for_tstate_lock()
+        else:
+            # the behavior of a negative timeout isn't documented, but
+            # historically .join(timeout=x) for x<0 has acted as if timeout=0
+            self._wait_for_tstate_lock(timeout=max(timeout, 0))
+
+        if self._is_stopped:
+            self._join_os_thread()
+
+    def _join_os_thread(self):
+        # We don't have a handle to wait on.
+        pass
+
+    def _wait_for_tstate_lock(self, block=True, timeout=-1):
+        # Issue #18808: wait for the thread state to be gone.
+        # At the end of the thread's life, after all knowledge of the thread
+        # is removed from C data structures, C code releases our _tstate_lock.
+        # This method passes its arguments to _tstate_lock.acquire().
+        # If the lock is acquired, the C code is done, and self._stop() is
+        # called.  That sets ._is_stopped to True, and ._tstate_lock to None.
+        lock = self._tstate_lock
+        if lock is None:
+            # already determined that the C code is done
+            assert self._is_stopped
+            return
+
+        try:
+            if lock.acquire(block, timeout):
+                lock.release()
+                self._stop()
+        except:
+            if lock.locked():
+                # bpo-45274: lock.acquire() acquired the lock, but the function
+                # was interrupted with an exception before reaching the
+                # lock.release(). It can happen if a signal handler raises an
+                # exception, like CTRL+C which raises KeyboardInterrupt.
+                lock.release()
+                self._stop()
+            raise
+
+    def is_alive(self):
+        """Return whether the thread is alive.
+
+        This method returns True just before the run() method starts until just
+        after the run() method terminates. See also the module function
+        enumerate().
+
+        """
+        assert self._initialized, "Thread.__init__() not called"
+        if self._is_stopped or not self._started.is_set():
+            return False
+        self._wait_for_tstate_lock(False)
+        if not self._is_stopped:
+            return True
+        self._join_os_thread()
+        return False
+
+
+class Thread(_Thread):
     """A class that represents a thread of control.
 
     This class can be safely subclassed in a limited fashion. There are two ways
@@ -877,8 +1156,6 @@ class Thread:
     by overriding the run() method in a subclass.
 
     """
-
-    _initialized = False
 
     def __init__(self, group=None, target=None, name=None,
                  args=(), kwargs=None, *, daemon=None):
@@ -903,78 +1180,35 @@ class Thread:
         else to the thread.
 
         """
+        super().__init__(name, daemon)
+
         assert group is None, "group argument must be None for now"
         if kwargs is None:
             kwargs = {}
-        if name:
-            name = str(name)
-        else:
-            name = _newname("Thread-%d")
-            if target is not None:
-                try:
-                    target_name = target.__name__
-                    name += f" ({target_name})"
-                except AttributeError:
-                    pass
+        if name is None and target is not None:
+            try:
+                target_name = target.__name__
+                self._name += f" ({target_name})"
+            except AttributeError:
+                pass
 
         self._target = target
-        self._name = name
         self._args = args
         self._kwargs = kwargs
-        if daemon is not None:
-            if daemon and not _daemon_threads_allowed():
-                raise RuntimeError('daemon threads are disabled in this (sub)interpreter')
-            self._daemonic = daemon
-        else:
-            self._daemonic = current_thread().daemon
-        self._ident = None
-        if _HAVE_THREAD_NATIVE_ID:
-            self._native_id = None
-        self._tstate_lock = None
-        self._handle = None
-        self._started = Event()
-        self._is_stopped = False
-        self._initialized = True
+
         # Copy of sys.stderr used by self._invoke_excepthook()
         self._stderr = _sys.stderr
         self._invoke_excepthook = _make_invoke_excepthook()
-        # For debugging and _after_fork()
-        _dangling.add(self)
+
+        self._handle = None
 
     def _after_fork(self, new_ident=None):
-        # Private!  Called by threading._after_fork().
-        self._started._at_fork_reinit()
         if new_ident is not None:
-            # This thread is alive.
-            self._ident = new_ident
             if self._handle is not None:
                 assert self._handle.ident == new_ident
-            # bpo-42350: If the fork happens when the thread is already stopped
-            # (ex: after threading._shutdown() has been called), _tstate_lock
-            # is None. Do nothing in this case.
-            if self._tstate_lock is not None:
-                self._tstate_lock._at_fork_reinit()
-                self._tstate_lock.acquire()
         else:
-            # This thread isn't alive after fork: it doesn't have a tstate
-            # anymore.
-            self._is_stopped = True
-            self._tstate_lock = None
             self._handle = None
-
-    def __repr__(self):
-        assert self._initialized, "Thread.__init__() was not called"
-        status = "initial"
-        if self._started.is_set():
-            status = "started"
-        self.is_alive() # easy way to get ._is_stopped set when appropriate
-        if self._is_stopped:
-            status = "stopped"
-        if self._daemonic:
-            status += " daemon"
-        if self._ident is not None:
-            status += " %s" % self._ident
-        return "<%s(%s, %s)>" % (self.__class__.__name__, self._name, status)
+        super()._after_fork(new_ident)
 
     def start(self):
         """Start the thread's activity.
@@ -1040,28 +1274,6 @@ class Thread:
                 return
             raise
 
-    def _set_ident(self, ident=None):
-        if ident is None:
-            ident = get_ident()
-        self._ident = ident
-
-    if _HAVE_THREAD_NATIVE_ID:
-        def _set_native_id(self):
-            self._native_id = get_native_id()
-
-    def _set_tstate_lock(self):
-        """
-        Set a lock object which will be released by the interpreter when
-        the underlying thread state (see pystate.h) gets deleted.
-        """
-        self._tstate_lock = _set_sentinel()
-        self._tstate_lock.acquire()
-
-        if not self.daemon:
-            with _shutdown_locks_lock:
-                _maintain_shutdown_locks()
-                _shutdown_locks.add(self._tstate_lock)
-
     def _bootstrap_inner(self):
         try:
             self._set_ident()
@@ -1069,9 +1281,7 @@ class Thread:
             if _HAVE_THREAD_NATIVE_ID:
                 self._set_native_id()
             self._started.set()
-            with _active_limbo_lock:
-                _active[self._ident] = self
-                del _limbo[self]
+            self._set_active()
 
             if _trace_hook:
                 _sys.settrace(_trace_hook)
@@ -1083,198 +1293,18 @@ class Thread:
             except:
                 self._invoke_excepthook(self)
         finally:
-            self._delete()
+            assert self._ident == get_ident(), (self._ident, get_ident())
+            self._unset_active()
 
-    def _stop(self):
-        # After calling ._stop(), .is_alive() returns False and .join() returns
-        # immediately.  ._tstate_lock must be released before calling ._stop().
-        #
-        # Normal case:  C code at the end of the thread's life
-        # (release_sentinel in _threadmodule.c) releases ._tstate_lock, and
-        # that's detected by our ._wait_for_tstate_lock(), called by .join()
-        # and .is_alive().  Any number of threads _may_ call ._stop()
-        # simultaneously (for example, if multiple threads are blocked in
-        # .join() calls), and they're not serialized.  That's harmless -
-        # they'll just make redundant rebindings of ._is_stopped and
-        # ._tstate_lock.  Obscure:  we rebind ._tstate_lock last so that the
-        # "assert self._is_stopped" in ._wait_for_tstate_lock() always works
-        # (the assert is executed only if ._tstate_lock is None).
-        #
-        # Special case:  _main_thread releases ._tstate_lock via this
-        # module's _shutdown() function.
-        lock = self._tstate_lock
-        if lock is not None:
-            assert not lock.locked()
-        self._is_stopped = True
-        self._tstate_lock = None
-        if not self.daemon:
-            with _shutdown_locks_lock:
-                # Remove our lock and other released locks from _shutdown_locks
-                _maintain_shutdown_locks()
-
-    def _delete(self):
-        "Remove current thread from the dict of currently running threads."
+    def _set_active(self):
         with _active_limbo_lock:
-            del _active[get_ident()]
-            # There must not be any python code between the previous line
-            # and after the lock is released.  Otherwise a tracing function
-            # could try to acquire the lock again in the same thread, (in
-            # current_thread()), and would block.
-
-    def join(self, timeout=None):
-        """Wait until the thread terminates.
-
-        This blocks the calling thread until the thread whose join() method is
-        called terminates -- either normally or through an unhandled exception
-        or until the optional timeout occurs.
-
-        When the timeout argument is present and not None, it should be a
-        floating point number specifying a timeout for the operation in seconds
-        (or fractions thereof). As join() always returns None, you must call
-        is_alive() after join() to decide whether a timeout happened -- if the
-        thread is still alive, the join() call timed out.
-
-        When the timeout argument is not present or None, the operation will
-        block until the thread terminates.
-
-        A thread can be join()ed many times.
-
-        join() raises a RuntimeError if an attempt is made to join the current
-        thread as that would cause a deadlock. It is also an error to join() a
-        thread before it has been started and attempts to do so raises the same
-        exception.
-
-        """
-        if not self._initialized:
-            raise RuntimeError("Thread.__init__() not called")
-        if not self._started.is_set():
-            raise RuntimeError("cannot join thread before it is started")
-        if self is current_thread():
-            raise RuntimeError("cannot join current thread")
-
-        if timeout is None:
-            self._wait_for_tstate_lock()
-        else:
-            # the behavior of a negative timeout isn't documented, but
-            # historically .join(timeout=x) for x<0 has acted as if timeout=0
-            self._wait_for_tstate_lock(timeout=max(timeout, 0))
-
-        if self._is_stopped:
-            self._join_os_thread()
+            _active[self._ident] = self
+            del _limbo[self]
 
     def _join_os_thread(self):
         # self._handle may be cleared post-fork
         if self._handle is not None:
             self._handle.join()
-
-    def _wait_for_tstate_lock(self, block=True, timeout=-1):
-        # Issue #18808: wait for the thread state to be gone.
-        # At the end of the thread's life, after all knowledge of the thread
-        # is removed from C data structures, C code releases our _tstate_lock.
-        # This method passes its arguments to _tstate_lock.acquire().
-        # If the lock is acquired, the C code is done, and self._stop() is
-        # called.  That sets ._is_stopped to True, and ._tstate_lock to None.
-        lock = self._tstate_lock
-        if lock is None:
-            # already determined that the C code is done
-            assert self._is_stopped
-            return
-
-        try:
-            if lock.acquire(block, timeout):
-                lock.release()
-                self._stop()
-        except:
-            if lock.locked():
-                # bpo-45274: lock.acquire() acquired the lock, but the function
-                # was interrupted with an exception before reaching the
-                # lock.release(). It can happen if a signal handler raises an
-                # exception, like CTRL+C which raises KeyboardInterrupt.
-                lock.release()
-                self._stop()
-            raise
-
-    @property
-    def name(self):
-        """A string used for identification purposes only.
-
-        It has no semantics. Multiple threads may be given the same name. The
-        initial name is set by the constructor.
-
-        """
-        assert self._initialized, "Thread.__init__() not called"
-        return self._name
-
-    @name.setter
-    def name(self, name):
-        assert self._initialized, "Thread.__init__() not called"
-        self._name = str(name)
-
-    @property
-    def ident(self):
-        """Thread identifier of this thread or None if it has not been started.
-
-        This is a nonzero integer. See the get_ident() function. Thread
-        identifiers may be recycled when a thread exits and another thread is
-        created. The identifier is available even after the thread has exited.
-
-        """
-        assert self._initialized, "Thread.__init__() not called"
-        return self._ident
-
-    if _HAVE_THREAD_NATIVE_ID:
-        @property
-        def native_id(self):
-            """Native integral thread ID of this thread, or None if it has not been started.
-
-            This is a non-negative integer. See the get_native_id() function.
-            This represents the Thread ID as reported by the kernel.
-
-            """
-            assert self._initialized, "Thread.__init__() not called"
-            return self._native_id
-
-    def is_alive(self):
-        """Return whether the thread is alive.
-
-        This method returns True just before the run() method starts until just
-        after the run() method terminates. See also the module function
-        enumerate().
-
-        """
-        assert self._initialized, "Thread.__init__() not called"
-        if self._is_stopped or not self._started.is_set():
-            return False
-        self._wait_for_tstate_lock(False)
-        if not self._is_stopped:
-            return True
-        self._join_os_thread()
-        return False
-
-    @property
-    def daemon(self):
-        """A boolean value indicating whether this thread is a daemon thread.
-
-        This must be set before start() is called, otherwise RuntimeError is
-        raised. Its initial value is inherited from the creating thread; the
-        main thread is not a daemon thread and therefore all threads created in
-        the main thread default to daemon = False.
-
-        The entire Python program exits when only daemon threads are left.
-
-        """
-        assert self._initialized, "Thread.__init__() not called"
-        return self._daemonic
-
-    @daemon.setter
-    def daemon(self, daemonic):
-        if not self._initialized:
-            raise RuntimeError("Thread.__init__() not called")
-        if daemonic and not _daemon_threads_allowed():
-            raise RuntimeError('daemon threads are disabled in this interpreter')
-        if self._started.is_set():
-            raise RuntimeError("cannot set daemon status of active thread")
-        self._daemonic = daemonic
 
     def isDaemon(self):
         """Return whether this thread is a daemon.
@@ -1474,7 +1504,9 @@ class _DeleteDummyThreadOnDel:
         _thread_local_info._track_dummy_thread_ref = self
 
     def __del__(self):
+        # Could we just use self._dummy_thread._unset_active()?
         with _active_limbo_lock:
+            # XXX Is this check still necessary?
             if _active.get(self._tident) is self._dummy_thread:
                 _active.pop(self._tident, None)
 
@@ -1486,17 +1518,18 @@ class _DeleteDummyThreadOnDel:
 # They are marked as daemon threads so we won't wait for them
 # when we exit (conform previous semantics).
 
-class _DummyThread(Thread):
+class _DummyThread(_Thread):
 
     def __init__(self, ident=None):
-        Thread.__init__(self, name=_newname("Dummy-%d"),
-                        daemon=_daemon_threads_allowed())
+        super().__init__(
+            name=_newname("Dummy-%d"),
+            daemon=_daemon_threads_allowed(),
+        )
         self._started.set()
         self._set_ident(ident)
         if _HAVE_THREAD_NATIVE_ID:
             self._set_native_id()
-        with _active_limbo_lock:
-            _active[self._ident] = self
+        self._set_active()
         _DeleteDummyThreadOnDel(self)
 
     def _stop(self):
@@ -1520,22 +1553,21 @@ class _DummyThread(Thread):
         if new_ident is not None:
             if self._tstate_lock is None:
                 _MainThread._init(self)
-        Thread._after_fork(self, new_ident=new_ident)
+        _Thread._after_fork(self, new_ident=new_ident)
 
 
 # Special thread class to represent the main thread
 
-class _MainThread(Thread):
+class _MainThread(_Thread):
 
     def __init__(self, ident=None):
-        Thread.__init__(self, name="MainThread", daemon=False)
+        super().__init__(name="MainThread", daemon=False)
         self._set_tstate_lock()
         self._started.set()
         self._set_ident(ident)
         if _HAVE_THREAD_NATIVE_ID:
             self._set_native_id()
-        with _active_limbo_lock:
-            _active[self._ident] = self
+        self._set_active()
         #self._init()
 
     def _init(self):
