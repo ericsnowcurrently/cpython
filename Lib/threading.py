@@ -1757,6 +1757,7 @@ def _after_fork():
         # fork() was called in a thread which was not spawned
         # by threading.Thread. For example, a thread spawned
         # by thread.start_new_thread().
+        # XXX Should we still use the "main" thread?
         current = _MainThread()
 
     _main_thread = current
