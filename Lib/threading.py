@@ -1544,11 +1544,6 @@ class _MainThread(Thread):
         self._daemonic = False
         self._set_tstate_lock()
 
-    # XXX Drop this.
-    def _join_os_thread(self):
-        # No ThreadHandle for main thread
-        pass
-
 
 # Create the main thread object,
 # and make it available for the interpreter
