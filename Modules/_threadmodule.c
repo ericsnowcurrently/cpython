@@ -1906,18 +1906,6 @@ PyDoc_STRVAR(excepthook_doc,
 Handle uncaught Thread.run() exception.");
 
 static PyObject *
-thread__is_main_interpreter(PyObject *module, PyObject *Py_UNUSED(ignored))
-{
-    PyInterpreterState *interp = _PyInterpreterState_GET();
-    return PyBool_FromLong(_Py_IsMainInterpreter(interp));
-}
-
-PyDoc_STRVAR(thread__is_main_interpreter_doc,
-"_is_main_interpreter()\n\
-\n\
-Return True if the current interpreter is the main Python interpreter.");
-
-static PyObject *
 thread__get_main_thread_ident(PyObject *module, PyObject *Py_UNUSED(ignored))
 {
     PyInterpreterState *interp = PyInterpreterState_Get();
@@ -1966,8 +1954,6 @@ static PyMethodDef thread_methods[] = {
      METH_NOARGS, _set_sentinel_doc},
     {"_excepthook",             thread_excepthook,
      METH_O, excepthook_doc},
-    {"_is_main_interpreter",    thread__is_main_interpreter,
-     METH_NOARGS, thread__is_main_interpreter_doc},
     {"_get_main_thread_ident",  thread__get_main_thread_ident,
      METH_NOARGS, thread__get_main_thread_ident_doc},
     {NULL,                      NULL}           /* sentinel */
