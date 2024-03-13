@@ -1917,6 +1917,18 @@ PyDoc_STRVAR(thread__is_main_interpreter_doc,
 \n\
 Return True if the current interpreter is the main Python interpreter.");
 
+static PyObject *
+thread__get_main_thread_ident(PyObject *module, PyObject *Py_UNUSED(ignored))
+{
+    return PyLong_FromUnsignedLongLong(_PyRuntime.main_thread);
+}
+
+PyDoc_STRVAR(thread__get_main_thread_ident_doc,
+"_get_main_thread_ident()\n\
+\n\
+Internal only. Return a non-zero integer that uniquely identifies the main thread\n\
+of the main interpreter.");
+
 static PyMethodDef thread_methods[] = {
     {"start_new_thread",        (PyCFunction)thread_PyThread_start_new_thread,
      METH_VARARGS, start_new_doc},
@@ -1952,6 +1964,8 @@ static PyMethodDef thread_methods[] = {
      METH_O, excepthook_doc},
     {"_is_main_interpreter",    thread__is_main_interpreter,
      METH_NOARGS, thread__is_main_interpreter_doc},
+    {"_get_main_thread_ident",  thread__get_main_thread_ident,
+     METH_NOARGS, thread__get_main_thread_ident_doc},
     {NULL,                      NULL}           /* sentinel */
 };
 

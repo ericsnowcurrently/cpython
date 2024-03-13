@@ -39,6 +39,7 @@ _LockType = _thread.LockType
 _set_sentinel = _thread._set_sentinel
 get_ident = _thread.get_ident
 _is_main_interpreter = _thread._is_main_interpreter
+_get_main_thread_ident = _thread._get_main_thread_ident
 try:
     get_native_id = _thread.get_native_id
     _HAVE_THREAD_NATIVE_ID = True
@@ -1528,12 +1529,18 @@ class _DummyThread(_Thread):
             name=_newname("Dummy-%d"),
             daemon=_daemon_threads_allowed(),
         )
+        self._dummyname = self._name
         self._started.set()
         self._set_ident(ident)
         if _HAVE_THREAD_NATIVE_ID:
             self._set_native_id()
         self._set_active()
         _DeleteDummyThreadOnDel(self)
+
+    def _init(self):
+        self._name = self._dummyname
+        self._daemonic = _daemon_threads_allowed()
+        self._tstate_lock = None
 
     def _stop(self):
         if self._tstate_lock is None:
@@ -1555,7 +1562,8 @@ class _DummyThread(_Thread):
     def _after_fork(self, new_ident=None):
         if new_ident is not None:
             if self._tstate_lock is None:
-                _MainThread._init(self)
+                self.__class__ = _MainThread
+                self._init()
         super()._after_fork(new_ident=new_ident)
 
 
@@ -1564,21 +1572,15 @@ class _DummyThread(_Thread):
 class _MainThread(_DummyThread):
 
     def __init__(self, ident=None):
+        if ident is None:
+            ident = _get_main_thread_ident()
         super().__init__(ident)
         self._init()
 
     def _init(self):
-        self.__class__ = _MainThread
         self._name = 'MainThread'
         self._daemonic = False
         self._set_tstate_lock()
-
-
-# Create the main thread object,
-# and make it available for the interpreter
-# (Py_Main) as threading._shutdown.
-
-_main_thread = _MainThread()
 
 
 # Global API functions
@@ -1590,7 +1592,16 @@ def main_thread():
     Python interpreter was started.
     """
     # XXX Figure this out for subinterpreters.  (See gh-75698.)
-    return _main_thread
+    ident = _get_main_thread_ident()
+    try:
+        t = _active[ident]
+    except KeyError:
+        return _MainThread(ident)
+    else:
+        if type(t) is not _MainThread:
+            t.__class__ = _MainThread
+            t._init()
+        return t
 
 def current_thread():
     """Return the current Thread object, corresponding to the caller's thread of control.
@@ -1601,9 +1612,22 @@ def current_thread():
     """
     ident = get_ident()
     try:
-        return _active[ident]
+        t = _active[ident]
     except KeyError:
-        return _DummyThread(ident)
+        if ident == _get_main_thread_ident():
+            return _MainThread(ident)
+        else:
+            return _DummyThread(ident)
+    else:
+        if ident == _get_main_thread_ident():
+            if type(t) is _DummyThread:
+                t.__class__ = _MainThread
+                t._init()
+        else:
+            if type(t) is _MainThread:
+                t.__class__ = _DummyThread
+                t._init()
+        return t
 
 def currentThread():
     """Return the current Thread object, corresponding to the caller's thread of control.
@@ -1686,6 +1710,8 @@ def _shutdown():
     # the main thread's tstate_lock - that won't happen until the interpreter
     # is nearly dead.  So we release it here.  Note that just calling _stop()
     # isn't enough:  other threads may already be waiting on _tstate_lock.
+    _main_thread = main_thread()
+    # XXX Checking for the main interpreter is wrong?
     if _main_thread._is_stopped and _is_main_interpreter():
         # _shutdown() was already called
         return
@@ -1742,23 +1768,15 @@ def _after_fork():
     """
     # Reset _active_limbo_lock, in case we forked while the lock was held
     # by another (non-forked) thread.  http://bugs.python.org/issue874900
-    global _active_limbo_lock, _main_thread
+    global _active_limbo_lock
     global _shutdown_locks_lock, _shutdown_locks
     _active_limbo_lock = RLock()
 
     # fork() only copied the current thread; clear references to others.
     new_active = {}
 
-    try:
-        current = _active[get_ident()]
-    except KeyError:
-        # fork() was called in a thread which was not spawned
-        # by threading.Thread. For example, a thread spawned
-        # by thread.start_new_thread().
-        # XXX Should we still use the "main" thread?
-        current = _MainThread()
-
-    _main_thread = current
+    # XXX Do we need to set it as the "main" thread?
+    current = current_thread()
 
     # reset _shutdown() locks: threads re-register their _tstate_lock below
     _shutdown_locks_lock = _allocate_lock()
