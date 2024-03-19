@@ -2,6 +2,7 @@
 /* Interface to Sjoerd's portable C thread library */
 
 #include "Python.h"
+#include "interpreteridobject.h"  // PyInterpreterID_LookUp()
 #include "pycore_interp.h"        // _PyInterpreterState.threads.count
 #include "pycore_lock.h"
 #include "pycore_moduleobject.h"  // _PyModule_GetState()
@@ -2287,6 +2288,42 @@ PyDoc_STRVAR(thread__get_global_main_thread_ident_doc,
 Internal only. Return a non-zero integer that uniquely identifies the main thread\n\
 of the main interpreter.");
 
+static PyObject *
+thread__get_main_thread_ident(PyObject *module, PyObject *args)
+{
+    PyObject *idobj = NULL;
+    if (!PyArg_ParseTuple(args, "|O:_get_main_thread_ident", &idobj)) {
+        return NULL;
+    }
+
+    PyInterpreterState *interp;
+    if (idobj == NULL || idobj == Py_None) {
+        interp = PyInterpreterState_Get();
+    }
+    else {
+        interp = PyInterpreterID_LookUp(idobj);
+        if (interp == NULL) {
+            return NULL;
+        }
+    }
+
+    // This is set by _PyInterpreterState_SetRunningMain().
+    PyThreadState *main_tstate = interp->threads.main;
+    if (main_tstate == NULL) {
+        Py_RETURN_NONE;
+    }
+    return PyLong_FromUnsignedLongLong(main_tstate->thread_id);
+}
+
+PyDoc_STRVAR(thread__get_main_thread_ident_doc,
+"_get_main_thread_ident(interpid=None)\n\
+\n\
+Internal only. Return a non-zero integer that uniquely identifies the\n\
+\"main\" thread of the identified (or current) interpreter, if any.\n\
+An interpreter only has a main thread if it is running code against\n\
+its __main__ module.");
+
+
 static PyMethodDef thread_methods[] = {
     {"start_new_thread",        (PyCFunction)thread_PyThread_start_new_thread,
      METH_VARARGS, start_new_doc},
@@ -2326,6 +2363,8 @@ static PyMethodDef thread_methods[] = {
      METH_O, thread__make_thread_handle_doc},
     {"_get_global_main_thread_ident", thread__get_global_main_thread_ident,
      METH_NOARGS, thread__get_global_main_thread_ident_doc},
+    {"_get_main_thread_ident",  thread__get_main_thread_ident,
+     METH_VARARGS, thread__get_main_thread_ident_doc},
     {NULL,                      NULL}           /* sentinel */
 };
 

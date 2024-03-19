@@ -41,6 +41,7 @@ _make_thread_handle = _thread._make_thread_handle
 _ThreadHandle = _thread._ThreadHandle
 get_ident = _thread.get_ident
 _get_global_main_thread_ident = _thread._get_global_main_thread_ident
+_get_main_thread_ident = _thread._get_main_thread_ident
 _is_main_interpreter = _thread._is_main_interpreter
 try:
     get_native_id = _thread.get_native_id
@@ -929,7 +930,7 @@ class Thread:
         if new_ident is not None:
             # This thread is alive.
             self._ident = new_ident
-            assert self._handle.ident == new_ident
+            assert self._handle.ident == new_ident, (self._handle.ident, new_ident)
         else:
             # Otherwise, the thread is dead, Jim.  _PyThread_AfterFork()
             # already marked our handle done.
@@ -1413,11 +1414,18 @@ class _MainThread(Thread):
     # Python runtime doesn't strictly know.  Instead, it treats the
     # thread where initialization happens as the "main" thread, which
     # is almost always good enough.
+    #
+    # For subinterpreters, the situation is a little more complex.
+    # A 
 
-    def __init__(self):
+    def __init__(self, interpid=None):
         Thread.__init__(self, name="MainThread", daemon=False)
         self._started.set()
         self._ident = _get_global_main_thread_ident()
+#        self._ident = _get_main_thread_ident(interpid)
+#        if interpid == 0:
+#            assert self._ident == _get_global_main_thread_ident(), \
+#                (self._ident, _get_global_main_thread_ident())
         self._handle = _make_thread_handle(self._ident)
         if _HAVE_THREAD_NATIVE_ID:
             self._set_native_id()
@@ -1429,7 +1437,7 @@ class _MainThread(Thread):
 # and make it available for the interpreter
 # (Py_Main) as threading._shutdown.
 
-_main_thread = _MainThread()
+_main_thread = _MainThread(0)
 
 def main_thread():
     """Return the main thread object.
@@ -1572,7 +1580,7 @@ def _after_fork():
         # fork() was called in a thread which was not spawned
         # by threading.Thread. For example, a thread spawned
         # by thread.start_new_thread().
-        current = _MainThread()
+        current = _MainThread(0)
 
     _main_thread = current
 
