@@ -40,7 +40,7 @@ _thread_shutdown = _thread._shutdown
 _make_thread_handle = _thread._make_thread_handle
 _ThreadHandle = _thread._ThreadHandle
 get_ident = _thread.get_ident
-_get_main_thread_ident = _thread._get_main_thread_ident
+_get_global_main_thread_ident = _thread._get_global_main_thread_ident
 _is_main_interpreter = _thread._is_main_interpreter
 try:
     get_native_id = _thread.get_native_id
@@ -1417,7 +1417,7 @@ class _MainThread(Thread):
     def __init__(self):
         Thread.__init__(self, name="MainThread", daemon=False)
         self._started.set()
-        self._ident = _get_main_thread_ident()
+        self._ident = _get_global_main_thread_ident()
         self._handle = _make_thread_handle(self._ident)
         if _HAVE_THREAD_NATIVE_ID:
             self._set_native_id()

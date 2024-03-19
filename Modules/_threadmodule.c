@@ -2275,13 +2275,14 @@ Internal only. Make a thread handle for threads not spawned\n\
 by the _thread or threading module.");
 
 static PyObject *
-thread__get_main_thread_ident(PyObject *module, PyObject *Py_UNUSED(ignored))
+thread__get_global_main_thread_ident(PyObject *module,
+                                     PyObject *Py_UNUSED(ignored))
 {
     return PyLong_FromUnsignedLongLong(_PyRuntime.main_thread);
 }
 
-PyDoc_STRVAR(thread__get_main_thread_ident_doc,
-"_get_main_thread_ident()\n\
+PyDoc_STRVAR(thread__get_global_main_thread_ident_doc,
+"_get_global_main_thread_ident()\n\
 \n\
 Internal only. Return a non-zero integer that uniquely identifies the main thread\n\
 of the main interpreter.");
@@ -2323,8 +2324,8 @@ static PyMethodDef thread_methods[] = {
      METH_NOARGS, shutdown_doc},
     {"_make_thread_handle", thread__make_thread_handle,
      METH_O, thread__make_thread_handle_doc},
-    {"_get_main_thread_ident", thread__get_main_thread_ident,
-     METH_NOARGS, thread__get_main_thread_ident_doc},
+    {"_get_global_main_thread_ident", thread__get_global_main_thread_ident,
+     METH_NOARGS, thread__get_global_main_thread_ident_doc},
     {NULL,                      NULL}           /* sentinel */
 };
 
