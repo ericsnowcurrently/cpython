@@ -2035,6 +2035,13 @@ gh_119213_getargs_impl(PyObject *module, PyObject *spam)
 }
 
 
+static PyObject *
+get_static_builtin_types(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    return _PyStaticType_GetBuiltins();
+}
+
+
 static PyMethodDef module_functions[] = {
     {"get_configs", get_configs, METH_NOARGS},
     {"get_recursion_depth", get_recursion_depth, METH_NOARGS},
@@ -2129,6 +2136,7 @@ static PyMethodDef module_functions[] = {
     {"uop_symbols_test", _Py_uop_symbols_test, METH_NOARGS},
 #endif
     GH_119213_GETARGS_METHODDEF
+    {"get_static_builtin_types", get_static_builtin_types, METH_NOARGS},
     {NULL, NULL} /* sentinel */
 };
 
