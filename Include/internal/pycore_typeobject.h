@@ -214,6 +214,7 @@ PyAPI_FUNC(PyObject *) _PyType_GetModuleByDef2(PyTypeObject *, PyTypeObject *, P
 
 // Export for _testinternalcapi extension.
 PyAPI_FUNC(PyObject *) _PyType_GetSlotWrapperNames(void);
+PyAPI_FUNC(PyObject *) _PyType_GetSlotWrappers(PyTypeObject *type);
 
 // PyType_Ready() must be called if _PyType_IsReady() is false.
 // See also the Py_TPFLAGS_READY flag.

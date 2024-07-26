@@ -2048,6 +2048,13 @@ identify_type_slot_wrappers(PyObject *self, PyObject *Py_UNUSED(ignored))
     return _PyType_GetSlotWrapperNames();
 }
 
+static PyObject *
+get_type_slot_wrappers(PyObject *self, PyObject *cls)
+{
+    assert(PyType_Check(cls));
+    return _PyType_GetSlotWrappers((PyTypeObject *)cls);
+}
+
 
 static PyMethodDef module_functions[] = {
     {"get_configs", get_configs, METH_NOARGS},
@@ -2145,6 +2152,7 @@ static PyMethodDef module_functions[] = {
     GH_119213_GETARGS_METHODDEF
     {"get_static_builtin_types", get_static_builtin_types, METH_NOARGS},
     {"identify_type_slot_wrappers", identify_type_slot_wrappers, METH_NOARGS},
+    {"get_type_slot_wrappers", get_type_slot_wrappers, METH_O},
     {NULL, NULL} /* sentinel */
 };
 

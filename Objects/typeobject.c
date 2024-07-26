@@ -10967,6 +10967,140 @@ _PyType_GetSlotWrapperNames(void)
     return names;
 }
 
+static void *
+get_slot_func(PyTypeObject *type, int offset, PyObject *mro, int depth,
+              void **p_base_func, PyTypeObject **p_base)
+{
+    void *func = NULL;
+
+    void **ptr = slotptr(type, offset);
+    if (ptr && *ptr) {
+        func = *ptr;
+    }
+
+    PyTypeObject *base = NULL;
+    void *base_func = NULL;
+    if ((p_base_func != NULL || p_base != NULL)
+            && type != &PyBaseObject_Type)
+    {
+        /* We will recurse down the MRO. */
+        PyTypeObject *parent = NULL;
+        void *parent_func = NULL;
+        if (type->tp_flags & _Py_TPFLAGS_STATIC_BUILTIN) {
+            assert(type->tp_base != NULL);
+            base_func = get_slot_func(
+                    type->tp_base, offset, NULL, -1, &parent_func, &parent);
+        }
+        else {
+            assert(mro != NULL);
+            assert(PyTuple_Size(mro) > 1);
+            assert(depth < PyTuple_Size(mro) - 1);
+
+            //PyTypeObject *base = PyTuple_GET_ITEM(mro, depth);
+            PyTypeObject *base = (PyTypeObject *)PyTuple_GET_ITEM(mro, depth);
+            base_func = get_slot_func(
+                    base, offset, mro, depth + 1, &parent_func, &parent);
+        }
+        if (base_func == NULL) {
+            base_func = parent_func;
+            base = parent;
+        }
+    }
+
+    if (p_base_func != NULL) {
+        *p_base_func = base_func;
+    }
+    if (p_base != NULL) {
+        *p_base = base;
+    }
+    return func;
+}
+
+static int
+get_slot_wrapper(PyTypeObject *type, pytype_slotdef *slotdef, PyObject *mro,
+                 PyObject **p_wrapper, int *p_inherited)
+{
+    void *func = NULL;
+    void *base_func = NULL;
+    int offset = slotdef->offset;
+    if (type->tp_flags & _Py_TPFLAGS_STATIC_BUILTIN) {
+        func = get_slot_func(type, offset, NULL, -1, &base_func, NULL);
+    }
+    else {
+        /* It might be convenient to get the MRO if not passed in. */
+        assert(mro != NULL);
+        func = get_slot_func(type, offset, mro, 1, &base_func, NULL);
+    }
+
+    if (func == NULL && base_func == NULL) {
+        /* The slot is empty;  We don't bother looking up the attribute. */
+        *p_wrapper = NULL;
+        *p_inherited = -1;
+        return 0;
+    }
+
+    int inherited = (func == NULL || func == base_func);
+    PyObject *wrapper = NULL;
+    if (PyObject_GetOptionalAttr((PyObject *)type, slotdef->name_strobj, &wrapper) < 0) {
+        return -1;
+    }
+    *p_wrapper = wrapper;
+    *p_inherited = inherited;
+    return 0;
+}
+
+PyObject *
+_PyType_GetSlotWrappers(PyTypeObject *type)
+{
+    PyObject *wrappers = PyDict_New();
+    if (wrappers == NULL) {
+        return NULL;
+    }
+
+    int mro_owned = 0;
+    PyObject *mro = NULL;
+    if (type->tp_flags & _Py_TPFLAGS_STATIC_BUILTIN) {
+        mro = _PyType_GetMRO(type);
+        if (mro == NULL) {
+            goto error;
+        }
+        mro_owned = 1;
+    }
+
+    for (pytype_slotdef *p = slotdefs; p->name; p++) {
+        PyObject *wrapper = NULL;
+        int inherited = -1;
+        if (get_slot_wrapper(type, p, mro, &wrapper, &inherited) < 0) {
+            goto error;
+        }
+        if (wrapper == NULL) {
+            continue;
+        }
+        PyObject *value = PyTuple_Pack(
+                2, wrapper, inherited ? Py_True : Py_False);
+        Py_DECREF(wrapper);
+        if (value == NULL) {
+            goto error;
+        }
+        int res = PyDict_SetItem(wrappers, p->name_strobj, value);
+        Py_DECREF(value);
+        if (res < 0) {
+            goto error;
+        }
+    }
+
+    goto finally;
+
+error:
+    Py_CLEAR(wrappers);
+
+finally:
+    if (mro_owned) {
+        Py_DECREF(mro);
+    }
+    return wrappers;
+}
+
 
 /* Call __set_name__ on all attributes (including descriptors)
   in a newly generated type */
