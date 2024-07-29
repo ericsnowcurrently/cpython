@@ -11018,20 +11018,20 @@ get_slot_func(PyTypeObject *type, int offset, PyObject *mro, int depth,
 
 static int
 get_slot_wrapper(PyTypeObject *type, pytype_slotdef *slotdef, PyObject *mro,
-                 PyObject **p_wrapper, int *p_inherited)
+                 PyObject **p_wrapper, PyTypeObject **p_base)
 {
-    int inherited = -1;
     PyObject *wrapper = NULL;
     void *func = NULL;
     void *base_func = NULL;
+    PyTypeObject *base = NULL;
     int offset = slotdef->offset;
     if (type->tp_flags & _Py_TPFLAGS_STATIC_BUILTIN) {
-        func = get_slot_func(type, offset, NULL, -1, &base_func, NULL);
+        func = get_slot_func(type, offset, NULL, -1, &base_func, &base);
     }
     else {
         /* It might be convenient to get the MRO if not passed in. */
         assert(mro != NULL);
-        func = get_slot_func(type, offset, mro, 1, &base_func, NULL);
+        func = get_slot_func(type, offset, mro, 1, &base_func, &base);
     }
 
     if (func == NULL && base_func == NULL) {
@@ -11039,7 +11039,10 @@ get_slot_wrapper(PyTypeObject *type, pytype_slotdef *slotdef, PyObject *mro,
         goto finally;
     }
 
-    inherited = (func == NULL || func == base_func);
+    if (func != NULL && func != base_func) {
+        /* It was not inherited. */
+        base = NULL;
+    }
     if (PyObject_GetOptionalAttr((PyObject *)type, slotdef->name_strobj, &wrapper) < 0) {
         return -1;
     }
@@ -11063,7 +11066,7 @@ get_slot_wrapper(PyTypeObject *type, pytype_slotdef *slotdef, PyObject *mro,
 
 finally:
     *p_wrapper = wrapper;
-    *p_inherited = inherited;
+    *p_base = base;
     return 0;
 }
 
@@ -11087,15 +11090,17 @@ _PyType_GetSlotWrappers(PyTypeObject *type)
 
     for (pytype_slotdef *p = slotdefs; p->name; p++) {
         PyObject *wrapper = NULL;
-        int inherited = -1;
-        if (get_slot_wrapper(type, p, mro, &wrapper, &inherited) < 0) {
+        PyTypeObject *base = NULL;
+        if (get_slot_wrapper(type, p, mro, &wrapper, &base) < 0) {
             goto error;
         }
         if (wrapper == NULL) {
             continue;
         }
-        PyObject *value = PyTuple_Pack(
-                2, wrapper, inherited ? Py_True : Py_False);
+        PyObject *baseobj = (base == NULL)
+            ? Py_NewRef(Py_None)
+            : (PyObject *)base;
+        PyObject *value = PyTuple_Pack(2, wrapper, baseobj);
         Py_DECREF(wrapper);
         if (value == NULL) {
             goto error;
