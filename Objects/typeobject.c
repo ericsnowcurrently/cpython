@@ -11020,6 +11020,8 @@ static int
 get_slot_wrapper(PyTypeObject *type, pytype_slotdef *slotdef, PyObject *mro,
                  PyObject **p_wrapper, int *p_inherited)
 {
+    int inherited = -1;
+    PyObject *wrapper = NULL;
     void *func = NULL;
     void *base_func = NULL;
     int offset = slotdef->offset;
@@ -11034,16 +11036,32 @@ get_slot_wrapper(PyTypeObject *type, pytype_slotdef *slotdef, PyObject *mro,
 
     if (func == NULL && base_func == NULL) {
         /* The slot is empty;  We don't bother looking up the attribute. */
-        *p_wrapper = NULL;
-        *p_inherited = -1;
-        return 0;
+        goto finally;
     }
 
-    int inherited = (func == NULL || func == base_func);
-    PyObject *wrapper = NULL;
+    inherited = (func == NULL || func == base_func);
     if (PyObject_GetOptionalAttr((PyObject *)type, slotdef->name_strobj, &wrapper) < 0) {
         return -1;
     }
+
+    if (wrapper == NULL) {
+        /* It is inherited. */
+    }
+    else if (wrapper == Py_None) {
+        /* It was explicitly disabled. */
+    }
+    else if (slotdef->offset == offsetof(PyTypeObject, tp_new)) {
+        /* It is not a wrapper.  See type_ready_set_new(). */
+        assert(Py_TYPE(wrapper) == &PyCFunction_Type);
+    }
+    else if (Py_TYPE(wrapper) == &PyMethodDescr_Type) {
+        /* It was defined in tp_methods. */
+    }
+    else {
+        assert(Py_TYPE(wrapper) == &PyWrapperDescr_Type);
+    }
+
+finally:
     *p_wrapper = wrapper;
     *p_inherited = inherited;
     return 0;
