@@ -2732,14 +2732,41 @@ def identify_type_slot_wrappers():
 
 
 def iter_slot_wrappers(cls):
+    try:
+        import _testinternalcapi
+    except ImportError:
+        _testinternalcapi = None
+    if _testinternalcapi is not None:
+        wrappers = _testinternalcapi.get_type_slot_wrappers(cls)
+        for name, (wrapper, base) in wrappers.items():
+            yield name, wrapper, base
+        return
+
     def is_slot_wrapper(name, value):
-        if not isinstance(value, types.WrapperDescriptorType):
-            assert not repr(value).startswith('<slot wrapper '), (cls, name, value)
+        # This is a best-effort attempt.
+        if not (name.startswith('__') and name.endswith('__')):
+            assert type(value) is not types.WrapperDescriptorType, (cls, name, value, type(value))
             return False
-        assert repr(value).startswith('<slot wrapper '), (cls, name, value)
-        assert callable(value), (cls, name, value)
-        assert name.startswith('__') and name.endswith('__'), (cls, name, value)
-        return True
+        if type(value) is types.WrapperDescriptorType:
+            # It is a true slot wrapper.
+            return True
+        elif type(value) is types.MethodDescriptorType:
+            # It was overridden in tp_methods.
+            return True
+        elif type(value) is types.BuiltinMethodType:
+            if name in (
+                '__init_subclass__', '__subclasshook__', '__prepare__',
+                '__class_getitem__', '__getformat__',
+            ):
+                return False
+            assert name == '__new__', (cls, name, value)
+            return True
+        elif value is None:
+            if name == '__hash__':
+                return True
+            return False
+        else:
+            return False
 
     try:
         attrs = identify_type_slot_wrappers()
@@ -2769,17 +2796,22 @@ def iter_slot_wrappers(cls):
                 unused.add(name)
             continue
 
-        if not name.startswith('__') or not name.endswith('__'):
-            assert not is_slot_wrapper(name, value), (cls, name, value)
         if not is_slot_wrapper(name, value):
             if name in ns:
                 assert not is_slot_wrapper(name, ns[name]), (cls, name, value, ns[name])
         else:
+            wrapper = value
             if name in ns:
-                assert ns[name] is value, (cls, name, value, ns[name])
-                yield name, True
+                assert ns[name] is wrapper, (cls, name, wrapper, ns[name])
+                base = None
             else:
-                yield name, False
+                for base in cls.__mro__[1:]:
+                    if name in vars(base):
+                        assert vars(base)[name] is wrapper, (cls, name, wrapper, vars(base)[name])
+                        break
+                else:
+                    raise Exception('unreachable')
+            yield name, wrapper, base
 
     for name in unused:
         value = ns[name]
