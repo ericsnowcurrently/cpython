@@ -2609,6 +2609,14 @@ def copy_python_src_ignore(path, names):
 
 
 def iter_builtin_types():
+    try:
+        import _testinternalcapi
+    except ImportError:
+        _testinternalcapi = None
+    if _testinternalcapi is not None:
+        yield from _testinternalcapi.get_static_builtin_types()
+        return
+
     seen = set()
     for obj in __builtins__.values():
         if not isinstance(obj, type):
