@@ -2357,6 +2357,155 @@ class FunctionTests(unittest.TestCase):
 
 class SubinterpreterTests(unittest.TestCase):
 
+    INDIRECT_BUILTINS = {
+        # singletons
+        'ellipsis': None,
+        'NoneType': None,
+        'NotImplementedType': None,
+
+        # core
+        'symtable entry': None,
+        'PyCapsule': None,
+        'Token': None,
+        'ContextVar': None,
+        'Context': None,
+        'FrameLocalsProxy': None,
+        'instancemethod': None,
+        'iterator': None,  # iter()
+        'moduledef': None,
+        'stderrprinter': None,
+        'anext_awaitable': None,
+        'async_generator_asend': None,
+        'async_generator_athrow': None,
+        'async_generator_wrapped_value': None,
+        '_buffer_wrapper': None,
+        'coroutine_wrapper': None,
+        'hamt_array_node': None,
+        'hamt_bitmap_node': None,
+        'hamt_collision_node': None,
+        'hamt': None,
+        'InstructionSequence': None,
+        'managedbuffer': None,
+        'builtin_method': None,
+        'EncodingMap': None,
+        'fieldnameiterator': None,  # string.Formatter.vformat result[1]
+        'formatteriterator': None,  # string.Formatter.vformat result[i]
+        'asyncgen_hooks': None,
+        'UnraisableHookArgs': None,
+
+        # core, exposed by types module
+        'function': 'types.FunctionType',
+        'generator': 'types.GeneratorType',
+        'coroutine': 'types.CoroutineType',
+        'async_generator': 'types.AsyncGeneratorType',
+        'code': 'types.CodeType',
+        'cell': 'types.CellType',
+        'method': 'types.MethodType',
+        'wrapper_descriptor': 'types.WrapperDescriptorType',
+        'builtin_function_or_method': 'types.BuiltinFunctionType',
+        'method-wrapper': 'types.MethodWrapperType',
+        'method_descriptor': 'types.MethodDescriptorType',
+        'classmethod_descriptor': 'types.ClassMethodDescriptorType',
+        'module': 'types.ModuleType',
+        'traceback': 'types.TracebackType',
+        'frame': 'types.FrameType',
+        'getset_descriptor': 'types.GetSetDescriptorType',
+        'member_descriptor': 'types.MemberDescriptorType',
+        'mappingproxy': 'types.MappingProxyType',
+        'SimpleNamespace': 'types.SimpleNamespace',
+
+        # sys
+        'legacy_event_handler': 'sys',  # ???
+        'int_info': 'sys',  # type(sys.int_info)
+        'float_info': 'sys',  # type(sys.float_info)
+        'hash_info': 'sys',  # type(sys.hash_info)
+        'version_info': 'sys',  # type(sys.version_info)
+        'flags': 'sys',  # type(sys.flags)
+        'thread_info': 'sys',  # type(sys.thread_info)
+
+        # weakref
+        'CallableProxyType': 'weakref',
+        'ProxyType': 'weakref',
+        'ReferenceType': 'weakref',
+
+        # interpreters
+        'InterpreterError': '_interpreters',
+        'InterpreterNotFoundError': '_interpreters',
+
+        # stdlib
+        'GenericAlias': 'types',
+        'UnionType': 'types',
+        'TypeAliasType': 'typing',
+        'OrderedDict': 'collections',
+        'PickleBuffer': 'pickle',
+
+        # from builtin types' methods
+        'dict_items': None,
+        'dict_keys': None,
+        'dict_values': None,
+        'MISSING': None,  # Token.MISSING
+        'items': None,  # hamt.items
+        'keys': None,  # hamt.keys
+        'values': None,  # hamt.values
+        'odict_items': None,
+        'odict_keys': None,
+        'odict_values': None,
+        'line_iterator': None,  # co_lines
+        'positions_iterator': None,  # co_positions
+
+        # from builtin types
+        'bytearray_iterator': None,
+        'bytes_iterator': None,
+        'callable_iterator': None,
+        'dict_itemiterator': None,
+        'dict_keyiterator': None,
+        'dict_valueiterator': None,
+        'dict_reverseitemiterator': None,
+        'dict_reversekeyiterator': None,
+        'dict_reversevalueiterator': None,
+        'list_iterator': None,
+        'list_reverseiterator': None,
+        'longrange_iterator': None,
+        'odict_iterator': None,
+        'range_iterator': None,
+        'set_iterator': None,
+        'tuple_iterator': None,
+        'str_iterator': None,
+        'str_ascii_iterator': None,
+        'generic_alias_iterator': None,
+        'memory_iterator': None,
+    }
+
+    NUMERIC_METHODS = {
+        '__abs__',
+        '__add__',
+        '__bool__',
+        '__divmod__',
+        '__float__',
+        '__floordiv__',
+        '__index__',
+        '__int__',
+        '__lshift__',
+        '__mod__',
+        '__mul__',
+        '__neg__',
+        '__pos__',
+        '__pow__',
+        '__radd__',
+        '__rdivmod__',
+        '__rfloordiv__',
+        '__rlshift__',
+        '__rmod__',
+        '__rmul__',
+        '__rpow__',
+        '__rrshift__',
+        '__rshift__',
+        '__rsub__',
+        '__rtruediv__',
+        '__sub__',
+        '__truediv__',
+    }
+
     @classmethod
     def setUpClass(cls):
         global interpreters
@@ -2445,6 +2594,98 @@ class SubinterpreterTests(unittest.TestCase):
 #                self.assertEqual(result, expected)
         self.maxDiff = None
         self.assertEqual(results, {})
+        return
+
+
+
+
+
+        print()
+        for i, (cls, slot, _) in enumerate(slots):
+            with self.subTest(cls=cls, slot=slot):
+                expected = all_expected[i]
+                result = rch.recv_nowait()
+                print(expected)
+                print(result)
+                print()
+                #self.assertEqual(result, expected)
+        return
+
+
+
+
+
+        slots = []
+        script = ''
+        if _testinternalcapi is not None:
+            script += textwrap.dedent("""
+                import _testinternalcapi
+                byname = {c.__name__: c
+                          for c in _testinternalcapi.get_static_builtin_types()}
+            """)
+
+            script += textwrap.dedent("""
+                def send_slot(cls, slot):
+                    wrapper = getattr(cls, slot)
+                    sch.send_nowait((cls.__name__, slot, repr(wrapper)))
+                """)
+        for cls in iter_builtin_types():
+            if cls.__name__ == 'OrderedDict':
+                continue
+#            if clsname in self.INDIRECT_BUILTINS:
+#                continue
+            cls_slots = []
+            for slot, own in iter_slot_wrappers(cls):
+                if cls is bool and slot in self.NUMERIC_METHODS:
+                    continue
+                cls_slots.append((slot, own))
+#                if own:
+#                    continue
+                slots.append((cls, slot, own))
+            if not cls_slots:
+                continue
+
+            expr = cls.__name__
+            if cls.__name__ not in __builtins__:
+                assert _testinternalcapi is not None, cls
+                expr = f'byname[{cls.__name__!r}]'
+
+            script += textwrap.dedent(f"""
+                ########################################
+                # {cls!r}
+                ########################################
+
+                cls = {expr}
+                """)
+            for slot, own in cls_slots:
+#                if own:
+#                    script += '#'
+                script += f'send_slot(cls, {slot!r})'
+                if own:
+                    script += ' ' * (20 - len(repr(slot)))
+                    script += '# expect own slot'
+                script += '\n'
+            script += '\n'
+        print(script)
+
+        ns = dict(sch=sch)
+        exec(script, ns, ns)
+        all_expected = []
+        for cls, slot, _ in slots:
+            result = rch.recv()
+            assert result == (cls.__name__, slot, result[-1]), (cls, slot, result)
+            all_expected.append(result)
+
+        interp = interpreters.create()
+        interp.exec('from test.support import interpreters')
+        interp.prepare_main(sch=sch)
+        interp.exec(script)
+
+        for i, (cls, slot, _) in enumerate(slots):
+            with self.subTest(cls=cls, slot=slot):
+                expected = all_expected[i]
+                result = rch.recv()
+                self.assertEqual(result, expected)
 
 
 

@@ -516,6 +516,57 @@ class EmbeddingTests(EmbeddingTestsMixin, unittest.TestCase):
         self.assertEqual(out, '1\n2\n3\n' * INIT_LOOPS)
 
 
+
+
+#        slots = {}
+#        from test.test_types import iter_builtin_types, iter_slot_wrappers
+#        for cls in iter_builtin_types():
+#            try:
+#                subslots = slots[cls]
+#            for slot, own in iter_slot_wrappers(cls):
+
+
+#        for cls in support.iter_builtin_types():
+#            with self.subTest(cls=cls):
+#                body = []
+#                body.append('')
+#                body.append(f'cls = {cls.__name__}')
+#                for slot, own in iter_slot_wrappers(cls):
+#                    body.append(f'add(cls, {slot!r}, {own})')
+#                body.pop(0)
+#                script = template.replace('{body}', os.linesep.join(body))
+#                # On Windows there's a limit of 8191 characters
+#                # for commandline arguments.
+#                assert not MS_WINDOWS or len(script) < 2<<13
+##                filename = self.make_temp_script(script)
+##                arg = f'with open({filename}) as infile:
+##                tmpdir = tempfile.mkdtemp()
+##                self.addCleanup(lambda: os_helper.rmtree(tmpdir))
+##                script_helper.make_script(tmpdir, 
+##                filename = 
+##
+##                if MS_WINDOWS:
+##                    # On Windows there's a limit of 8191 characters
+##                    # for commandline arguments.
+##                    if len(script) >= 2<<13:
+#
+#                with support.captured_stderr() as stderr:
+#                    ns = {}
+#                    exec(script, ns, ns)
+#                expected = json.loads(stderr.getvalue())
+#
+#                out, err = self.run_embedded_interpreter(
+#                        "test_repeated_init_exec", script, script)
+#                results = err.split('--- Loop #')[1:]
+#                results = [res.rpartition(' ---\n')[-1] for res in results]
+#
+#                self.maxDiff = None
+#                for i, text in enumerate(results, start=1):
+#                    result = json.loads(text)
+#                    self.assertEqual(result, expected)
+#                self.assertEqual(out, '')
+
+
 @unittest.skipIf(_testinternalcapi is None, "requires _testinternalcapi")
 class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
     maxDiff = 4096
