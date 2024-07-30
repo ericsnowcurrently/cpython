@@ -20,6 +20,11 @@ import unittest.mock
 import weakref
 import typing
 
+try:
+    import _testinternalcapi
+except ImportError:
+    _testinternalcapi = None
+
 
 T = typing.TypeVar("T")
 
@@ -2352,36 +2357,6 @@ class FunctionTests(unittest.TestCase):
 
 class SubinterpreterTests(unittest.TestCase):
 
-    NUMERIC_METHODS = {
-        '__abs__',
-        '__add__',
-        '__bool__',
-        '__divmod__',
-        '__float__',
-        '__floordiv__',
-        '__index__',
-        '__int__',
-        '__lshift__',
-        '__mod__',
-        '__mul__',
-        '__neg__',
-        '__pos__',
-        '__pow__',
-        '__radd__',
-        '__rdivmod__',
-        '__rfloordiv__',
-        '__rlshift__',
-        '__rmod__',
-        '__rmul__',
-        '__rpow__',
-        '__rrshift__',
-        '__rshift__',
-        '__rsub__',
-        '__rtruediv__',
-        '__sub__',
-        '__truediv__',
-    }
-
     @classmethod
     def setUpClass(cls):
         global interpreters
@@ -2394,55 +2369,80 @@ class SubinterpreterTests(unittest.TestCase):
     @cpython_only
     @no_rerun('channels (and queues) might have a refleak; see gh-122199')
     def test_static_types_inherited_slots(self):
-        rch, sch = interpreters.channels.create()
+        # Gather the expected data from the current interpreter.
+        all_expected = []
+        seen = {}
+        for cls in iter_builtin_types():
+            for slot, wrapper, base in iter_slot_wrappers(cls):
+                text = repr(wrapper)
+                if type(wrapper) is types.WrapperDescriptorType:
+                    pass
+                elif type(wrapper) is types.MethodDescriptorType:
+                    # It was overridden in tp_methods.
+                    pass
+                elif slot == '__new__':
+                    assert type(wrapper) is types.BuiltinFunctionType, (cls, slot, own, wrapper, type(wrapper))
+                else:
+                    assert wrapper is None, (cls, slot, own, wrapper, type(wrapper))
+                expected = (base and base.__name__, text)
+                assert (cls, slot) not in seen, (cls, slot, expected, seen[(cls, slot)])
+                seen[(cls, slot)] = expected
+                all_expected.append((cls, slot, expected))
 
-        script = textwrap.dedent("""
-            import test.support
-            results = []
-            for cls in test.support.iter_builtin_types():
-                for attr, _ in test.support.iter_slot_wrappers(cls):
-                    wrapper = getattr(cls, attr)
-                    res = (cls, attr, wrapper)
-                    results.append(res)
-            results = tuple((repr(c), a, repr(w)) for c, a, w in results)
-            sch.send_nowait(results)
-            """)
-        def collate_results(raw):
-            results = {}
-            for cls, attr, wrapper in raw:
-                # XXX This should not be necessary.
-                if cls == repr(bool) and attr in self.NUMERIC_METHODS:
-                    continue
-                key = cls, attr
-                assert key not in results, (results, key, wrapper)
-                results[key] = wrapper
-            return results
-
-        exec(script)
-        raw = rch.recv_nowait()
-        main_results = collate_results(raw)
-
+        # Gather the coresponding data from the subinterpreter.
         interp = interpreters.create()
+        interp.exec(textwrap.dedent("""
+            from test.test_types import iter_builtin_types, iter_slot_wrappers
+
+            results = []
+            for cls in iter_builtin_types():
+                for slot, wrapper, base in iter_slot_wrappers(cls):
+                    wrapper = getattr(cls, slot)
+                    result = (base and base.__name__, repr(wrapper))
+                    results.append((cls.__name__, slot, result))
+            """))
+
+        # Send the results out.
+        rch, sch = interpreters.channels.create()
         interp.exec('from test.support import interpreters')
         interp.prepare_main(sch=sch)
-        interp.exec(script)
-        raw = rch.recv_nowait()
-        interp_results = collate_results(raw)
+        interp.exec(textwrap.dedent("""
+            for res in results:
+                sch.send_nowait(res)
+            """))
 
-        for key, expected in main_results.items():
-            cls, attr = key
-            with self.subTest(cls=cls, slotattr=attr):
-                actual = interp_results.pop(key)
-                # XXX This should not be necessary.
-                if cls == "<class 'collections.OrderedDict'>" and attr == '__len__':
-                    continue
-                self.assertEqual(actual, expected)
-        # XXX This should not be necessary.
-        interp_results = {k: v for k, v in interp_results.items() if k[1] != '__hash__'}
-        # XXX This should not be necessary.
-        interp_results.pop(("<class 'collections.OrderedDict'>", '__getitem__'), None)
+        # Collect the results.
+        results = {}
+        while True:
+            try:
+                clsname, slot, result = rch.recv_nowait()
+            except interpreters.channels.ChannelEmptyError:
+                break
+            try:
+                by_slot = results[clsname]
+            except KeyError:
+                by_slot = results[clsname] = {}
+            assert slot not in by_slot, (clsname, slot, result, by_slot[slot])
+            by_slot[slot] = result
+
+        # Check the results.
+        for cls, slot, expected in all_expected:
+            if expected[1].startswith('<built-in method __new__ of type object at 0x'):
+                base, wrapper = expected
+                wrapper = wrapper[:45] + '...>'
+                expected = (base, wrapper)
+            with self.subTest(cls=cls, slot=slot):
+                by_slot = results[cls.__name__]
+                result = by_slot.pop(slot)
+                if not by_slot:
+                    del results[cls.__name__]
+                if result[1].startswith('<built-in method __new__ of type object at 0x'):
+                    base, wrapper = result
+                    wrapper = wrapper[:45] + '...>'
+                    result = (base, wrapper)
+                self.assertEqual(result, expected)
         self.maxDiff = None
-        self.assertEqual(interp_results, {})
+        self.assertEqual(results, {})
 
 
 if __name__ == '__main__':
