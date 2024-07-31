@@ -154,7 +154,9 @@ struct _xidregitem {
     /* This is NULL for builtin types. */
     PyObject *weakref;
     size_t refcount;
-    crossinterpdatafunc getdata;
+    struct _xidregitem_spec {
+        crossinterpdatafunc getdata;
+    } spec;
 };
 
 struct _xidregistry {
@@ -164,7 +166,9 @@ struct _xidregistry {
     struct _xidregitem *head;
 };
 
-PyAPI_FUNC(int) _PyCrossInterpreterData_RegisterClass(PyTypeObject *, crossinterpdatafunc);
+PyAPI_FUNC(int) _PyCrossInterpreterData_RegisterClass(
+    PyTypeObject *,
+    struct _xidregitem_spec *);
 PyAPI_FUNC(int) _PyCrossInterpreterData_UnregisterClass(PyTypeObject *);
 PyAPI_FUNC(crossinterpdatafunc) _PyCrossInterpreterData_Lookup(PyObject *);
 
