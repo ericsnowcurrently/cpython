@@ -557,38 +557,27 @@ error:
 static void
 _register_builtins_for_crossinterpreter_data(struct _xidregistry *xidregistry)
 {
-    // None
-    if (_xidregistry_add_type(xidregistry, (PyTypeObject *)PyObject_Type(Py_None), _none_shared) != 0) {
-        Py_FatalError("could not register None for cross-interpreter sharing");
-    }
+    static const struct regspec {
+        const char *name;
+        PyTypeObject *type;
+        crossinterpdatafunc func;
+    } builtins[] = {
+        {"None", &_PyNone_Type, _none_shared},
+        {"int", &PyLong_Type, _long_shared},
+        {"bytes", &PyBytes_Type, _bytes_shared},
+        {"str", &PyUnicode_Type, _str_shared},
+        {"bool", &PyBool_Type, _bool_shared},
+        {"float", &PyFloat_Type, _float_shared},
+        {"tuple", &PyTuple_Type, _tuple_shared},
+        {NULL},
+    };
 
-    // int
-    if (_xidregistry_add_type(xidregistry, &PyLong_Type, _long_shared) != 0) {
-        Py_FatalError("could not register int for cross-interpreter sharing");
-    }
-
-    // bytes
-    if (_xidregistry_add_type(xidregistry, &PyBytes_Type, _bytes_shared) != 0) {
-        Py_FatalError("could not register bytes for cross-interpreter sharing");
-    }
-
-    // str
-    if (_xidregistry_add_type(xidregistry, &PyUnicode_Type, _str_shared) != 0) {
-        Py_FatalError("could not register str for cross-interpreter sharing");
-    }
-
-    // bool
-    if (_xidregistry_add_type(xidregistry, &PyBool_Type, _bool_shared) != 0) {
-        Py_FatalError("could not register bool for cross-interpreter sharing");
-    }
-
-    // float
-    if (_xidregistry_add_type(xidregistry, &PyFloat_Type, _float_shared) != 0) {
-        Py_FatalError("could not register float for cross-interpreter sharing");
-    }
-
-    // tuple
-    if (_xidregistry_add_type(xidregistry, &PyTuple_Type, _tuple_shared) != 0) {
-        Py_FatalError("could not register tuple for cross-interpreter sharing");
+    for (const struct regspec *spec = builtins; spec->name != NULL; spec += 1) {
+        if (_xidregistry_add_type(xidregistry, spec->type, spec->func) != 0) {
+            _Py_FatalErrorFormat(
+                    __func__,
+                    "could not register %s for cross-interpreter sharing",
+                    spec->name);
+        }
     }
 }
