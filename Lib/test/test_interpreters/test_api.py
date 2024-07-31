@@ -1108,6 +1108,7 @@ class TestIsShareable(TestBase):
                 100.0,
                 (),
                 (1, ('spam', 'eggs'), True),
+                type,
                 ]
         for obj in shareables:
             with self.subTest(obj):
@@ -1129,7 +1130,6 @@ class TestIsShareable(TestBase):
                 NotImplemented,
                 ...,
                 # builtin types and objects
-                type,
                 object,
                 object(),
                 Exception(),
