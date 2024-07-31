@@ -239,7 +239,7 @@ _xidregistry_clear(struct _xidregistry *xidregistry)
 
 int
 _PyCrossInterpreterData_RegisterClass(PyTypeObject *cls,
-                                      crossinterpdatafunc getdata)
+                                      struct _xidregitem_spec *spec)
 {
     if (!PyType_Check(cls)) {
         PyErr_Format(PyExc_ValueError, "only classes may be registered");
@@ -257,7 +257,7 @@ _PyCrossInterpreterData_RegisterClass(PyTypeObject *cls,
 
     struct _xidregitem *matched = _xidregistry_find_type(xidregistry, cls);
     if (matched != NULL) {
-        assert(matched->getdata == getdata);
+        assert(matched->spec.getdata == spec->getdata);
         matched->refcount += 1;
         goto finally;
     }
