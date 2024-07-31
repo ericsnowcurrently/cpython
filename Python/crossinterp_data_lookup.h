@@ -830,6 +830,38 @@ error:
     return -1;
 }
 
+// type
+
+static PyObject *
+_new_type_object(_PyCrossInterpreterData *data)
+{
+    PyObject *type = (PyObject *)data->data;
+    assert(PyType_Check(type));
+    assert(_PyType_HasFeature(
+                (PyTypeObject *)type, _Py_TPFLAGS_STATIC_BUILTIN));
+    return type;
+}
+
+static int
+_type_shared(PyThreadState *tstate, PyObject *obj,
+             _PyCrossInterpreterData *data)
+{
+    assert(PyType_Check(obj));
+    PyTypeObject *type = (PyTypeObject *)obj;
+
+    if (type != &PyType_Type) {
+//    if (_PyType_HasFeature(type, _Py_TPFLAGS_STATIC_BUILTIN)) {
+        return -1;
+    }
+
+    // Since we're only dealing with static builtin types,
+    // we don't need to tie the shared data to an object (or interpreter).
+    PyInterpreterState *interp = NULL;
+    obj = NULL;
+    _PyCrossInterpreterData_Init(data, interp, type, obj, _new_type_object);
+    return 0;
+}
+
 // registration
 
 static void
@@ -847,6 +879,7 @@ _register_builtins_for_crossinterpreter_data(struct _xidregistry *xidregistry)
         {"bool", &PyBool_Type, {NULL, _bool_shared}},
         {"float", &PyFloat_Type, {NULL, _float_shared}},
         {"tuple", &PyTuple_Type, {NULL, _tuple_shared}},
+        {"type", &PyType_Type, {NULL, _type_shared}},
         {NULL},
     };
 
