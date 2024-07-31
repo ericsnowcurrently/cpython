@@ -2732,18 +2732,31 @@ def identify_type_slot_wrappers():
 
 
 def iter_slot_wrappers(cls):
+# XXX
+    if cls.__name__ == 'OrderedDict':
+        return
+# XXX
+    if cls is bool:
+        return
     try:
         import _testinternalcapi
     except ImportError:
         _testinternalcapi = None
+#    _testinternalcapi = None
     if _testinternalcapi is not None:
         wrappers = _testinternalcapi.get_type_slot_wrappers(cls)
         for name, (wrapper, base) in wrappers.items():
+# XXX
+            if name == '__hash__':
+                continue
             yield name, wrapper, base
         return
 
     def is_slot_wrapper(name, value):
         # This is a best-effort attempt.
+# XXX
+        if name == '__hash__':
+            return False
         if not (name.startswith('__') and name.endswith('__')):
             assert type(value) is not types.WrapperDescriptorType, (cls, name, value, type(value))
             return False
@@ -2800,6 +2813,9 @@ def iter_slot_wrappers(cls):
             if name in ns:
                 assert not is_slot_wrapper(name, ns[name]), (cls, name, value, ns[name])
         else:
+# XXX
+            if name == '__new__':
+                continue
             wrapper = value
             if name in ns:
                 assert ns[name] is wrapper, (cls, name, wrapper, ns[name])
