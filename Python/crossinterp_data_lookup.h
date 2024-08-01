@@ -832,6 +832,18 @@ error:
 
 // type
 
+static int
+_type_filter(PyThreadState *tstate, PyObject *obj)
+{
+    assert(PyType_Check(obj));
+    PyTypeObject *type = (PyTypeObject *)obj;
+
+    if (type != &PyType_Type) {
+        return 0;
+    }
+    return 1;
+}
+
 static PyObject *
 _new_type_object(_PyCrossInterpreterData *data)
 {
@@ -846,13 +858,8 @@ static int
 _type_shared(PyThreadState *tstate, PyObject *obj,
              _PyCrossInterpreterData *data)
 {
-    assert(PyType_Check(obj));
+    assert(_type_filter(tstate, obj));
     PyTypeObject *type = (PyTypeObject *)obj;
-
-    if (type != &PyType_Type) {
-//    if (_PyType_HasFeature(type, _Py_TPFLAGS_STATIC_BUILTIN)) {
-        return -1;
-    }
 
     // Since we're only dealing with static builtin types,
     // we don't need to tie the shared data to an object (or interpreter).
@@ -879,7 +886,7 @@ _register_builtins_for_crossinterpreter_data(struct _xidregistry *xidregistry)
         {"bool", &PyBool_Type, {NULL, _bool_shared}},
         {"float", &PyFloat_Type, {NULL, _float_shared}},
         {"tuple", &PyTuple_Type, {NULL, _tuple_shared}},
-        {"type", &PyType_Type, {NULL, _type_shared}},
+        {"type", &PyType_Type, {_type_filter, _type_shared}},
         {NULL},
     };
 
