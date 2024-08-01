@@ -1108,7 +1108,13 @@ class TestIsShareable(TestBase):
                 100.0,
                 (),
                 (1, ('spam', 'eggs'), True),
+                # builtin types
                 type,
+                object,
+                bool,
+                dict,
+                types.SimpleNamespace,
+                *support.iter_builtin_types(),
                 ]
         for obj in shareables:
             with self.subTest(obj):
@@ -1130,7 +1136,6 @@ class TestIsShareable(TestBase):
                 NotImplemented,
                 ...,
                 # builtin types and objects
-                object,
                 object(),
                 Exception(),
                 # user-defined types and objects

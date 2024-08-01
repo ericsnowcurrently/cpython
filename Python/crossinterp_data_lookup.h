@@ -838,7 +838,7 @@ _type_filter(PyThreadState *tstate, PyObject *obj)
     assert(PyType_Check(obj));
     PyTypeObject *type = (PyTypeObject *)obj;
 
-    if (type != &PyType_Type) {
+    if (!_PyType_HasFeature(type, _Py_TPFLAGS_STATIC_BUILTIN)) {
         return 0;
     }
     return 1;
