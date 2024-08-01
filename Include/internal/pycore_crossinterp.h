@@ -135,14 +135,34 @@ PyAPI_FUNC(int) _PyCrossInterpreterData_Release(_PyCrossInterpreterData *);
 PyAPI_FUNC(int) _PyCrossInterpreterData_ReleaseAndRawFree(_PyCrossInterpreterData *);
 
 
+/* cross-interpreter-supporting types */
+
+typedef int (*crossinterpdatafunc)(PyThreadState *tstate, PyObject *,
+                                   _PyCrossInterpreterData *);
+
+typedef int (*crossinterpfilterfunc)(PyThreadState *, PyObject *);
+
+struct _xidtype_spec {
+    /* This may be NULL if all values of the type are shareable. */
+    crossinterpfilterfunc filter;
+    crossinterpdatafunc getdata;
+};
+
+struct _xidtype_def {
+    struct _xidtype_spec dflt;
+    /* An array with different check and getdata values.
+       The last item has getdata set to NULL. */
+    struct _xidtype_spec *variants;
+};
+
+PyAPI_FUNC(crossinterpdatafunc) _PyCrossInterpreterData_Lookup(PyObject *);
+
+
 /* cross-interpreter data registry */
 
 // For now we use a global registry of shareable classes.  An
 // alternative would be to add a tp_* slot for a class's
 // crossinterpdatafunc. It would be simpler and more efficient.
-
-typedef int (*crossinterpdatafunc)(PyThreadState *tstate, PyObject *,
-                                   _PyCrossInterpreterData *);
 
 struct _xidregitem;
 
@@ -153,10 +173,18 @@ struct _xidregitem {
     PyTypeObject *cls;
     /* This is NULL for builtin types. */
     PyObject *weakref;
-    size_t refcount;
-    struct _xidregitem_spec {
-        crossinterpdatafunc getdata;
-    } spec;
+
+    struct _xidtype_def def;
+    /* dflt and variants are supplemental to "def". */
+    struct _xidregtype {
+        uint64_t id;
+        size_t refcount;
+    } dflt;
+#define MAX_XID_REG_TYPE_VARIANTS 5
+    struct _xidregtype variants[MAX_XID_REG_TYPE_VARIANTS];
+    struct _xidtype_spec _variants[MAX_XID_REG_TYPE_VARIANTS];
+    size_t num_variants;
+    uint64_t next_id;
 };
 
 struct _xidregistry {
@@ -168,9 +196,11 @@ struct _xidregistry {
 
 PyAPI_FUNC(int) _PyCrossInterpreterData_RegisterClass(
     PyTypeObject *,
-    struct _xidregitem_spec *);
-PyAPI_FUNC(int) _PyCrossInterpreterData_UnregisterClass(PyTypeObject *);
-PyAPI_FUNC(crossinterpdatafunc) _PyCrossInterpreterData_Lookup(PyObject *);
+    const struct _xidtype_spec *spec,
+    uint64_t *p_id);
+PyAPI_FUNC(int) _PyCrossInterpreterData_UnregisterClass(
+    PyTypeObject *,
+    uint64_t id);
 
 
 /*****************************/

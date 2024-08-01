@@ -19,6 +19,160 @@ _PyCrossInterpreterData_Lookup(PyObject *obj)
 }
 
 
+/**************************************/
+/* Cross-interpreter-supporting types */
+/**************************************/
+
+static int
+_xidtype_check_variant(const struct _xidtype_spec *variant)
+{
+    if (variant->getdata == NULL) {
+        PyErr_Format(PyExc_ValueError, "variant missing getdata");
+        return -1;
+    }
+    if (variant->filter == NULL) {
+        PyErr_Format(PyExc_ValueError,
+                     "each variant must have a distinct filter");
+        return -1;
+    }
+    return 0;
+}
+
+static int
+_xidtype_check(const struct _xidtype_def *def)
+{
+    if (def->dflt.getdata == NULL) {
+        assert(def->dflt.filter == NULL);
+        PyErr_Format(PyExc_ValueError, "missing default getdata");
+        return -1;
+    }
+    /* The default def->filter may be NULL. */
+
+    if (def->variants != NULL) {
+        struct _xidtype_spec *variant = def->variants;
+        for (; variant->getdata != NULL || variant->filter != NULL; variant++) {
+            if (_xidtype_check_variant(variant) < 0) {
+                return -1;
+            }
+        }
+    }
+
+    return 0;
+}
+
+static int
+_xidtype_init(struct _xidtype_def *def,
+              const struct _xidtype_spec *dflt, struct _xidtype_spec *variants)
+{
+    if (def->dflt.getdata != NULL) {
+        PyErr_Format(PyExc_ValueError, "XID type def already initialized");
+        return -1;
+    }
+    assert(def->variants == NULL);
+
+    *def = (struct _xidtype_def){
+        .dflt = *dflt,
+        .variants = variants,
+    };
+    if (_xidtype_check(def) < 0) {
+        return -1;
+    }
+    return 0;
+}
+
+static int
+_xidtype_match(const struct _xidtype_def *def, const struct _xidtype_spec *spec,
+               ssize_t *p_index)
+{
+    assert(spec->getdata != NULL);
+
+    if (spec->filter == NULL) {
+        /* Every variant has a filter set, so only the default can match. */
+        if (def->dflt.filter != NULL) {
+            assert(def->dflt.getdata != spec->getdata);
+            if (def->dflt.getdata == spec->getdata) {
+                PyErr_Format(PyExc_ValueError, "spec missing filter");
+            }
+            return 0;
+        }
+        if (def->dflt.getdata != spec->getdata) {
+            return 0;
+        }
+        return 1;
+    }
+
+    /* Try the variants first. */
+    if (def->variants != NULL) {
+        ssize_t index = 0;
+        struct _xidtype_spec *variant = def->variants;
+        for (; variant->getdata != NULL; variant++) {
+            assert(variant->filter != NULL);
+            if (variant->filter == spec->filter) {
+                assert(variant->getdata == spec->getdata);
+                if (variant->getdata != spec->getdata) {
+                    PyErr_Format(PyExc_ValueError, "mismatch on getdata");
+                    return 0;
+                }
+                if (p_index != NULL) {
+                    *p_index = index;
+                }
+                return 1;
+            }
+            assert(variant->getdata != spec->getdata);
+            if (def->dflt.getdata == spec->getdata) {
+                PyErr_Format(PyExc_ValueError, "mismatch on filter");
+                return 0;
+            }
+            index += 1;
+        }
+    }
+    /* Fall back to the default. */
+    if (def->dflt.filter == spec->filter) {
+        assert(def->dflt.getdata == spec->getdata);
+        if (def->dflt.getdata != spec->getdata) {
+            PyErr_Format(PyExc_ValueError, "mismatch on getdata");
+            return 0;
+        }
+        return 1;
+    }
+    assert(def->dflt.getdata != spec->getdata);
+    if (def->dflt.getdata == spec->getdata) {
+        PyErr_Format(PyExc_ValueError, "mismatch on filter");
+    }
+    return 0;
+}
+
+static crossinterpdatafunc
+_xidtype_resolve_getdata(struct _xidtype_def *def, PyObject *obj,
+                         ssize_t *p_index)
+{
+    PyThreadState *tstate = _PyThreadState_GET();
+    if (def->variants != NULL) {
+        ssize_t index = 0;
+        struct _xidtype_spec *variant = def->variants;
+        for (; variant->getdata != NULL; variant++) {
+            if (variant->filter(tstate, obj)) {
+                if (p_index != NULL) {
+                    *p_index = index;
+                }
+                return variant->getdata;
+            }
+            if (PyErr_Occurred()) {
+                return NULL;
+            }
+            index += 1;
+        }
+    }
+    if (def->dflt.filter == NULL || def->dflt.filter(tstate, obj)) {
+        if (p_index != NULL) {
+            *p_index = -1;
+        }
+        return def->dflt.getdata;
+    }
+    return NULL;
+}
+
+
 /***********************************************/
 /* a registry of {type -> crossinterpdatafunc} */
 /***********************************************/
@@ -148,6 +302,8 @@ _xidregistry_find_type(struct _xidregistry *xidregistry, PyTypeObject *cls)
             Py_DECREF(registered);
         }
         if (cur->cls == cls) {
+            assert(cur->dflt.refcount > 0);
+            assert(cur->def.dflt.getdata != NULL);
             return cur;
         }
         cur = cur->next;
@@ -158,13 +314,16 @@ _xidregistry_find_type(struct _xidregistry *xidregistry, PyTypeObject *cls)
 static crossinterpdatafunc
 _lookup_getdata_from_registry(PyInterpreterState *interp, PyObject *obj)
 {
+    crossinterpdatafunc func = NULL;
     PyTypeObject *cls = Py_TYPE(obj);
 
     struct _xidregistry *xidregistry = _get_xidregistry_for_type(interp, cls);
     _xidregistry_lock(xidregistry);
 
     struct _xidregitem *matched = _xidregistry_find_type(xidregistry, cls);
-    crossinterpdatafunc func = matched != NULL ? matched->getdata : NULL;
+    if (matched != NULL) {
+        func = _xidtype_resolve_getdata(&matched->def, obj, NULL);
+    }
 
     _xidregistry_unlock(xidregistry);
     return func;
@@ -173,26 +332,34 @@ _lookup_getdata_from_registry(PyInterpreterState *interp, PyObject *obj)
 
 /* updating the registry */
 
-static int
-_xidregistry_add_type(struct _xidregistry *xidregistry,
-                      PyTypeObject *cls, crossinterpdatafunc getdata)
+static struct _xidregitem *
+_xidregistry_add_entry(struct _xidregistry *xidregistry,
+                       PyTypeObject *cls, const struct _xidtype_spec *spec)
 {
-    struct _xidregitem *newhead = PyMem_RawMalloc(sizeof(struct _xidregitem));
-    if (newhead == NULL) {
-        return -1;
-    }
-    *newhead = (struct _xidregitem){
+    struct _xidregitem entry = {
         // We do not keep a reference, to avoid keeping the class alive.
         .cls = cls,
-        .refcount = 1,
-        .getdata = getdata,
+        .dflt = {
+            .refcount = 1,
+        },
+        .next_id = 1,
     };
+    if (_xidtype_init(&entry.def, spec, NULL) < 0) {
+        return NULL;
+    }
+
+    struct _xidregitem *newhead = PyMem_RawMalloc(sizeof(struct _xidregitem));
+    if (newhead == NULL) {
+        return NULL;
+    }
+    *newhead = entry;
+    newhead->def.variants = newhead->_variants;
     if (cls->tp_flags & Py_TPFLAGS_HEAPTYPE) {
         // XXX Assign a callback to clear the entry from the registry?
         newhead->weakref = PyWeakref_NewRef((PyObject *)cls, NULL);
         if (newhead->weakref == NULL) {
             PyMem_RawFree(newhead);
-            return -1;
+            return NULL;
         }
     }
     newhead->next = xidregistry->head;
@@ -200,6 +367,47 @@ _xidregistry_add_type(struct _xidregistry *xidregistry,
         newhead->next->prev = newhead;
     }
     xidregistry->head = newhead;
+    return newhead;
+}
+
+static int
+_xidregitem_add_variant(struct _xidregitem *entry,
+                        const struct _xidtype_spec *spec,
+                        ssize_t *p_index)
+{
+    if (entry->num_variants == MAX_XID_REG_TYPE_VARIANTS) {
+        PyErr_Format(PyExc_Exception,
+                     "max %d variants allowed", MAX_XID_REG_TYPE_VARIANTS);
+        return -1;
+    }
+    if (_xidtype_check_variant(spec) < 0) {
+        return -1;
+    }
+
+    ssize_t index = entry->num_variants;
+    struct _xidregtype *variant = &entry->variants[index];
+    assert(variant->id = 0);
+    assert(entry->def.variants[index].getdata == NULL);
+#ifndef NDEBUG
+    // Make sure we didn't leave any gaps by accident.
+    for (size_t i; i < index; i++) {
+        assert(entry->variants[i].id > 0);
+        assert(entry->def.variants[i].getdata != NULL);
+    }
+#endif
+
+    uint64_t id = entry->next_id;
+    assert(id > 0);
+    assert(id <= UINT64_MAX);
+    entry->next_id += 1;
+
+    *variant = (struct _xidregtype){
+        .id = id,
+        .refcount = 1,
+    };
+    entry->num_variants += 1;
+
+    *p_index = index;
     return 0;
 }
 
@@ -239,54 +447,124 @@ _xidregistry_clear(struct _xidregistry *xidregistry)
 
 int
 _PyCrossInterpreterData_RegisterClass(PyTypeObject *cls,
-                                      struct _xidregitem_spec *spec)
+                                      const struct _xidtype_spec *spec,
+                                      uint64_t *p_id)
 {
     if (!PyType_Check(cls)) {
         PyErr_Format(PyExc_ValueError, "only classes may be registered");
         return -1;
     }
-    if (getdata == NULL) {
-        PyErr_Format(PyExc_ValueError, "missing 'getdata' func");
+    if (spec == NULL) {
+        PyErr_Format(PyExc_ValueError, "missing registry spec");
         return -1;
     }
 
-    int res = 0;
+    int res = -1;
+    uint64_t id = 0;
     PyInterpreterState *interp = _PyInterpreterState_GET();
     struct _xidregistry *xidregistry = _get_xidregistry_for_type(interp, cls);
     _xidregistry_lock(xidregistry);
 
-    struct _xidregitem *matched = _xidregistry_find_type(xidregistry, cls);
-    if (matched != NULL) {
-        assert(matched->spec.getdata == spec->getdata);
-        matched->refcount += 1;
-        goto finally;
+    struct _xidregitem *entry = _xidregistry_find_type(xidregistry, cls);
+    if (entry == NULL) {
+        entry = _xidregistry_add_entry(xidregistry, cls, spec);
+        if (entry == NULL) {
+            goto finally;
+        }
+    }
+    else {
+        assert(entry->dflt.refcount > 0);
+        ssize_t index = -1;
+        if (_xidtype_match(&entry->def, spec, &index)) {
+            struct _xidregtype *rt = index < 0
+                ? &entry->dflt
+                : &entry->variants[index];
+            assert(rt->refcount > 0);
+            rt->refcount += 1;
+        }
+        else {
+            if (PyErr_Occurred()) {
+                goto finally;
+            }
+            if (_xidregitem_add_variant(entry, spec, &index) < 0) {
+                goto finally;
+            }
+        }
+        if (index >= 0) {
+            id = entry->variants[index].id;
+        }
     }
 
-    res = _xidregistry_add_type(xidregistry, cls, getdata);
+    res = 0;
 
 finally:
     _xidregistry_unlock(xidregistry);
+    if (p_id != NULL && id > 0) {
+        *p_id = id;
+    }
     return res;
 }
 
 int
-_PyCrossInterpreterData_UnregisterClass(PyTypeObject *cls)
+_PyCrossInterpreterData_UnregisterClass(PyTypeObject *cls, uint64_t id)
 {
-    int res = 0;
+    int res = -1;
     PyInterpreterState *interp = _PyInterpreterState_GET();
     struct _xidregistry *xidregistry = _get_xidregistry_for_type(interp, cls);
     _xidregistry_lock(xidregistry);
 
     struct _xidregitem *matched = _xidregistry_find_type(xidregistry, cls);
-    if (matched != NULL) {
-        assert(matched->refcount > 0);
-        matched->refcount -= 1;
-        if (matched->refcount == 0) {
+    if (matched == NULL) {
+        goto finally;
+    }
+    assert(matched->dflt.refcount > 0);
+
+    if (id == 0) {
+        assert(matched->dflt.id == 0);
+        assert(matched->def.dflt.getdata != NULL);
+        struct _xidregtype *rt = &matched->dflt;
+        assert(rt->refcount > 0);
+        if (rt->refcount == 1 && matched->num_variants > 0) {
+            PyErr_Format(PyExc_Exception,
+                         "cannot unregister type with variants");
+            goto finally;
+        }
+        rt->refcount -= 1;
+        if (rt->refcount == 0) {
             (void)_xidregistry_remove_entry(xidregistry, matched);
         }
-        res = 1;
+    }
+    else {
+        struct _xidregtype *rt = NULL;
+        size_t index = 0;
+        for (; index < matched->num_variants; index++) {
+            assert(matched->variants[index].id > 0);
+            assert(matched->def.variants[index].getdata != NULL);
+            if (matched->variants[index].id == id) {
+                rt = &matched->variants[index];
+                break;
+            }
+        }
+        if (rt == NULL) {
+            goto finally;
+        }
+        assert(rt->refcount > 0);
+        rt->refcount -= 1;
+        if (rt->refcount == 0) {
+            size_t i = index + 1;
+            /* We make sure there aren't any gaps. */
+            for (; i < matched->num_variants; i++) {
+                matched->variants[i] = matched->variants[i-1];
+                matched->_variants[i] = matched->_variants[i-1];
+            }
+            matched->variants[matched->num_variants] = (struct _xidregtype){0};
+            matched->_variants[matched->num_variants] = (struct _xidtype_spec){0};
+        }
     }
 
+    res = 0;
+
+finally:
     _xidregistry_unlock(xidregistry);
     return res;
 }
@@ -560,20 +838,21 @@ _register_builtins_for_crossinterpreter_data(struct _xidregistry *xidregistry)
     static const struct regspec {
         const char *name;
         PyTypeObject *type;
-        crossinterpdatafunc func;
+        struct _xidtype_spec xid;
     } builtins[] = {
-        {"None", &_PyNone_Type, _none_shared},
-        {"int", &PyLong_Type, _long_shared},
-        {"bytes", &PyBytes_Type, _bytes_shared},
-        {"str", &PyUnicode_Type, _str_shared},
-        {"bool", &PyBool_Type, _bool_shared},
-        {"float", &PyFloat_Type, _float_shared},
-        {"tuple", &PyTuple_Type, _tuple_shared},
+        {"None", &_PyNone_Type, {NULL, _none_shared}},
+        {"int", &PyLong_Type, {NULL, _long_shared}},
+        {"bytes", &PyBytes_Type, {NULL, _bytes_shared}},
+        {"str", &PyUnicode_Type, {NULL, _str_shared}},
+        {"bool", &PyBool_Type, {NULL, _bool_shared}},
+        {"float", &PyFloat_Type, {NULL, _float_shared}},
+        {"tuple", &PyTuple_Type, {NULL, _tuple_shared}},
         {NULL},
     };
 
     for (const struct regspec *spec = builtins; spec->name != NULL; spec += 1) {
-        if (_xidregistry_add_type(xidregistry, spec->type, spec->func) != 0) {
+        if (_xidregistry_add_entry(xidregistry, spec->type, &spec->xid) < 0) {
+            PyErr_PrintEx(0);
             _Py_FatalErrorFormat(
                     __func__,
                     "could not register %s for cross-interpreter sharing",
