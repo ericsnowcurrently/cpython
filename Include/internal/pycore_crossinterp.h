@@ -153,9 +153,6 @@ struct _xidtype_spec {
    PyTypeObject slot or a global registry.  */
 struct _xidtype_def {
     struct _xidtype_spec dflt;
-    /* An array with different check and getdata values.
-       The last item has getdata set to NULL. */
-    struct _xidtype_spec *variants;
 };
 
 PyAPI_FUNC(crossinterpdatafunc) _PyCrossInterpreterData_Lookup(PyObject *);
@@ -185,11 +182,6 @@ struct _xidregitem {
             uint64_t id;
             size_t refcount;
         } dflt;
-#define MAX_XID_REG_TYPE_VARIANTS 5
-        struct _xidregtype variants[MAX_XID_REG_TYPE_VARIANTS];
-
-        struct _xidtype_spec _variants[MAX_XID_REG_TYPE_VARIANTS];
-        size_t num_variants;
         uint64_t next_id;
     } tracking;
 };

@@ -24,21 +24,6 @@ _PyCrossInterpreterData_Lookup(PyObject *obj)
 /**************************************/
 
 static int
-_xidtype_check_variant(const struct _xidtype_spec *variant)
-{
-    if (variant->getdata == NULL) {
-        PyErr_Format(PyExc_ValueError, "variant missing getdata");
-        return -1;
-    }
-    if (variant->filter == NULL) {
-        PyErr_Format(PyExc_ValueError,
-                     "each variant must have a distinct filter");
-        return -1;
-    }
-    return 0;
-}
-
-static int
 _xidtype_check(const struct _xidtype_def *def)
 {
     if (def->dflt.getdata == NULL) {
@@ -48,31 +33,20 @@ _xidtype_check(const struct _xidtype_def *def)
     }
     /* The default def->filter may be NULL. */
 
-    if (def->variants != NULL) {
-        struct _xidtype_spec *variant = def->variants;
-        for (; variant->getdata != NULL || variant->filter != NULL; variant++) {
-            if (_xidtype_check_variant(variant) < 0) {
-                return -1;
-            }
-        }
-    }
-
     return 0;
 }
 
 static int
 _xidtype_init(struct _xidtype_def *def,
-              const struct _xidtype_spec *dflt, struct _xidtype_spec *variants)
+              const struct _xidtype_spec *dflt)
 {
     if (def->dflt.getdata != NULL) {
         PyErr_Format(PyExc_ValueError, "XID type def already initialized");
         return -1;
     }
-    assert(def->variants == NULL);
 
     *def = (struct _xidtype_def){
         .dflt = *dflt,
-        .variants = variants,
     };
     if (_xidtype_check(def) < 0) {
         return -1;
@@ -81,13 +55,11 @@ _xidtype_init(struct _xidtype_def *def,
 }
 
 static int
-_xidtype_match(const struct _xidtype_def *def, const struct _xidtype_spec *spec,
-               ssize_t *p_index)
+_xidtype_match(const struct _xidtype_def *def, const struct _xidtype_spec *spec)
 {
     assert(spec->getdata != NULL);
 
     if (spec->filter == NULL) {
-        /* Every variant has a filter set, so only the default can match. */
         if (def->dflt.filter != NULL) {
             assert(def->dflt.getdata != spec->getdata);
             if (def->dflt.getdata == spec->getdata) {
@@ -101,32 +73,6 @@ _xidtype_match(const struct _xidtype_def *def, const struct _xidtype_spec *spec,
         return 1;
     }
 
-    /* Try the variants first. */
-    if (def->variants != NULL) {
-        ssize_t index = 0;
-        struct _xidtype_spec *variant = def->variants;
-        for (; variant->getdata != NULL; variant++) {
-            assert(variant->filter != NULL);
-            if (variant->filter == spec->filter) {
-                assert(variant->getdata == spec->getdata);
-                if (variant->getdata != spec->getdata) {
-                    PyErr_Format(PyExc_ValueError, "mismatch on getdata");
-                    return 0;
-                }
-                if (p_index != NULL) {
-                    *p_index = index;
-                }
-                return 1;
-            }
-            assert(variant->getdata != spec->getdata);
-            if (def->dflt.getdata == spec->getdata) {
-                PyErr_Format(PyExc_ValueError, "mismatch on filter");
-                return 0;
-            }
-            index += 1;
-        }
-    }
-    /* Fall back to the default. */
     if (def->dflt.filter == spec->filter) {
         assert(def->dflt.getdata == spec->getdata);
         if (def->dflt.getdata != spec->getdata) {
@@ -143,30 +89,10 @@ _xidtype_match(const struct _xidtype_def *def, const struct _xidtype_spec *spec,
 }
 
 static crossinterpdatafunc
-_xidtype_resolve_getdata(struct _xidtype_def *def, PyObject *obj,
-                         ssize_t *p_index)
+_xidtype_resolve_getdata(struct _xidtype_def *def, PyObject *obj)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    if (def->variants != NULL) {
-        ssize_t index = 0;
-        struct _xidtype_spec *variant = def->variants;
-        for (; variant->getdata != NULL; variant++) {
-            if (variant->filter(tstate, obj)) {
-                if (p_index != NULL) {
-                    *p_index = index;
-                }
-                return variant->getdata;
-            }
-            if (PyErr_Occurred()) {
-                return NULL;
-            }
-            index += 1;
-        }
-    }
     if (def->dflt.filter == NULL || def->dflt.filter(tstate, obj)) {
-        if (p_index != NULL) {
-            *p_index = -1;
-        }
         return def->dflt.getdata;
     }
     return NULL;
@@ -322,7 +248,7 @@ _lookup_getdata_from_registry(PyInterpreterState *interp, PyObject *obj)
 
     struct _xidregitem *matched = _xidregistry_find_type(xidregistry, cls);
     if (matched != NULL) {
-        func = _xidtype_resolve_getdata(&matched->def, obj, NULL);
+        func = _xidtype_resolve_getdata(&matched->def, obj);
     }
 
     _xidregistry_unlock(xidregistry);
@@ -355,7 +281,7 @@ _xidregitem_init(struct _xidregitem *entry,
             .next_id = 1,
         },
     };
-    if (_xidtype_init(&entry->def, spec, entry->tracking._variants) < 0) {
+    if (_xidtype_init(&entry->def, spec) < 0) {
         Py_XDECREF(ref);
         return -1;
     }
@@ -366,49 +292,6 @@ static void
 _xidregitem_clear(struct _xidregitem *entry)
 {
     Py_XDECREF(entry->weakref);
-}
-
-static int
-_xidregitem_add_variant(struct _xidregitem *entry,
-                        const struct _xidtype_spec *spec,
-                        ssize_t *p_index)
-{
-    struct _xidregtype_tracking *tracking = &entry->tracking;
-    struct _xidtype_def *def = &entry->def;
-    if (tracking->num_variants == MAX_XID_REG_TYPE_VARIANTS) {
-        PyErr_Format(PyExc_Exception,
-                     "max %d variants allowed", MAX_XID_REG_TYPE_VARIANTS);
-        return -1;
-    }
-    if (_xidtype_check_variant(spec) < 0) {
-        return -1;
-    }
-
-    ssize_t index = tracking->num_variants;
-    struct _xidregtype *variant = &tracking->variants[index];
-    assert(variant->id = 0);
-    assert(def->variants[index].getdata == NULL);
-#ifndef NDEBUG
-    // Make sure we didn't leave any gaps by accident.
-    for (size_t i; i < index; i++) {
-        assert(tracking->variants[i].id > 0);
-        assert(def->variants[i].getdata != NULL);
-    }
-#endif
-
-    uint64_t id = tracking->next_id;
-    assert(id > 0);
-    assert(id <= UINT64_MAX);
-    tracking->next_id += 1;
-
-    *variant = (struct _xidregtype){
-        .id = id,
-        .refcount = 1,
-    };
-    tracking->num_variants += 1;
-
-    *p_index = index;
-    return 0;
 }
 
 static struct _xidregitem *
@@ -495,24 +378,15 @@ _PyCrossInterpreterData_RegisterClass(PyTypeObject *cls,
     else {
         struct _xidregtype_tracking *tracking = &entry->tracking;
         assert(tracking->dflt.refcount > 0);
-        ssize_t index = -1;
-        if (_xidtype_match(&entry->def, spec, &index)) {
-            struct _xidregtype *rt = index < 0
-                ? &tracking->dflt
-                : &tracking->variants[index];
+        if (_xidtype_match(&entry->def, spec)) {
+            struct _xidregtype *rt = &tracking->dflt;
             assert(rt->refcount > 0);
             rt->refcount += 1;
         }
         else {
-            if (PyErr_Occurred()) {
-                goto finally;
-            }
-            if (_xidregitem_add_variant(entry, spec, &index) < 0) {
-                goto finally;
-            }
-        }
-        if (index >= 0) {
-            id = tracking->variants[index].id;
+            PyErr_Format(PyExc_RuntimeError,
+                         "type %s already registered", cls->tp_name);
+            goto finally;
         }
     }
 
@@ -547,42 +421,14 @@ _PyCrossInterpreterData_UnregisterClass(PyTypeObject *cls, uint64_t id)
         assert(def->dflt.getdata != NULL);
         struct _xidregtype *rt = &tracking->dflt;
         assert(rt->refcount > 0);
-        if (rt->refcount == 1 && tracking->num_variants > 0) {
-            PyErr_Format(PyExc_Exception,
-                         "cannot unregister type with variants");
-            goto finally;
-        }
         rt->refcount -= 1;
         if (rt->refcount == 0) {
             (void)_xidregistry_remove_entry(xidregistry, matched);
         }
     }
     else {
-        struct _xidregtype *rt = NULL;
-        size_t index = 0;
-        for (; index < tracking->num_variants; index++) {
-            assert(tracking->variants[index].id > 0);
-            assert(def->variants[index].getdata != NULL);
-            if (tracking->variants[index].id == id) {
-                rt = &tracking->variants[index];
-                break;
-            }
-        }
-        if (rt == NULL) {
-            goto finally;
-        }
-        assert(rt->refcount > 0);
-        rt->refcount -= 1;
-        if (rt->refcount == 0) {
-            size_t i = index + 1;
-            /* We make sure there aren't any gaps. */
-            for (; i < tracking->num_variants; i++) {
-                tracking->variants[i] = tracking->variants[i-1];
-                tracking->_variants[i] = tracking->_variants[i-1];
-            }
-            tracking->variants[tracking->num_variants] = (struct _xidregtype){0};
-            tracking->_variants[tracking->num_variants] = (struct _xidtype_spec){0};
-        }
+        PyErr_Format(PyExc_ValueError, "unrecognized ID %d", id);
+        goto finally;
     }
 
     res = 0;
