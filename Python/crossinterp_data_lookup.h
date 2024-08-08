@@ -302,7 +302,7 @@ _xidregistry_find_type(struct _xidregistry *xidregistry, PyTypeObject *cls)
             Py_DECREF(registered);
         }
         if (cur->cls == cls) {
-            assert(cur->dflt.refcount > 0);
+            assert(cur->tracking.dflt.refcount > 0);
             assert(cur->def.dflt.getdata != NULL);
             return cur;
         }
@@ -332,42 +332,40 @@ _lookup_getdata_from_registry(PyInterpreterState *interp, PyObject *obj)
 
 /* updating the registry */
 
-static struct _xidregitem *
-_xidregistry_add_entry(struct _xidregistry *xidregistry,
-                       PyTypeObject *cls, const struct _xidtype_spec *spec)
+static int
+_xidregitem_init(struct _xidregitem *entry,
+                 PyTypeObject *cls, const struct _xidtype_spec *spec)
 {
-    struct _xidregitem entry = {
-        // We do not keep a reference, to avoid keeping the class alive.
-        .cls = cls,
-        .dflt = {
-            .refcount = 1,
-        },
-        .next_id = 1,
-    };
-    if (_xidtype_init(&entry.def, spec, NULL) < 0) {
-        return NULL;
-    }
-
-    struct _xidregitem *newhead = PyMem_RawMalloc(sizeof(struct _xidregitem));
-    if (newhead == NULL) {
-        return NULL;
-    }
-    *newhead = entry;
-    newhead->def.variants = newhead->_variants;
+    PyObject *ref = NULL;
     if (cls->tp_flags & Py_TPFLAGS_HEAPTYPE) {
         // XXX Assign a callback to clear the entry from the registry?
-        newhead->weakref = PyWeakref_NewRef((PyObject *)cls, NULL);
-        if (newhead->weakref == NULL) {
-            PyMem_RawFree(newhead);
-            return NULL;
+        ref = PyWeakref_NewRef((PyObject *)cls, NULL);
+        if (ref == NULL) {
+            return -1;
         }
     }
-    newhead->next = xidregistry->head;
-    if (newhead->next != NULL) {
-        newhead->next->prev = newhead;
+    *entry = (struct _xidregitem){
+        // We do not keep a reference, to avoid keeping the class alive.
+        .cls = cls,
+        .weakref = ref,
+        .tracking = {
+            .dflt = {
+                .refcount = 1,
+            },
+            .next_id = 1,
+        },
+    };
+    if (_xidtype_init(&entry->def, spec, entry->tracking._variants) < 0) {
+        Py_XDECREF(ref);
+        return -1;
     }
-    xidregistry->head = newhead;
-    return newhead;
+    return 0;
+}
+
+static void
+_xidregitem_clear(struct _xidregitem *entry)
+{
+    Py_XDECREF(entry->weakref);
 }
 
 static int
@@ -375,7 +373,9 @@ _xidregitem_add_variant(struct _xidregitem *entry,
                         const struct _xidtype_spec *spec,
                         ssize_t *p_index)
 {
-    if (entry->num_variants == MAX_XID_REG_TYPE_VARIANTS) {
+    struct _xidregtype_tracking *tracking = &entry->tracking;
+    struct _xidtype_def *def = &entry->def;
+    if (tracking->num_variants == MAX_XID_REG_TYPE_VARIANTS) {
         PyErr_Format(PyExc_Exception,
                      "max %d variants allowed", MAX_XID_REG_TYPE_VARIANTS);
         return -1;
@@ -384,31 +384,51 @@ _xidregitem_add_variant(struct _xidregitem *entry,
         return -1;
     }
 
-    ssize_t index = entry->num_variants;
-    struct _xidregtype *variant = &entry->variants[index];
+    ssize_t index = tracking->num_variants;
+    struct _xidregtype *variant = &tracking->variants[index];
     assert(variant->id = 0);
-    assert(entry->def.variants[index].getdata == NULL);
+    assert(def->variants[index].getdata == NULL);
 #ifndef NDEBUG
     // Make sure we didn't leave any gaps by accident.
     for (size_t i; i < index; i++) {
-        assert(entry->variants[i].id > 0);
-        assert(entry->def.variants[i].getdata != NULL);
+        assert(tracking->variants[i].id > 0);
+        assert(def->variants[i].getdata != NULL);
     }
 #endif
 
-    uint64_t id = entry->next_id;
+    uint64_t id = tracking->next_id;
     assert(id > 0);
     assert(id <= UINT64_MAX);
-    entry->next_id += 1;
+    tracking->next_id += 1;
 
     *variant = (struct _xidregtype){
         .id = id,
         .refcount = 1,
     };
-    entry->num_variants += 1;
+    tracking->num_variants += 1;
 
     *p_index = index;
     return 0;
+}
+
+static struct _xidregitem *
+_xidregistry_add_entry(struct _xidregistry *xidregistry,
+                       PyTypeObject *cls, const struct _xidtype_spec *spec)
+{
+    struct _xidregitem *newhead = PyMem_RawMalloc(sizeof(struct _xidregitem));
+    if (newhead == NULL) {
+        return NULL;
+    }
+    if (_xidregitem_init(newhead, cls, spec) < 0) {
+        PyMem_RawFree(newhead);
+        return NULL;
+    }
+    newhead->next = xidregistry->head;
+    if (newhead->next != NULL) {
+        newhead->next->prev = newhead;
+    }
+    xidregistry->head = newhead;
+    return newhead;
 }
 
 static struct _xidregitem *
@@ -427,7 +447,7 @@ _xidregistry_remove_entry(struct _xidregistry *xidregistry,
     if (next != NULL) {
         next->prev = entry->prev;
     }
-    Py_XDECREF(entry->weakref);
+    _xidregitem_clear(entry);
     PyMem_RawFree(entry);
     return next;
 }
@@ -439,7 +459,7 @@ _xidregistry_clear(struct _xidregistry *xidregistry)
     xidregistry->head = NULL;
     while (cur != NULL) {
         struct _xidregitem *next = cur->next;
-        Py_XDECREF(cur->weakref);
+        _xidregitem_clear(cur);
         PyMem_RawFree(cur);
         cur = next;
     }
@@ -473,12 +493,13 @@ _PyCrossInterpreterData_RegisterClass(PyTypeObject *cls,
         }
     }
     else {
-        assert(entry->dflt.refcount > 0);
+        struct _xidregtype_tracking *tracking = &entry->tracking;
+        assert(tracking->dflt.refcount > 0);
         ssize_t index = -1;
         if (_xidtype_match(&entry->def, spec, &index)) {
             struct _xidregtype *rt = index < 0
-                ? &entry->dflt
-                : &entry->variants[index];
+                ? &tracking->dflt
+                : &tracking->variants[index];
             assert(rt->refcount > 0);
             rt->refcount += 1;
         }
@@ -491,7 +512,7 @@ _PyCrossInterpreterData_RegisterClass(PyTypeObject *cls,
             }
         }
         if (index >= 0) {
-            id = entry->variants[index].id;
+            id = tracking->variants[index].id;
         }
     }
 
@@ -517,14 +538,16 @@ _PyCrossInterpreterData_UnregisterClass(PyTypeObject *cls, uint64_t id)
     if (matched == NULL) {
         goto finally;
     }
-    assert(matched->dflt.refcount > 0);
+    struct _xidregtype_tracking *tracking = &matched->tracking;
+    struct _xidtype_def *def = &matched->def;
+    assert(tracking->dflt.refcount > 0);
 
     if (id == 0) {
-        assert(matched->dflt.id == 0);
-        assert(matched->def.dflt.getdata != NULL);
-        struct _xidregtype *rt = &matched->dflt;
+        assert(tracking->dflt.id == 0);
+        assert(def->dflt.getdata != NULL);
+        struct _xidregtype *rt = &tracking->dflt;
         assert(rt->refcount > 0);
-        if (rt->refcount == 1 && matched->num_variants > 0) {
+        if (rt->refcount == 1 && tracking->num_variants > 0) {
             PyErr_Format(PyExc_Exception,
                          "cannot unregister type with variants");
             goto finally;
@@ -537,11 +560,11 @@ _PyCrossInterpreterData_UnregisterClass(PyTypeObject *cls, uint64_t id)
     else {
         struct _xidregtype *rt = NULL;
         size_t index = 0;
-        for (; index < matched->num_variants; index++) {
-            assert(matched->variants[index].id > 0);
-            assert(matched->def.variants[index].getdata != NULL);
-            if (matched->variants[index].id == id) {
-                rt = &matched->variants[index];
+        for (; index < tracking->num_variants; index++) {
+            assert(tracking->variants[index].id > 0);
+            assert(def->variants[index].getdata != NULL);
+            if (tracking->variants[index].id == id) {
+                rt = &tracking->variants[index];
                 break;
             }
         }
@@ -553,12 +576,12 @@ _PyCrossInterpreterData_UnregisterClass(PyTypeObject *cls, uint64_t id)
         if (rt->refcount == 0) {
             size_t i = index + 1;
             /* We make sure there aren't any gaps. */
-            for (; i < matched->num_variants; i++) {
-                matched->variants[i] = matched->variants[i-1];
-                matched->_variants[i] = matched->_variants[i-1];
+            for (; i < tracking->num_variants; i++) {
+                tracking->variants[i] = tracking->variants[i-1];
+                tracking->_variants[i] = tracking->_variants[i-1];
             }
-            matched->variants[matched->num_variants] = (struct _xidregtype){0};
-            matched->_variants[matched->num_variants] = (struct _xidtype_spec){0};
+            tracking->variants[tracking->num_variants] = (struct _xidregtype){0};
+            tracking->_variants[tracking->num_variants] = (struct _xidtype_spec){0};
         }
     }
 
