@@ -148,6 +148,9 @@ struct _xidtype_spec {
     crossinterpdatafunc getdata;
 };
 
+/* All the information needed for a type in order to support cross-interpreter
+   use of its instances.  This is equally appropriate for use in a
+   PyTypeObject slot or a global registry.  */
 struct _xidtype_def {
     struct _xidtype_spec dflt;
     /* An array with different check and getdata values.
@@ -175,16 +178,20 @@ struct _xidregitem {
     PyObject *weakref;
 
     struct _xidtype_def def;
-    /* dflt and variants are supplemental to "def". */
-    struct _xidregtype {
-        uint64_t id;
-        size_t refcount;
-    } dflt;
+    /* "tracking" holds registry-specific information
+       that supplements "def". */
+    struct _xidregtype_tracking {
+        struct _xidregtype {
+            uint64_t id;
+            size_t refcount;
+        } dflt;
 #define MAX_XID_REG_TYPE_VARIANTS 5
-    struct _xidregtype variants[MAX_XID_REG_TYPE_VARIANTS];
-    struct _xidtype_spec _variants[MAX_XID_REG_TYPE_VARIANTS];
-    size_t num_variants;
-    uint64_t next_id;
+        struct _xidregtype variants[MAX_XID_REG_TYPE_VARIANTS];
+
+        struct _xidtype_spec _variants[MAX_XID_REG_TYPE_VARIANTS];
+        size_t num_variants;
+        uint64_t next_id;
+    } tracking;
 };
 
 struct _xidregistry {
