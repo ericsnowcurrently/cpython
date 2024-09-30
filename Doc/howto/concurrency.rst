@@ -9,32 +9,31 @@ Concurrency HOWTO
 *****************
 
 There are many outstanding resources, both online and in print,
-that would do an excellent job of introducing you to concurrency.
-This howto document builds on those by walking you through how
+that do an excellent job of introducing you to concurrency.
+This HOWTO document builds on those by walking you through how
 to apply that knowledge using Python.
 
 Python supports the following concurrency models directly:
 
-* **free-threading** (stdlib, C-API)
-* **isolated threads**, *AKA CSP/actor model* (stdlib\*, C-API)
-* **coroutines**, *AKA async/await* (language, stdlib, C-API)
-* **multi-processing** (stdlib)
-* **distributed**, *e.g. SMP* (stdlib (limited))
+* **Free-threading** (stdlib, C-API)
+* **Isolated threads**, *aka CSP/actor model* (stdlib\*, C-API)
+* **Coroutines**, *aka async/await* (language, stdlib, C-API)
+* **Multi-processing** (stdlib)
+* **Distributed**, *e.g. SMP* (stdlib (limited))
 
-In this document, we'll look at how to take advantage of Python's
+This document looks at how to take advantage of Python's
 concurrency support.  The overall focus is on the following:
 
-* `understanding the supported concurrency models <concurrency-models_>`_
-* `factors to consider when designing a concurrent solution <concurrency-design_>`_
-* `key concurrency primitives <concurrency-primitives_>`_
-* `high-level, app-oriented practical examples <concurrency-workload-examples_>`_
+* `Understanding the supported concurrency models <concurrency-models_>`_
+* `Factors to consider when designing a concurrent solution <concurrency-design_>`_
+* `Key concurrency primitives <concurrency-primitives_>`_
+* `High-level, app-oriented practical examples <concurrency-workload-examples_>`_
 
 .. note::
 
-   You should always make sure concurrency is the right tool for the job
-   before you reach for it when solving your problem.  There are many
-   cases where concurrency simply isn't applicable or will only
-   complicate the solution.  In-depth discussion of this point
+   Make sure concurrency is the right tool for the job.  In many
+   cases, concurrency isn't applicable and only
+   complicates the solution.  In-depth discussion of this point
    is outside the scope of this document.
 
 .. note::
@@ -59,30 +58,30 @@ Quick reference
 
 **Terminology**
 
-We'll be using the following terms and ideas throughout:
+We use the following terms and ideas throughout:
 
-task (logical thread)
-   | a cohesive *linear* sequence of abstract steps in a program;
-   | effectively, a mini-program;
-   | the logical equivalent of executed instructions corresponding to code;
-   | also known as "logical process"
+Task (aka Logical Thread)
+   | A cohesive *linear* sequence of abstract steps in a program.
+   | Effectively, a mini-program.
+   | The logical equivalent of executed instructions corresponding to code.
+   | Also known as a "logical process."
 
-physical thread (OS thread)
-   | where the actual code for a logical thread runs on the CPU (and operating system);
-   | we avoid using using plain "thread" for this, to avoid ambiguity
+Physical Thread (aka OS thread)
+   | The mechanism on the CPU and OS that runs the code for a Task.
+   | We avoid using using plain "thread" for this, to avoid ambiguity.
 
-Python thread
-   | the Python runtime running in a physical thread
-   | particularly the portion of the runtime state active in the physical thread
+Python Thread
+   | The Python runtime running in a physical thread.
+   | In particular, the portion of the runtime state active in the physical thread.
    | (see :class:`threading.Thread`)
 
-concurrency (multitasking)
-   | a program with multiple logical threads running simultaneously
-   | (not necessarily in parallel)
+Concurrency (aka Multitasking)
+   | A program with multiple logical threads running simultaneously,
+   | but not necessarily in parallel.
 
-parallelism (multi-core)
-   running a program's multiple logical threads on multiple physical
-   threads (CPU cores)
+Parallelism (multi-core)
+   | Running a program's multiple logical threads on multiple physical
+   | threads (CPU cores).
 
 .. raw:: html
 
@@ -98,7 +97,7 @@ parallelism (multi-core)
        }
    </style>
 
-For convenience, here is a summary of what we'll cover later.
+Here is a summary of what we cover in this HOWTO:
 
 **Concurrency Primitives**
 
@@ -1042,7 +1041,7 @@ TBD
 
 .. TODO finish
 
-   Dealing with data races is often managed using locks (AKA mutexes),
+   Dealing with data races is often managed using locks (aka mutexes),
    at a low level, and thread-safe types and APIs at a high level.
    Depending on the programming language, the complexity is sometimes
    mitigated by the compiler and runtime.  There are even
