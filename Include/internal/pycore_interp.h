@@ -134,7 +134,9 @@ struct _is {
         _PyThreadStateImpl *preallocated;
         /* The thread currently executing in the __main__ module, if any. */
         PyThreadState *main;
+        PyMutex main_mutex;
         /* Used in Modules/_threadmodule.c. */
+        // XXX Move it to thread_module_state.
         Py_ssize_t count;
         /* Support for runtime thread stack size tuning.
            A value of 0 means using the platform's default stack size

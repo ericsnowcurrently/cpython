@@ -519,6 +519,7 @@ _PyRuntimeState_ReInitThreads(_PyRuntimeState *runtime)
          interp != NULL; interp = interp->next)
     {
         _PyRecursiveMutex_at_fork_reinit(&interp->threads.mutex, parent);
+        _PyMutex_at_fork_reinit(&interp->threads.main_mutex);
         for (int i = 0; i < NUM_WEAKREF_LIST_LOCKS; i++) {
             _PyMutex_at_fork_reinit(&interp->weakref_locks[i]);
         }
@@ -1044,6 +1045,11 @@ _PyInterpreterState_DeleteExceptMain(_PyRuntimeState *runtime)
 #endif
 
 
+#define MAIN_THREAD_LOCK(interp) \
+    PyMutex_LockFlags(&(interp)->threads.main_mutex, _Py_LOCK_DONT_DETACH)
+#define MAIN_THREAD_UNLOCK(interp) \
+    PyMutex_Unlock(&(interp)->threads.main_mutex)
+
 static inline void
 set_main_thread(PyInterpreterState *interp, PyThreadState *tstate)
 {
@@ -1065,40 +1071,40 @@ _PyErr_SetInterpreterAlreadyRunning(void)
 int
 _PyInterpreterState_SetRunningMain(PyInterpreterState *interp)
 {
-    THREADS_HEAD_LOCK(interp);
+    MAIN_THREAD_LOCK(interp);
     if (get_main_thread(interp) != NULL) {
-        THREADS_HEAD_UNLOCK(interp);
+        MAIN_THREAD_UNLOCK(interp);
         _PyErr_SetInterpreterAlreadyRunning();
         return -1;
     }
     PyThreadState *tstate = current_fast_get();
     _Py_EnsureTstateNotNULL(tstate);
     if (tstate->interp != interp) {
-        THREADS_HEAD_UNLOCK(interp);
+        MAIN_THREAD_UNLOCK(interp);
         PyErr_SetString(PyExc_RuntimeError,
                         "current tstate has wrong interpreter");
         return -1;
     }
     set_main_thread(interp, tstate);
-    THREADS_HEAD_UNLOCK(interp);
+    MAIN_THREAD_UNLOCK(interp);
     return 0;
 }
 
 void
 _PyInterpreterState_SetNotRunningMain(PyInterpreterState *interp)
 {
-    THREADS_HEAD_LOCK(interp);
+    MAIN_THREAD_LOCK(interp);
     assert(get_main_thread(interp) == current_fast_get());
     set_main_thread(interp, NULL);
-    THREADS_HEAD_UNLOCK(interp);
+    MAIN_THREAD_UNLOCK(interp);
 }
 
 int
 _PyInterpreterState_IsRunningMain(PyInterpreterState *interp)
 {
-    THREADS_HEAD_LOCK(interp);
+    MAIN_THREAD_LOCK(interp);
     PyThreadState *tstate = get_main_thread(interp);
-    THREADS_HEAD_UNLOCK(interp);
+    MAIN_THREAD_UNLOCK(interp);
     if (tstate != NULL) {
         return 1;
     }
@@ -1117,9 +1123,9 @@ _PyThreadState_IsRunningMain(PyThreadState *tstate)
     PyInterpreterState *interp = tstate->interp;
     // See the note in _PyInterpreterState_IsRunningMain() about
     // possible false negatives here for embedders.
-    THREADS_HEAD_LOCK(interp);
+    MAIN_THREAD_LOCK(interp);
     PyThreadState *main_tstate = get_main_thread(interp);
-    THREADS_HEAD_UNLOCK(interp);
+    MAIN_THREAD_UNLOCK(interp);
     return main_tstate == tstate;
 }
 
@@ -1127,12 +1133,15 @@ void
 _PyInterpreterState_ReinitRunningMain(PyThreadState *tstate)
 {
     PyInterpreterState *interp = tstate->interp;
-    THREADS_HEAD_LOCK(interp);
+    MAIN_THREAD_LOCK(interp);
     if (get_main_thread(interp) != tstate) {
         set_main_thread(interp, NULL);
     }
-    THREADS_HEAD_UNLOCK(interp);
+    MAIN_THREAD_UNLOCK(interp);
 }
+
+#undef MAIN_THREAD_LOCK
+#undef MAIN_THREAD_UNLOCK
 
 
 //----------
@@ -1642,7 +1651,7 @@ PyThreadState_Clear(PyThreadState *tstate)
 {
     assert(tstate->_status.initialized && !tstate->_status.cleared);
     assert(current_fast_get()->interp == tstate->interp);
-//    assert(!_PyThreadState_IsRunningMain(tstate));
+    assert(!_PyThreadState_IsRunningMain(tstate));
     // XXX assert(!tstate->_status.bound || tstate->_status.unbound);
     tstate->_status.finalizing = 1;  // just in case
 
