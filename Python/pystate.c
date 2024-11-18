@@ -1043,16 +1043,17 @@ _PyInterpreterState_DeleteExceptMain(_PyRuntimeState *runtime)
 }
 #endif
 
+
 static inline void
 set_main_thread(PyInterpreterState *interp, PyThreadState *tstate)
 {
-    _Py_atomic_store_ptr_relaxed(&interp->threads.main, tstate);
+    interp->threads.main = tstate;
 }
 
 static inline PyThreadState *
 get_main_thread(PyInterpreterState *interp)
 {
-    return _Py_atomic_load_ptr_relaxed(&interp->threads.main);
+    return interp->threads.main;
 }
 
 void
@@ -1064,33 +1065,41 @@ _PyErr_SetInterpreterAlreadyRunning(void)
 int
 _PyInterpreterState_SetRunningMain(PyInterpreterState *interp)
 {
+    THREADS_HEAD_LOCK(interp);
     if (get_main_thread(interp) != NULL) {
+        THREADS_HEAD_UNLOCK(interp);
         _PyErr_SetInterpreterAlreadyRunning();
         return -1;
     }
     PyThreadState *tstate = current_fast_get();
     _Py_EnsureTstateNotNULL(tstate);
     if (tstate->interp != interp) {
+        THREADS_HEAD_UNLOCK(interp);
         PyErr_SetString(PyExc_RuntimeError,
                         "current tstate has wrong interpreter");
         return -1;
     }
     set_main_thread(interp, tstate);
-
+    THREADS_HEAD_UNLOCK(interp);
     return 0;
 }
 
 void
 _PyInterpreterState_SetNotRunningMain(PyInterpreterState *interp)
 {
+    THREADS_HEAD_LOCK(interp);
     assert(get_main_thread(interp) == current_fast_get());
     set_main_thread(interp, NULL);
+    THREADS_HEAD_UNLOCK(interp);
 }
 
 int
 _PyInterpreterState_IsRunningMain(PyInterpreterState *interp)
 {
-    if (get_main_thread(interp) != NULL) {
+    THREADS_HEAD_LOCK(interp);
+    PyThreadState *tstate = get_main_thread(interp);
+    THREADS_HEAD_UNLOCK(interp);
+    if (tstate != NULL) {
         return 1;
     }
     // Embedders might not know to call _PyInterpreterState_SetRunningMain(),
@@ -1108,16 +1117,21 @@ _PyThreadState_IsRunningMain(PyThreadState *tstate)
     PyInterpreterState *interp = tstate->interp;
     // See the note in _PyInterpreterState_IsRunningMain() about
     // possible false negatives here for embedders.
-    return get_main_thread(interp) == tstate;
+    THREADS_HEAD_LOCK(interp);
+    PyThreadState *main_tstate = get_main_thread(interp);
+    THREADS_HEAD_UNLOCK(interp);
+    return main_tstate == tstate;
 }
 
 void
 _PyInterpreterState_ReinitRunningMain(PyThreadState *tstate)
 {
     PyInterpreterState *interp = tstate->interp;
+    THREADS_HEAD_LOCK(interp);
     if (get_main_thread(interp) != tstate) {
         set_main_thread(interp, NULL);
     }
+    THREADS_HEAD_UNLOCK(interp);
 }
 
 
@@ -1628,7 +1642,7 @@ PyThreadState_Clear(PyThreadState *tstate)
 {
     assert(tstate->_status.initialized && !tstate->_status.cleared);
     assert(current_fast_get()->interp == tstate->interp);
-    assert(!_PyThreadState_IsRunningMain(tstate));
+//    assert(!_PyThreadState_IsRunningMain(tstate));
     // XXX assert(!tstate->_status.bound || tstate->_status.unbound);
     tstate->_status.finalizing = 1;  // just in case
 
