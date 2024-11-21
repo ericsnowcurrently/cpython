@@ -101,6 +101,13 @@ typedef
 */
 PyAPI_FUNC(PyGILState_STATE) PyGILState_Ensure(void);
 
+typedef struct {
+    PyGILState_STATE state;
+    const char *error;
+} PyGILState_result_t;
+
+PyAPI_FUNC(PyGILState_result_t) PyGILState_Ensure_Ex(int64_t interpid);
+
 /* Release any resources previously acquired.  After this call, Python's
    state will be the same as it was prior to the corresponding
    PyGILState_Ensure() call (but generally this state will be unknown to

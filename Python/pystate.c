@@ -2705,9 +2705,11 @@ PyGILState_Check(void)
     return (tstate == tcur);
 }
 
-PyGILState_STATE
-PyGILState_Ensure(void)
+PyGILState_result_t
+PyGILState_EnsureEx(int64_t interpid)
 {
+    PyGILState_result_t res = {0};
+
     _PyRuntimeState *runtime = &_PyRuntime;
 
     /* Note that we do not auto-init Python here - apart from
@@ -2722,14 +2724,35 @@ PyGILState_Ensure(void)
     assert(runtime->gilstate.autoInterpreterState != NULL);
 
     PyThreadState *tcur = gilstate_tss_get(runtime);
+
+    if (tcur != NULL && interpid >= 0 && tcur->interp->id != interpid) {
+        assert(tcur->interp->runtime == runtime);
+        /* It's the wrong interpreter, so force a fresh thread state. */
+        (void)PyThreadState_Swap(NULL);
+        tcur = NULL;
+    }
+
     int has_gil;
     if (tcur == NULL) {
+        PyInterpreterState *interp;
+        if (interpid < 0) {
+            interp = runtime->gilstate.autoInterpreterState;
+        }
+        else {
+            interp = _PyInterpreterState_LookUpID(interpid);
+            if (interp == NULL) {
+                res.error = "Couldn't find requested interpreter";
+                return res;
+            }
+            assert(interp->runtime == runtime);
+        }
+
         /* Create a new Python thread state for this thread */
         // XXX Use PyInterpreterState_EnsureThreadState()?
-        tcur = new_threadstate(runtime->gilstate.autoInterpreterState,
-                               _PyThreadState_WHENCE_GILSTATE);
+        tcur = new_threadstate(interp, _PyThreadState_WHENCE_GILSTATE);
         if (tcur == NULL) {
-            Py_FatalError("Couldn't create thread-state for new thread");
+            res.error = "Couldn't create thread-state for new thread";
+            return res;
         }
         bind_tstate(tcur);
         bind_gilstate_tstate(tcur);
@@ -2755,7 +2778,18 @@ PyGILState_Ensure(void)
     */
     ++tcur->gilstate_counter;
 
-    return has_gil ? PyGILState_LOCKED : PyGILState_UNLOCKED;
+    res.state = has_gil ? PyGILState_LOCKED : PyGILState_UNLOCKED;
+    return res;
+}
+
+PyGILState_STATE
+PyGILState_Ensure(void)
+{
+    PyGILState_result_t res = PyGILState_EnsureEx(-1);
+    if (res.error != NULL) {
+        Py_FatalError(res.error);
+    }
+    return res.state;
 }
 
 void
