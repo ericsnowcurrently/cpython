@@ -117,7 +117,7 @@ PyAPI_FUNC(PyLockStatus) PyThread_acquire_lock_timed_with_retries(
     PY_TIMEOUT_T microseconds);
 
 typedef unsigned long long PyThread_ident_t;
-typedef Py_uintptr_t PyThread_handle_t;
+typedef Py_uintptr_t PyThread_os_handle_t;
 
 #define PY_FORMAT_THREAD_IDENT_T "llu"
 #define Py_PARSE_THREAD_IDENT_T "K"
@@ -138,20 +138,20 @@ PyAPI_FUNC(PyThread_ident_t) PyThread_get_thread_ident_ex(void);
 PyAPI_FUNC(int) PyThread_start_joinable_thread(void (*func)(void *),
                                                void *arg,
                                                PyThread_ident_t* ident,
-                                               PyThread_handle_t* handle);
+                                               PyThread_os_handle_t* handle);
 /*
  * Join a thread started with `PyThread_start_joinable_thread`.
  * This function cannot be interrupted. It returns 0 on success,
  * a non-zero value on failure.
  */
-PyAPI_FUNC(int) PyThread_join_thread(PyThread_handle_t);
+PyAPI_FUNC(int) PyThread_join_thread(PyThread_os_handle_t);
 /*
  * Detach a thread started with `PyThread_start_joinable_thread`, such
  * that its resources are released as soon as it exits.
  * This function cannot be interrupted. It returns 0 on success,
  * a non-zero value on failure.
  */
-PyAPI_FUNC(int) PyThread_detach_thread(PyThread_handle_t);
+PyAPI_FUNC(int) PyThread_detach_thread(PyThread_os_handle_t);
 /*
  * Hangs the thread indefinitely without exiting it.
  *

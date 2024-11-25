@@ -186,7 +186,8 @@ bootstrap(void *call)
 
 int
 PyThread_start_joinable_thread(void (*func)(void *), void *arg,
-                               PyThread_ident_t* ident, PyThread_handle_t* handle) {
+                               PyThread_ident_t* ident,
+                               PyThread_os_handle_t* handle) {
     HANDLE hThread;
     unsigned threadID;
     callobj *obj;
@@ -214,13 +215,13 @@ PyThread_start_joinable_thread(void (*func)(void *), void *arg,
     }
     *ident = threadID;
     // The cast is safe since HANDLE is pointer-sized
-    *handle = (PyThread_handle_t) hThread;
+    *handle = (PyThread_os_handle_t) hThread;
     return 0;
 }
 
 unsigned long
 PyThread_start_new_thread(void (*func)(void *), void *arg) {
-    PyThread_handle_t handle;
+    PyThread_os_handle_t handle;
     PyThread_ident_t ident;
     if (PyThread_start_joinable_thread(func, arg, &ident, &handle)) {
         return PYTHREAD_INVALID_THREAD_ID;
@@ -231,7 +232,7 @@ PyThread_start_new_thread(void (*func)(void *), void *arg) {
 }
 
 int
-PyThread_join_thread(PyThread_handle_t handle) {
+PyThread_join_thread(PyThread_os_handle_t handle) {
     HANDLE hThread = (HANDLE) handle;
     int errored = (WaitForSingleObject(hThread, INFINITE) != WAIT_OBJECT_0);
     CloseHandle(hThread);
@@ -239,7 +240,7 @@ PyThread_join_thread(PyThread_handle_t handle) {
 }
 
 int
-PyThread_detach_thread(PyThread_handle_t handle) {
+PyThread_detach_thread(PyThread_os_handle_t handle) {
     HANDLE hThread = (HANDLE) handle;
     return (CloseHandle(hThread) == 0);
 }

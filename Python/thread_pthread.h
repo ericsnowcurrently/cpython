@@ -308,13 +308,15 @@ do_start_joinable_thread(void (*func)(void *), void *arg, pthread_t* out_id)
 
 int
 PyThread_start_joinable_thread(void (*func)(void *), void *arg,
-                               PyThread_ident_t* ident, PyThread_handle_t* handle) {
+                               PyThread_ident_t* ident,
+                               PyThread_os_handle_t* handle)
+{
     pthread_t th = (pthread_t) 0;
     if (do_start_joinable_thread(func, arg, &th)) {
         return -1;
     }
     *ident = (PyThread_ident_t) th;
-    *handle = (PyThread_handle_t) th;
+    *handle = (PyThread_os_handle_t) th;
     assert(th == (pthread_t) *ident);
     assert(th == (pthread_t) *handle);
     return 0;
@@ -336,12 +338,12 @@ PyThread_start_new_thread(void (*func)(void *), void *arg)
 }
 
 int
-PyThread_join_thread(PyThread_handle_t th) {
+PyThread_join_thread(PyThread_os_handle_t th) {
     return pthread_join((pthread_t) th, NULL);
 }
 
 int
-PyThread_detach_thread(PyThread_handle_t th) {
+PyThread_detach_thread(PyThread_os_handle_t th) {
     return pthread_detach((pthread_t) th);
 }
 

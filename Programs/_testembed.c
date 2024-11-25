@@ -2288,7 +2288,7 @@ static void do_init(void *unused)
 
 static int test_init_in_background_thread(void)
 {
-    PyThread_handle_t handle;
+    PyThread_os_handle_t handle;
     PyThread_ident_t ident;
     if (PyThread_start_joinable_thread(&do_init, NULL, &ident, &handle) < 0) {
         return -1;

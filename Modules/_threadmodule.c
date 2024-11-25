@@ -84,7 +84,7 @@ typedef struct {
     // The `ident`, `os_handle`, `has_os_handle`, and `state` fields are
     // protected by `mutex`.
     PyThread_ident_t ident;
-    PyThread_handle_t os_handle;
+    PyThread_os_handle_t os_handle;
     int has_os_handle;
 
     // Holds a value from the `ThreadHandleState` enum.
@@ -131,7 +131,7 @@ ThreadHandle_ident(ThreadHandle *handle)
 }
 
 static int
-ThreadHandle_get_os_handle(ThreadHandle *handle, PyThread_handle_t *os_handle)
+ThreadHandle_get_os_handle(ThreadHandle *handle, PyThread_os_handle_t *os_handle)
 {
     PyMutex_Lock(&handle->mutex);
     int has_os_handle = handle->has_os_handle;
@@ -418,7 +418,7 @@ ThreadHandle_start(ThreadHandle *self, PyObject *func, PyObject *args,
     boot->handle_ready = (PyEvent){0};
 
     PyThread_ident_t ident;
-    PyThread_handle_t os_handle;
+    PyThread_os_handle_t os_handle;
     if (PyThread_start_joinable_thread(thread_run, boot, &ident, &os_handle)) {
         PyThreadState_Clear(boot->tstate);
         PyThreadState_Delete(boot->tstate);
@@ -450,7 +450,7 @@ static int
 join_thread(ThreadHandle *handle)
 {
     assert(get_thread_handle_state(handle) == THREAD_HANDLE_RUNNING);
-    PyThread_handle_t os_handle;
+    PyThread_os_handle_t os_handle;
     if (ThreadHandle_get_os_handle(handle, &os_handle)) {
         int err = 0;
         Py_BEGIN_ALLOW_THREADS
