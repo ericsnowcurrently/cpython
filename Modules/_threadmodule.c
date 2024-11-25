@@ -17,6 +17,10 @@
 #  include <signal.h>             // SIGINT
 #endif
 
+
+typedef struct pythread_handle PyThread_handle_t;
+
+
 // ThreadError is just an alias to PyExc_RuntimeError
 #define ThreadError PyExc_RuntimeError
 
@@ -75,7 +79,7 @@ typedef enum {
 //
 // This must be separately reference counted because it may be destroyed
 // in `thread_run()` after the PyThreadState has been destroyed.
-typedef struct {
+struct pythread_handle {
     struct llist_node node;  // linked list node (see _pythread_runtime_state)
 
     // linked list node (see thread_module_state)
@@ -102,10 +106,10 @@ typedef struct {
     _PyOnceFlag once;
 
     Py_ssize_t refcount;
-} ThreadHandle;
+};
 
 static inline int
-get_thread_handle_state(ThreadHandle *handle)
+get_thread_handle_state(PyThread_handle_t *handle)
 {
     PyMutex_Lock(&handle->mutex);
     int state = handle->state;
@@ -114,7 +118,7 @@ get_thread_handle_state(ThreadHandle *handle)
 }
 
 static inline void
-set_thread_handle_state(ThreadHandle *handle, ThreadHandleState state)
+set_thread_handle_state(PyThread_handle_t *handle, ThreadHandleState state)
 {
     PyMutex_Lock(&handle->mutex);
     handle->state = state;
@@ -122,7 +126,7 @@ set_thread_handle_state(ThreadHandle *handle, ThreadHandleState state)
 }
 
 static PyThread_ident_t
-ThreadHandle_ident(ThreadHandle *handle)
+ThreadHandle_ident(PyThread_handle_t *handle)
 {
     PyMutex_Lock(&handle->mutex);
     PyThread_ident_t ident = handle->ident;
@@ -131,7 +135,7 @@ ThreadHandle_ident(ThreadHandle *handle)
 }
 
 static int
-ThreadHandle_get_os_handle(ThreadHandle *handle, PyThread_os_handle_t *os_handle)
+ThreadHandle_get_os_handle(PyThread_handle_t *handle, PyThread_os_handle_t *os_handle)
 {
     PyMutex_Lock(&handle->mutex);
     int has_os_handle = handle->has_os_handle;
@@ -143,7 +147,7 @@ ThreadHandle_get_os_handle(ThreadHandle *handle, PyThread_os_handle_t *os_handle
 }
 
 static void
-add_to_shutdown_handles(thread_module_state *state, ThreadHandle *handle)
+add_to_shutdown_handles(thread_module_state *state, PyThread_handle_t *handle)
 {
     HEAD_LOCK(&_PyRuntime);
     llist_insert_tail(&state->shutdown_handles, &handle->shutdown_node);
@@ -162,7 +166,7 @@ clear_shutdown_handles(thread_module_state *state)
 }
 
 static void
-remove_from_shutdown_handles(ThreadHandle *handle)
+remove_from_shutdown_handles(PyThread_handle_t *handle)
 {
     HEAD_LOCK(&_PyRuntime);
     if (handle->shutdown_node.next != NULL) {
@@ -171,11 +175,11 @@ remove_from_shutdown_handles(ThreadHandle *handle)
     HEAD_UNLOCK(&_PyRuntime);
 }
 
-static ThreadHandle *
+static PyThread_handle_t *
 ThreadHandle_new(void)
 {
-    ThreadHandle *self =
-        (ThreadHandle *)PyMem_RawCalloc(1, sizeof(ThreadHandle));
+    PyThread_handle_t *self =
+        (PyThread_handle_t *)PyMem_RawCalloc(1, sizeof(PyThread_handle_t));
     if (self == NULL) {
         PyErr_NoMemory();
         return NULL;
@@ -197,13 +201,13 @@ ThreadHandle_new(void)
 }
 
 static void
-ThreadHandle_incref(ThreadHandle *self)
+ThreadHandle_incref(PyThread_handle_t *self)
 {
     _Py_atomic_add_ssize(&self->refcount, 1);
 }
 
 static int
-detach_thread(ThreadHandle *self)
+detach_thread(PyThread_handle_t *self)
 {
     if (!self->has_os_handle) {
         return 0;
@@ -220,7 +224,7 @@ detach_thread(ThreadHandle *self)
 // deleted; it cannot call anything that relies on a valid PyThreadState
 // existing.
 static void
-ThreadHandle_decref(ThreadHandle *self)
+ThreadHandle_decref(PyThread_handle_t *self)
 {
     if (_Py_atomic_add_ssize(&self->refcount, -1) > 1) {
         return;
@@ -257,7 +261,7 @@ _PyThread_AfterFork(struct _pythread_runtime_state *state)
 
     struct llist_node *node;
     llist_for_each_safe(node, &state->handles) {
-        ThreadHandle *handle = llist_data(node, ThreadHandle, node);
+        PyThread_handle_t *handle = llist_data(node, PyThread_handle_t, node);
         if (handle->ident == current) {
             continue;
         }
@@ -282,7 +286,7 @@ struct bootstate {
     PyObject *func;
     PyObject *args;
     PyObject *kwargs;
-    ThreadHandle *handle;
+    PyThread_handle_t *handle;
     PyEvent handle_ready;
 };
 
@@ -308,7 +312,7 @@ thread_run(void *boot_raw)
     PyEvent_Wait(&boot->handle_ready);
 
     // `handle` needs to be manipulated after bootstate has been freed
-    ThreadHandle *handle = boot->handle;
+    PyThread_handle_t *handle = boot->handle;
     ThreadHandle_incref(handle);
 
     // gh-108987: If _thread.start_new_thread() is called before or while
@@ -368,7 +372,7 @@ exit:
 }
 
 static int
-force_done(ThreadHandle *handle)
+force_done(PyThread_handle_t *handle)
 {
     assert(get_thread_handle_state(handle) == THREAD_HANDLE_STARTING);
     _PyEvent_Notify(&handle->thread_is_exiting);
@@ -377,7 +381,7 @@ force_done(ThreadHandle *handle)
 }
 
 static int
-ThreadHandle_start(ThreadHandle *self, PyObject *func, PyObject *args,
+ThreadHandle_start(PyThread_handle_t *self, PyObject *func, PyObject *args,
                    PyObject *kwargs)
 {
     // Mark the handle as starting to prevent any other threads from doing so
@@ -447,7 +451,7 @@ start_failed:
 }
 
 static int
-join_thread(ThreadHandle *handle)
+join_thread(PyThread_handle_t *handle)
 {
     assert(get_thread_handle_state(handle) == THREAD_HANDLE_RUNNING);
     PyThread_os_handle_t os_handle;
@@ -466,7 +470,7 @@ join_thread(ThreadHandle *handle)
 }
 
 static int
-check_started(ThreadHandle *self)
+check_started(PyThread_handle_t *self)
 {
     ThreadHandleState state = get_thread_handle_state(self);
     if (state < THREAD_HANDLE_RUNNING) {
@@ -477,7 +481,7 @@ check_started(ThreadHandle *self)
 }
 
 static int
-ThreadHandle_join(ThreadHandle *self, PyTime_t timeout_ns)
+ThreadHandle_join(PyThread_handle_t *self, PyTime_t timeout_ns)
 {
     if (check_started(self) < 0) {
         return -1;
@@ -531,7 +535,7 @@ ThreadHandle_join(ThreadHandle *self, PyTime_t timeout_ns)
 }
 
 static int
-set_done(ThreadHandle *handle)
+set_done(PyThread_handle_t *handle)
 {
     assert(get_thread_handle_state(handle) == THREAD_HANDLE_RUNNING);
     if (detach_thread(handle) < 0) {
@@ -544,7 +548,7 @@ set_done(ThreadHandle *handle)
 }
 
 static int
-ThreadHandle_set_done(ThreadHandle *self)
+ThreadHandle_set_done(PyThread_handle_t *self)
 {
     if (check_started(self) < 0) {
         return -1;
@@ -558,17 +562,17 @@ ThreadHandle_set_done(ThreadHandle *self)
     return 0;
 }
 
-// A wrapper around a ThreadHandle.
+// A wrapper around a PyThread_handle_t.
 typedef struct {
     PyObject_HEAD
 
-    ThreadHandle *handle;
+    PyThread_handle_t *handle;
 } PyThreadHandleObject;
 
 static PyThreadHandleObject *
 PyThreadHandleObject_new(PyTypeObject *type)
 {
-    ThreadHandle *handle = ThreadHandle_new();
+    PyThread_handle_t *handle = ThreadHandle_new();
     if (handle == NULL) {
         return NULL;
     }
@@ -1761,7 +1765,7 @@ and False otherwise.\n");
 
 static int
 do_start_new_thread(thread_module_state *state, PyObject *func, PyObject *args,
-                    PyObject *kwargs, ThreadHandle *handle, int daemon)
+                    PyObject *kwargs, PyThread_handle_t *handle, int daemon)
 {
     PyInterpreterState *interp = _PyInterpreterState_GET();
     if (!_PyInterpreterState_HasFeature(interp, Py_RTFLAGS_THREADS)) {
@@ -1822,7 +1826,7 @@ thread_PyThread_start_new_thread(PyObject *module, PyObject *fargs)
         return NULL;
     }
 
-    ThreadHandle *handle = ThreadHandle_new();
+    PyThread_handle_t *handle = ThreadHandle_new();
     if (handle == NULL) {
         return NULL;
     }
@@ -2270,13 +2274,13 @@ thread_shutdown(PyObject *self, PyObject *args)
     thread_module_state *state = get_thread_state(self);
 
     for (;;) {
-        ThreadHandle *handle = NULL;
+        PyThread_handle_t *handle = NULL;
 
         // Find a thread that's not yet finished.
         HEAD_LOCK(&_PyRuntime);
         struct llist_node *node;
         llist_for_each_safe(node, &state->shutdown_handles) {
-            ThreadHandle *cur = llist_data(node, ThreadHandle, shutdown_node);
+            PyThread_handle_t *cur = llist_data(node, PyThread_handle_t, shutdown_node);
             if (cur->ident != ident) {
                 ThreadHandle_incref(cur);
                 handle = cur;
