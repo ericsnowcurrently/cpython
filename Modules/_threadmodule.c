@@ -61,7 +61,7 @@ typedef enum {
     THREAD_HANDLE_STARTING = 2,
     THREAD_HANDLE_RUNNING = 3,
     THREAD_HANDLE_DONE = 4,
-} ThreadHandleState;
+} _PyThread_handle_state_t;
 
 // A handle to wait for thread completion.
 //
@@ -91,7 +91,7 @@ struct pythread_handle {
     PyThread_os_handle_t os_handle;
     int has_os_handle;
 
-    // Holds a value from the `ThreadHandleState` enum.
+    // Holds a value from the `_PyThread_handle_state_t` enum.
     int state;
 
     PyMutex mutex;
@@ -118,7 +118,7 @@ get_thread_handle_state(PyThread_handle_t *handle)
 }
 
 static inline void
-set_thread_handle_state(PyThread_handle_t *handle, ThreadHandleState state)
+set_thread_handle_state(PyThread_handle_t *handle, _PyThread_handle_state_t state)
 {
     PyMutex_Lock(&handle->mutex);
     handle->state = state;
@@ -472,7 +472,7 @@ join_thread(PyThread_handle_t *handle)
 static int
 check_started(PyThread_handle_t *self)
 {
-    ThreadHandleState state = get_thread_handle_state(self);
+    _PyThread_handle_state_t state = get_thread_handle_state(self);
     if (state < THREAD_HANDLE_RUNNING) {
         PyErr_SetString(ThreadError, "thread not started");
         return -1;
