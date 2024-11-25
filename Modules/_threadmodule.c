@@ -91,8 +91,7 @@ struct pythread_handle {
     PyThread_os_handle_t os_handle;
     int has_os_handle;
 
-    // Holds a value from the `_PyThread_handle_state_t` enum.
-    int state;
+    _PyThread_handle_state_t state;
 
     PyMutex mutex;
 
@@ -108,11 +107,11 @@ struct pythread_handle {
     Py_ssize_t refcount;
 };
 
-static inline int
+static inline _PyThread_handle_state_t
 handle_get_state(PyThread_handle_t *handle)
 {
     PyMutex_Lock(&handle->mutex);
-    int state = handle->state;
+    _PyThread_handle_state_t state = handle->state;
     PyMutex_Unlock(&handle->mutex);
     return state;
 }
