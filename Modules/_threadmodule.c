@@ -98,18 +98,18 @@ struct pythread_handle {
 
     // Set immediately before `thread_run` returns to indicate that the OS
     // thread is about to exit. This is used to avoid false positives when
-    // detecting self-join attempts. See the comment in `ThreadHandle_join()`
+    // detecting self-join attempts. See the comment in `_PyThreadHandle_Join()`
     // for a more detailed explanation.
     PyEvent thread_is_exiting;
 
-    // Serializes calls to `join` and `set_done`.
+    // Serializes calls to `join` and `handle_set_done`.
     _PyOnceFlag once;
 
     Py_ssize_t refcount;
 };
 
 static inline int
-get_thread_handle_state(PyThread_handle_t *handle)
+handle_get_state(PyThread_handle_t *handle)
 {
     PyMutex_Lock(&handle->mutex);
     int state = handle->state;
@@ -118,15 +118,15 @@ get_thread_handle_state(PyThread_handle_t *handle)
 }
 
 static inline void
-set_thread_handle_state(PyThread_handle_t *handle, _PyThread_handle_state_t state)
+handle_set_state(PyThread_handle_t *handle, _PyThread_handle_state_t state)
 {
     PyMutex_Lock(&handle->mutex);
     handle->state = state;
     PyMutex_Unlock(&handle->mutex);
 }
 
-static PyThread_ident_t
-ThreadHandle_ident(PyThread_handle_t *handle)
+static inline PyThread_ident_t
+handle_get_ident(PyThread_handle_t *handle)
 {
     PyMutex_Lock(&handle->mutex);
     PyThread_ident_t ident = handle->ident;
@@ -134,8 +134,8 @@ ThreadHandle_ident(PyThread_handle_t *handle)
     return ident;
 }
 
-static int
-ThreadHandle_get_os_handle(PyThread_handle_t *handle, PyThread_os_handle_t *os_handle)
+static inline int
+handle_get_os_handle(PyThread_handle_t *handle, PyThread_os_handle_t *os_handle)
 {
     PyMutex_Lock(&handle->mutex);
     int has_os_handle = handle->has_os_handle;
@@ -176,7 +176,7 @@ remove_from_shutdown_handles(PyThread_handle_t *handle)
 }
 
 static PyThread_handle_t *
-ThreadHandle_new(void)
+_PyThreadHandle_New(void)
 {
     PyThread_handle_t *self =
         (PyThread_handle_t *)PyMem_RawCalloc(1, sizeof(PyThread_handle_t));
@@ -201,20 +201,20 @@ ThreadHandle_new(void)
 }
 
 static void
-ThreadHandle_incref(PyThread_handle_t *self)
+handle_incref(PyThread_handle_t *self)
 {
     _Py_atomic_add_ssize(&self->refcount, 1);
 }
 
 static int
-detach_thread(PyThread_handle_t *self)
+_PyThreadHandle_DetachThread(PyThread_handle_t *self)
 {
     if (!self->has_os_handle) {
         return 0;
     }
     // This is typically short so no need to release the GIL
     if (PyThread_detach_thread(self->os_handle)) {
-        fprintf(stderr, "detach_thread: failed detaching thread\n");
+        fprintf(stderr, "_PyThreadHandle_DetachThread: failed detaching thread\n");
         return -1;
     }
     return 0;
@@ -224,7 +224,7 @@ detach_thread(PyThread_handle_t *self)
 // deleted; it cannot call anything that relies on a valid PyThreadState
 // existing.
 static void
-ThreadHandle_decref(PyThread_handle_t *self)
+_PyThreadHandle_Release(PyThread_handle_t *self)
 {
     if (_Py_atomic_add_ssize(&self->refcount, -1) > 1) {
         return;
@@ -243,7 +243,7 @@ ThreadHandle_decref(PyThread_handle_t *self)
     //   1. This is the destructor; nothing else holds a reference.
     //   2. The refcount going to zero is a "synchronizes-with" event; all
     //      changes from other threads are visible.
-    if (self->state == THREAD_HANDLE_RUNNING && !detach_thread(self)) {
+    if (self->state == THREAD_HANDLE_RUNNING && !_PyThreadHandle_DetachThread(self)) {
         self->state = THREAD_HANDLE_DONE;
     }
 
@@ -298,7 +298,7 @@ thread_bootstate_free(struct bootstate *boot, int decref)
         Py_DECREF(boot->args);
         Py_XDECREF(boot->kwargs);
     }
-    ThreadHandle_decref(boot->handle);
+    _PyThreadHandle_Release(boot->handle);
     PyMem_RawFree(boot);
 }
 
@@ -313,7 +313,7 @@ thread_run(void *boot_raw)
 
     // `handle` needs to be manipulated after bootstate has been freed
     PyThread_handle_t *handle = boot->handle;
-    ThreadHandle_incref(handle);
+    handle_incref(handle);
 
     // gh-108987: If _thread.start_new_thread() is called before or while
     // Python is being finalized, thread_run() can called *after*.
@@ -363,7 +363,7 @@ exit:
     remove_from_shutdown_handles(handle);
 
     _PyEvent_Notify(&handle->thread_is_exiting);
-    ThreadHandle_decref(handle);
+    _PyThreadHandle_Release(handle);
 
     // bpo-44434: Don't call explicitly PyThread_exit_thread(). On Linux with
     // the glibc, pthread_exit() can abort the whole process if dlopen() fails
@@ -372,16 +372,16 @@ exit:
 }
 
 static int
-force_done(PyThread_handle_t *handle)
+handle_force_done(PyThread_handle_t *handle)
 {
-    assert(get_thread_handle_state(handle) == THREAD_HANDLE_STARTING);
+    assert(handle_get_state(handle) == THREAD_HANDLE_STARTING);
     _PyEvent_Notify(&handle->thread_is_exiting);
-    set_thread_handle_state(handle, THREAD_HANDLE_DONE);
+    handle_set_state(handle, THREAD_HANDLE_DONE);
     return 0;
 }
 
 static int
-ThreadHandle_start(PyThread_handle_t *self, PyObject *func, PyObject *args,
+_PyThreadHandle_Start(PyThread_handle_t *self, PyObject *func, PyObject *args,
                    PyObject *kwargs)
 {
     // Mark the handle as starting to prevent any other threads from doing so
@@ -418,7 +418,7 @@ ThreadHandle_start(PyThread_handle_t *self, PyObject *func, PyObject *args,
     boot->args = Py_NewRef(args);
     boot->kwargs = Py_XNewRef(kwargs);
     boot->handle = self;
-    ThreadHandle_incref(self);
+    handle_incref(self);
     boot->handle_ready = (PyEvent){0};
 
     PyThread_ident_t ident;
@@ -446,16 +446,16 @@ ThreadHandle_start(PyThread_handle_t *self, PyObject *func, PyObject *args,
     return 0;
 
 start_failed:
-    _PyOnceFlag_CallOnce(&self->once, (_Py_once_fn_t *)force_done, self);
+    _PyOnceFlag_CallOnce(&self->once, (_Py_once_fn_t *)handle_force_done, self);
     return -1;
 }
 
 static int
-join_thread(PyThread_handle_t *handle)
+handle_join(PyThread_handle_t *handle)
 {
-    assert(get_thread_handle_state(handle) == THREAD_HANDLE_RUNNING);
+    assert(handle_get_state(handle) == THREAD_HANDLE_RUNNING);
     PyThread_os_handle_t os_handle;
-    if (ThreadHandle_get_os_handle(handle, &os_handle)) {
+    if (handle_get_os_handle(handle, &os_handle)) {
         int err = 0;
         Py_BEGIN_ALLOW_THREADS
         err = PyThread_join_thread(os_handle);
@@ -465,14 +465,14 @@ join_thread(PyThread_handle_t *handle)
             return -1;
         }
     }
-    set_thread_handle_state(handle, THREAD_HANDLE_DONE);
+    handle_set_state(handle, THREAD_HANDLE_DONE);
     return 0;
 }
 
 static int
-check_started(PyThread_handle_t *self)
+handle_check_started(PyThread_handle_t *self)
 {
-    _PyThread_handle_state_t state = get_thread_handle_state(self);
+    _PyThread_handle_state_t state = handle_get_state(self);
     if (state < THREAD_HANDLE_RUNNING) {
         PyErr_SetString(ThreadError, "thread not started");
         return -1;
@@ -481,9 +481,9 @@ check_started(PyThread_handle_t *self)
 }
 
 static int
-ThreadHandle_join(PyThread_handle_t *self, PyTime_t timeout_ns)
+_PyThreadHandle_Join(PyThread_handle_t *self, PyTime_t timeout_ns)
 {
-    if (check_started(self) < 0) {
+    if (handle_check_started(self) < 0) {
         return -1;
     }
 
@@ -498,7 +498,7 @@ ThreadHandle_join(PyThread_handle_t *self, PyTime_t timeout_ns)
     // `thread_run` returns.  We can be sure that we are not attempting to join
     // ourselves if the handle's thread is about to exit.
     if (!_PyEvent_IsSet(&self->thread_is_exiting) &&
-        ThreadHandle_ident(self) == PyThread_get_thread_ident_ex()) {
+        handle_get_ident(self) == PyThread_get_thread_ident_ex()) {
         // PyThread_join_thread() would deadlock or error out.
         PyErr_SetString(ThreadError, "Cannot join current thread");
         return -1;
@@ -526,39 +526,39 @@ ThreadHandle_join(PyThread_handle_t *self, PyTime_t timeout_ns)
         }
     }
 
-    if (_PyOnceFlag_CallOnce(&self->once, (_Py_once_fn_t *)join_thread,
+    if (_PyOnceFlag_CallOnce(&self->once, (_Py_once_fn_t *)handle_join,
                              self) == -1) {
         return -1;
     }
-    assert(get_thread_handle_state(self) == THREAD_HANDLE_DONE);
+    assert(handle_get_state(self) == THREAD_HANDLE_DONE);
     return 0;
 }
 
 static int
-set_done(PyThread_handle_t *handle)
+handle_set_done(PyThread_handle_t *handle)
 {
-    assert(get_thread_handle_state(handle) == THREAD_HANDLE_RUNNING);
-    if (detach_thread(handle) < 0) {
+    assert(handle_get_state(handle) == THREAD_HANDLE_RUNNING);
+    if (_PyThreadHandle_DetachThread(handle) < 0) {
         PyErr_SetString(ThreadError, "failed detaching handle");
         return -1;
     }
     _PyEvent_Notify(&handle->thread_is_exiting);
-    set_thread_handle_state(handle, THREAD_HANDLE_DONE);
+    handle_set_state(handle, THREAD_HANDLE_DONE);
     return 0;
 }
 
 static int
-ThreadHandle_set_done(PyThread_handle_t *self)
+_PyThreadHandle_SetDone(PyThread_handle_t *self)
 {
-    if (check_started(self) < 0) {
+    if (handle_check_started(self) < 0) {
         return -1;
     }
 
-    if (_PyOnceFlag_CallOnce(&self->once, (_Py_once_fn_t *)set_done, self) ==
+    if (_PyOnceFlag_CallOnce(&self->once, (_Py_once_fn_t *)handle_set_done, self) ==
         -1) {
         return -1;
     }
-    assert(get_thread_handle_state(self) == THREAD_HANDLE_DONE);
+    assert(handle_get_state(self) == THREAD_HANDLE_DONE);
     return 0;
 }
 
@@ -572,7 +572,7 @@ typedef struct {
 static PyThreadHandleObject *
 PyThreadHandleObject_new(PyTypeObject *type)
 {
-    PyThread_handle_t *handle = ThreadHandle_new();
+    PyThread_handle_t *handle = _PyThreadHandle_New();
     if (handle == NULL) {
         return NULL;
     }
@@ -580,7 +580,7 @@ PyThreadHandleObject_new(PyTypeObject *type)
     PyThreadHandleObject *self =
         (PyThreadHandleObject *)type->tp_alloc(type, 0);
     if (self == NULL) {
-        ThreadHandle_decref(handle);
+        _PyThreadHandle_Release(handle);
         return NULL;
     }
 
@@ -609,7 +609,7 @@ PyThreadHandleObject_dealloc(PyObject *op)
     PyThreadHandleObject *self = (PyThreadHandleObject*)op;
     PyObject_GC_UnTrack(self);
     PyTypeObject *tp = Py_TYPE(self);
-    ThreadHandle_decref(self->handle);
+    _PyThreadHandle_Release(self->handle);
     tp->tp_free(self);
     Py_DECREF(tp);
 }
@@ -618,7 +618,7 @@ static PyObject *
 PyThreadHandleObject_repr(PyObject *op)
 {
     PyThreadHandleObject *self = (PyThreadHandleObject*)op;
-    PyThread_ident_t ident = ThreadHandle_ident(self->handle);
+    PyThread_ident_t ident = handle_get_ident(self->handle);
     return PyUnicode_FromFormat("<%s object: ident=%" PY_FORMAT_THREAD_IDENT_T ">",
                                 Py_TYPE(self)->tp_name, ident);
 }
@@ -627,7 +627,7 @@ static PyObject *
 PyThreadHandleObject_get_ident(PyObject *op, void *Py_UNUSED(ignored))
 {
     PyThreadHandleObject *self = (PyThreadHandleObject*)op;
-    return PyLong_FromUnsignedLongLong(ThreadHandle_ident(self->handle));
+    return PyLong_FromUnsignedLongLong(handle_get_ident(self->handle));
 }
 
 static PyObject *
@@ -648,7 +648,7 @@ PyThreadHandleObject_join(PyObject *op, PyObject *args)
         }
     }
 
-    if (ThreadHandle_join(self->handle, timeout_ns) < 0) {
+    if (_PyThreadHandle_Join(self->handle, timeout_ns) < 0) {
         return NULL;
     }
     Py_RETURN_NONE;
@@ -670,7 +670,7 @@ static PyObject *
 PyThreadHandleObject_set_done(PyObject *op, PyObject *Py_UNUSED(ignored))
 {
     PyThreadHandleObject *self = (PyThreadHandleObject*)op;
-    if (ThreadHandle_set_done(self->handle) < 0) {
+    if (_PyThreadHandle_SetDone(self->handle) < 0) {
         return NULL;
     }
     Py_RETURN_NONE;
@@ -1782,11 +1782,11 @@ do_start_new_thread(thread_module_state *state, PyObject *func, PyObject *args,
     if (!daemon) {
         // Add the handle before starting the thread to avoid adding a handle
         // to a thread that has already finished (i.e. if the thread finishes
-        // before the call to `ThreadHandle_start()` below returns).
+        // before the call to `_PyThreadHandle_Start()` below returns).
         add_to_shutdown_handles(state, handle);
     }
 
-    if (ThreadHandle_start(handle, func, args, kwargs) < 0) {
+    if (_PyThreadHandle_Start(handle, func, args, kwargs) < 0) {
         if (!daemon) {
             remove_from_shutdown_handles(handle);
         }
@@ -1826,7 +1826,7 @@ thread_PyThread_start_new_thread(PyObject *module, PyObject *fargs)
         return NULL;
     }
 
-    PyThread_handle_t *handle = ThreadHandle_new();
+    PyThread_handle_t *handle = _PyThreadHandle_New();
     if (handle == NULL) {
         return NULL;
     }
@@ -1834,11 +1834,11 @@ thread_PyThread_start_new_thread(PyObject *module, PyObject *fargs)
     int st =
         do_start_new_thread(state, func, args, kwargs, handle, /*daemon=*/1);
     if (st < 0) {
-        ThreadHandle_decref(handle);
+        _PyThreadHandle_Release(handle);
         return NULL;
     }
-    PyThread_ident_t ident = ThreadHandle_ident(handle);
-    ThreadHandle_decref(handle);
+    PyThread_ident_t ident = handle_get_ident(handle);
+    _PyThreadHandle_Release(handle);
     return PyLong_FromUnsignedLongLong(ident);
 }
 
@@ -2282,7 +2282,7 @@ thread_shutdown(PyObject *self, PyObject *args)
         llist_for_each_safe(node, &state->shutdown_handles) {
             PyThread_handle_t *cur = llist_data(node, PyThread_handle_t, shutdown_node);
             if (cur->ident != ident) {
-                ThreadHandle_incref(cur);
+                handle_incref(cur);
                 handle = cur;
                 break;
             }
@@ -2296,13 +2296,13 @@ thread_shutdown(PyObject *self, PyObject *args)
 
         // Wait for the thread to finish. If we're interrupted, such
         // as by a ctrl-c we print the error and exit early.
-        if (ThreadHandle_join(handle, -1) < 0) {
+        if (_PyThreadHandle_Join(handle, -1) < 0) {
             PyErr_WriteUnraisable(NULL);
-            ThreadHandle_decref(handle);
+            _PyThreadHandle_Release(handle);
             Py_RETURN_NONE;
         }
 
-        ThreadHandle_decref(handle);
+        _PyThreadHandle_Release(handle);
     }
 
     Py_RETURN_NONE;
