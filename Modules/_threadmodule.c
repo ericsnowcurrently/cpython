@@ -492,20 +492,23 @@ thandle_start(PyThread_handle_t *self,
         goto start_failed;
     }
     PyInterpreterState *interp = _PyInterpreterState_GET();
-    boot->tstate = _PyThreadState_New(interp, _PyThreadState_WHENCE_THREADING);
-    if (boot->tstate == NULL) {
+    PyThreadState *tstate = _PyThreadState_New(
+                                interp, _PyThreadState_WHENCE_THREADING);
+    if (tstate == NULL) {
         PyMem_RawFree(boot);
         if (!PyErr_Occurred()) {
             PyErr_NoMemory();
         }
         goto start_failed;
     }
-    boot->func = Py_NewRef(func);
-    boot->args = Py_NewRef(args);
-    boot->kwargs = Py_XNewRef(kwargs);
-    boot->handle = self;
-    thandle_incref(self);
-    boot->handle_ready = (PyEvent){0};
+    *boot = (struct bootstate){
+        .tstate = tstate,
+        .func = Py_NewRef(func),
+        .args = Py_NewRef(args),
+        .kwargs = Py_XNewRef(kwargs),
+        .handle = _PyThreadHandle_NewRef(self),
+        .handle_ready = (PyEvent){0},
+    };
 
     PyThread_ident_t ident;
     PyThread_os_handle_t os_handle;
