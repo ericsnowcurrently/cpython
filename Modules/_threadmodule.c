@@ -2099,6 +2099,7 @@ thread_PyThread_start_joinable_thread(PyObject *module, PyObject *fargs,
 
     PyObject* args = PyTuple_New(0);
     if (args == NULL) {
+        Py_DECREF(hobj);
         return NULL;
     }
     int st = do_start_new_thread(state, func, args,
