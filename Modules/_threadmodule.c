@@ -248,6 +248,12 @@ thandle_incref(PyThread_handle_t *self)
     _Py_atomic_add_ssize(&self->refcount, 1);
 }
 
+static Py_ssize_t
+thandle_decref(PyThread_handle_t *self)
+{
+    return _Py_atomic_add_ssize(&self->refcount, -1) - 1;
+}
+
 static int
 _PyThreadHandle_DetachThread(PyThread_handle_t *self)
 {
@@ -275,7 +281,7 @@ _PyThreadHandle_NewRef(PyThread_handle_t *handle)
 static void
 _PyThreadHandle_Release(PyThread_handle_t *self)
 {
-    if (_Py_atomic_add_ssize(&self->refcount, -1) > 1) {
+    if (thandle_decref(self) > 0) {
         return;
     }
 
