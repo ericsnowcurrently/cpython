@@ -166,6 +166,34 @@ PyAPI_FUNC(int) PyThread_detach_thread(PyThread_os_handle_t);
  */
 void _Py_NO_RETURN PyThread_hang_thread(void);
 
+
+/* Thread handles */
+
+typedef struct pythread_handle PyThread_handle_t;
+
+PyAPI_FUNC(PyThread_handle_t *) _PyThreadHandle_New(void);
+PyAPI_FUNC(PyThread_handle_t *) _PyThreadHandle_FromIdent(PyThread_ident_t);
+PyAPI_FUNC(PyThread_handle_t *) _PyThreadHandle_NewRef(PyThread_handle_t *);
+PyAPI_FUNC(void) _PyThreadHandle_Release(PyThread_handle_t *);
+
+PyAPI_FUNC(int) _PyThreadHandle_Start(
+    PyThread_handle_t *handle,
+    PyObject *func,
+    PyObject *args,
+    PyObject *kwargs);
+PyAPI_FUNC(int) _PyThreadHandle_Join(PyThread_handle_t *h, PyTime_t timeout_ns);
+
+PyAPI_FUNC(PyThread_ident_t) _PyThreadHandle_GetIdent(PyThread_handle_t *);
+PyAPI_FUNC(int) _PyThreadHandle_IsExiting(PyThread_handle_t *);
+PyAPI_FUNC(int) _PyThreadHandle_SetDone(PyThread_handle_t *);
+
+PyAPI_FUNC(int) _PyThread_Shutdown(struct llist_node *);
+PyAPI_FUNC(void) _PyThread_AddShutdownHandle(
+    struct llist_node *,
+    PyThread_handle_t *);
+PyAPI_FUNC(void) _PyThread_RemoveShutdownHandle(PyThread_handle_t *);
+
+
 #ifdef __cplusplus
 }
 #endif
