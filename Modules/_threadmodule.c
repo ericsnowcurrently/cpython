@@ -222,6 +222,12 @@ _PyThreadHandle_FromIdent(PyThread_ident_t ident)
     return self;
 }
 
+static PyThread_ident_t
+_PyThreadHandle_GetIdent(PyThread_handle_t *handle)
+{
+    return thandle_get_ident(handle);
+}
+
 static void
 thandle_incref(PyThread_handle_t *self)
 {
@@ -726,7 +732,7 @@ static PyObject *
 PyThreadHandleObject_repr(PyObject *op)
 {
     PyThreadHandleObject *self = (PyThreadHandleObject*)op;
-    PyThread_ident_t ident = thandle_get_ident(self->handle);
+    PyThread_ident_t ident = _PyThreadHandle_GetIdent(self->handle);
     return PyUnicode_FromFormat("<%s object: ident=%" PY_FORMAT_THREAD_IDENT_T ">",
                                 Py_TYPE(self)->tp_name, ident);
 }
@@ -735,7 +741,7 @@ static PyObject *
 PyThreadHandleObject_get_ident(PyObject *op, void *Py_UNUSED(ignored))
 {
     PyThreadHandleObject *self = (PyThreadHandleObject*)op;
-    return PyLong_FromUnsignedLongLong(thandle_get_ident(self->handle));
+    return PyLong_FromUnsignedLongLong(_PyThreadHandle_GetIdent(self->handle));
 }
 
 static PyObject *
@@ -1933,7 +1939,7 @@ thread_PyThread_start_new_thread(PyObject *module, PyObject *fargs)
         _PyThreadHandle_Release(handle);
         return NULL;
     }
-    PyThread_ident_t ident = thandle_get_ident(handle);
+    PyThread_ident_t ident = _PyThreadHandle_GetIdent(handle);
     _PyThreadHandle_Release(handle);
     return PyLong_FromUnsignedLongLong(ident);
 }
