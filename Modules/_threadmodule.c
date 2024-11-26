@@ -32,9 +32,9 @@ typedef struct {
     PyTypeObject *local_dummy_type;
     PyTypeObject *thread_handle_type;
 
-    // Linked list of handles to all non-daemon threads created by the
+    // Set of handles to all non-daemon threads created by the
     // threading module. We wait for these to finish at shutdown.
-    struct llist_node shutdown_handles;
+    PyThread_handles_t *shutdown_handles;
 } thread_module_state;
 
 static inline thread_module_state*
@@ -45,27 +45,33 @@ get_thread_state(PyObject *module)
     return (thread_module_state *)state;
 }
 
-static inline void
-add_to_shutdown_handles(thread_module_state *state, PyThread_handle_t *handle)
+static void
+init_shutdown_handles(thread_module_state *state)
 {
-    _PyThread_AddShutdownHandle(&state->shutdown_handles, handle);
+    state->shutdown_handles = _PyThreadHandles_New();
 }
 
 static inline void
 clear_shutdown_handles(thread_module_state *state)
 {
-    HEAD_LOCK(&_PyRuntime);
-    struct llist_node *node;
-    llist_for_each_safe(node, &state->shutdown_handles) {
-        llist_remove(node);
+    if (state->shutdown_handles == NULL) {
+        return;
     }
-    HEAD_UNLOCK(&_PyRuntime);
+    _PyThreadHandles_Free(state->shutdown_handles);
+    state->shutdown_handles = NULL;
 }
 
 static inline void
-remove_from_shutdown_handles(PyThread_handle_t *handle)
+add_to_shutdown_handles(thread_module_state *state, PyThread_handle_t *handle)
 {
-    _PyThread_RemoveShutdownHandle(handle);
+    _PyThread_AddShutdownHandle(state->shutdown_handles, handle);
+}
+
+static inline void
+remove_from_shutdown_handles(thread_module_state *state,
+                             PyThread_handle_t *handle)
+{
+    _PyThread_RemoveShutdownHandle(state->shutdown_handles, handle);
 }
 
 
@@ -1284,7 +1290,7 @@ do_start_new_thread(thread_module_state *state, PyObject *func, PyObject *args,
     int st = _PyThreadHandle_Start(handle, func, args, kwargs);
     if (st < 0) {
        if (!daemon) {
-           remove_from_shutdown_handles(handle);
+           remove_from_shutdown_handles(state, handle);
         }
        return -1;
     }
@@ -1773,7 +1779,7 @@ static PyObject *
 thread_shutdown(PyObject *self, PyObject *args)
 {
     thread_module_state *state = get_thread_state(self);
-    (void)_PyThread_Shutdown(&state->shutdown_handles);
+    (void)_PyThread_Shutdown(state->shutdown_handles);
     Py_RETURN_NONE;
 }
 
@@ -1956,7 +1962,7 @@ thread_module_exec(PyObject *module)
         return -1;
     }
 
-    llist_init(&state->shutdown_handles);
+    init_shutdown_handles(state);
 
     return 0;
 }

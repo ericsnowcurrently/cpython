@@ -459,50 +459,70 @@ thandle_force_done(PyThread_handle_t *handle)
 /* PyThread_handle_t linked lists */
 
 static inline void
+init_handles(PyThread_handles_t *handles)
+{
+    PyMutex_Lock(&handles->mutex);
+    llist_init(&handles->head);
+    PyMutex_Unlock(&handles->mutex);
+}
+
+void
+clear_handles(PyThread_handles_t *handles)
+{
+    PyMutex_Lock(&handles->mutex);
+    struct llist_node *node;
+    llist_for_each_safe(node, &handles->head) {
+        llist_remove(node);
+    }
+    PyMutex_Unlock(&handles->mutex);
+}
+
+static inline void
 add_global_handle(PyThread_handle_t *handle)
 {
-    HEAD_LOCK(&_PyRuntime);
-    llist_insert_tail(&_PyRuntime.threads.handles, &handle->node);
-    HEAD_UNLOCK(&_PyRuntime);
+    PyThread_handles_t *handles = &_PyRuntime.threads.handles;
+    PyMutex_Lock(&handles->mutex);
+    llist_insert_tail(&handles->head, &handle->node);
+    PyMutex_Unlock(&handles->mutex);
 }
 
 static inline void
 remove_global_handle(PyThread_handle_t *handle)
 {
-    // Remove ourself from the global list of handles
-    HEAD_LOCK(&_PyRuntime);
+    PyThread_handles_t *handles = &_PyRuntime.threads.handles;
+    PyMutex_Lock(&handles->mutex);
     if (handle->node.next != NULL) {
         llist_remove(&handle->node);
     }
-    HEAD_UNLOCK(&_PyRuntime);
+    PyMutex_Unlock(&handles->mutex);
 }
 
 static inline void
-add_shutdown_handle(struct llist_node *handles, PyThread_handle_t *handle)
+add_shutdown_handle(PyThread_handles_t *handles, PyThread_handle_t *handle)
 {
-    HEAD_LOCK(&_PyRuntime);
-    llist_insert_tail(handles, &handle->shutdown_node);
-    HEAD_UNLOCK(&_PyRuntime);
+    PyMutex_Lock(&handles->mutex);
+    llist_insert_tail(&handles->head, &handle->shutdown_node);
+    PyMutex_Unlock(&handles->mutex);
 }
 
-static void
-remove_shutdown_handle(PyThread_handle_t *handle)
+static inline void
+remove_shutdown_handle(PyThread_handles_t *handles, PyThread_handle_t *handle)
 {
-    HEAD_LOCK(&_PyRuntime);
+    PyMutex_Lock(&handles->mutex);
     if (handle->shutdown_node.next != NULL) {
         llist_remove(&handle->shutdown_node);
     }
-    HEAD_UNLOCK(&_PyRuntime);
+    PyMutex_Unlock(&handles->mutex);
 }
 
 static PyThread_handle_t *
-next_other_shutdown_handle(struct llist_node *handles, PyThread_ident_t ident)
+next_other_shutdown_handle(PyThread_handles_t *handles, PyThread_ident_t ident)
 {
     PyThread_handle_t *handle = NULL;
 
-    HEAD_LOCK(&_PyRuntime);
+    PyMutex_Lock(&handles->mutex);
     struct llist_node *node;
-    llist_for_each_safe(node, handles) {
+    llist_for_each_safe(node, &handles->head) {
         PyThread_handle_t *cur = llist_data(node, PyThread_handle_t, shutdown_node);
         if (cur->ident != ident) {
             thandle_incref(cur);
@@ -510,7 +530,7 @@ next_other_shutdown_handle(struct llist_node *handles, PyThread_ident_t ident)
             break;
         }
     }
-    HEAD_UNLOCK(&_PyRuntime);
+    PyMutex_Unlock(&handles->mutex);
 
     return handle;
 }
@@ -602,7 +622,8 @@ thread_run(void *boot_raw)
 
 exit:
     // Don't need to wait for this thread anymore
-    remove_shutdown_handle(handle);
+    // XXX Passing NULL isn't right.
+    remove_shutdown_handle(NULL, handle);
 
     thandle_set_exiting(handle);
     thandle_release(handle);
@@ -769,16 +790,38 @@ _PyThreadHandle_GetIdent(PyThread_handle_t *handle)
     return thandle_get_ident(handle);
 }
 
+PyThread_handles_t *
+_PyThreadHandles_New(void)
+{
+    PyThread_handles_t *handles = PyMem_RawMalloc(sizeof(PyThread_handles_t));
+    if (handles == NULL) {
+        PyErr_NoMemory();
+        return NULL;
+    }
+    *handles = (PyThread_handles_t){0};
+    init_handles(handles);
+    return handles;
+}
+
 void
-_PyThread_AddShutdownHandle(struct llist_node *handles, PyThread_handle_t *handle)
+_PyThreadHandles_Free(PyThread_handles_t *handles)
+{
+    clear_handles(handles);
+    PyMem_RawFree(handles);
+}
+
+void
+_PyThread_AddShutdownHandle(PyThread_handles_t *handles,
+                            PyThread_handle_t *handle)
 {
     add_shutdown_handle(handles, handle);
 }
 
 void
-_PyThread_RemoveShutdownHandle(PyThread_handle_t *handle)
+_PyThread_RemoveShutdownHandle(PyThread_handles_t *handles,
+                               PyThread_handle_t *handle)
 {
-    remove_shutdown_handle(handle);
+    remove_shutdown_handle(handles, handle);
 }
 
 int
@@ -796,8 +839,14 @@ _PyThread_AfterFork(struct _pythread_runtime_state *state)
     // GC cycle.
     PyThread_ident_t current = PyThread_get_thread_ident_ex();
 
+    PyThread_handles_t *handles = &state->handles;
+
+    handles->mutex = (PyMutex){_Py_UNLOCKED};
+    // The current thread is the only one, so we don't need to actually
+    // acquire the lock.
+
     struct llist_node *node;
-    llist_for_each_safe(node, &state->handles) {
+    llist_for_each_safe(node, &handles->head) {
         PyThread_handle_t *handle = llist_data(node, PyThread_handle_t, node);
         if (handle->ident == current) {
             continue;
@@ -811,7 +860,8 @@ _PyThread_AfterFork(struct _pythread_runtime_state *state)
         handle->mutex = (PyMutex){_Py_UNLOCKED};
         thandle_set_exiting(handle);
         llist_remove(node);
-        remove_shutdown_handle(handle);
+        // XXX NULL isn't right.
+        remove_shutdown_handle(NULL, handle);
     }
 }
 
@@ -965,7 +1015,7 @@ _PyThreadHandle_SetDone(PyThread_handle_t *self)
 }
 
 int
-_PyThread_Shutdown(struct llist_node *handles)
+_PyThread_Shutdown(PyThread_handles_t *handles)
 {
     PyThread_ident_t ident = PyThread_get_thread_ident_ex();
 
