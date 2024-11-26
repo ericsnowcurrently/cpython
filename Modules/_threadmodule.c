@@ -192,14 +192,10 @@ _PyThreadHandle_New(void)
         PyErr_NoMemory();
         return NULL;
     }
-    self->ident = 0;
-    self->os_handle = 0;
-    self->has_os_handle = 0;
-    self->thread_is_exiting = (PyEvent){0};
-    self->mutex = (PyMutex){_Py_UNLOCKED};
-    self->once = (_PyOnceFlag){0};
-    self->state = THREAD_HANDLE_NOT_STARTED;
-    self->refcount = 1;
+    *self = (PyThread_handle_t){
+        .state = THREAD_HANDLE_NOT_STARTED,
+        .refcount = 1,
+    };
 
     HEAD_LOCK(&_PyRuntime);
     llist_insert_tail(&_PyRuntime.threads.handles, &self->node);
