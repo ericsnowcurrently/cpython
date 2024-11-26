@@ -176,12 +176,30 @@ thandle_get_os_handle(PyThread_handle_t *handle, PyThread_os_handle_t *os_handle
     return has_os_handle;
 }
 
-static int
-_PyThreadHandle_IsExiting(PyThread_handle_t *handle)
+static inline int
+thandle_is_exiting(PyThread_handle_t *handle)
 {
     return _PyEvent_IsSet(&handle->thread_is_exiting);
 }
 
+static int
+_PyThreadHandle_IsExiting(PyThread_handle_t *handle)
+{
+    return thandle_is_exiting(handle);
+}
+
+static inline void
+thandle_set_exiting(PyThread_handle_t *handle)
+{
+    _PyEvent_Notify(&handle->thread_is_exiting);
+}
+
+static int
+thandle_wait_for_exiting(PyThread_handle_t *handle, PyTime_t timeout_ns)
+{
+    int detach = 1;
+    return PyEvent_WaitTimed(&handle->thread_is_exiting, timeout_ns, detach);
+}
 
 static PyThread_handle_t *
 _PyThreadHandle_New(void)
@@ -303,7 +321,7 @@ _PyThread_AfterFork(struct _pythread_runtime_state *state)
         handle->state = THREAD_HANDLE_DONE;
         handle->once = (_PyOnceFlag){_Py_ONCE_INITIALIZED};
         handle->mutex = (PyMutex){_Py_UNLOCKED};
-        _PyEvent_Notify(&handle->thread_is_exiting);
+        thandle_set_exiting(handle);
         llist_remove(node);
         remove_from_shutdown_handles(handle);
     }
@@ -448,7 +466,7 @@ exit:
     // Don't need to wait for this thread anymore
     remove_from_shutdown_handles(handle);
 
-    _PyEvent_Notify(&handle->thread_is_exiting);
+    thandle_set_exiting(handle);
     _PyThreadHandle_Release(handle);
 
     // bpo-44434: Don't call explicitly PyThread_exit_thread(). On Linux with
@@ -461,7 +479,7 @@ static int
 thandle_force_done(PyThread_handle_t *handle)
 {
     assert(thandle_get_state(handle) == THREAD_HANDLE_STARTING);
-    _PyEvent_Notify(&handle->thread_is_exiting);
+    thandle_set_exiting(handle);
     thandle_set_state(handle, THREAD_HANDLE_DONE);
     return 0;
 }
@@ -586,7 +604,7 @@ _PyThreadHandle_Join(PyThread_handle_t *self, PyTime_t timeout_ns)
     // To work around this, we set `thread_is_exiting` immediately before
     // `thread_run` returns.  We can be sure that we are not attempting to join
     // ourselves if the handle's thread is about to exit.
-    if (!_PyEvent_IsSet(&self->thread_is_exiting) &&
+    if (!thandle_is_exiting(self) &&
         thandle_get_ident(self) == PyThread_get_thread_ident_ex()) {
         // PyThread_join_thread() would deadlock or error out.
         PyErr_SetString(ThreadError, "Cannot join current thread");
@@ -595,8 +613,7 @@ _PyThreadHandle_Join(PyThread_handle_t *self, PyTime_t timeout_ns)
 
     // Wait until the deadline for the thread to exit.
     PyTime_t deadline = timeout_ns != -1 ? _PyDeadline_Init(timeout_ns) : 0;
-    int detach = 1;
-    while (!PyEvent_WaitTimed(&self->thread_is_exiting, timeout_ns, detach)) {
+    while (!thandle_wait_for_exiting(self, timeout_ns)) {
         if (deadline) {
             // _PyDeadline_Get will return a negative value if the deadline has
             // been exceeded.
@@ -631,7 +648,7 @@ thandle_set_done(PyThread_handle_t *handle)
         PyErr_SetString(ThreadError, "failed detaching handle");
         return -1;
     }
-    _PyEvent_Notify(&handle->thread_is_exiting);
+    thandle_set_exiting(handle);
     thandle_set_state(handle, THREAD_HANDLE_DONE);
     return 0;
 }
