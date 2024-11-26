@@ -48,6 +48,37 @@ get_thread_state(PyObject *module)
     return (thread_module_state *)state;
 }
 
+static void _PyThread_AddShutdownHandle(struct llist_node *, PyThread_handle_t *);
+static void _PyThread_RemoveShutdownHandle(PyThread_handle_t *);
+
+static inline void
+add_to_shutdown_handles(thread_module_state *state, PyThread_handle_t *handle)
+{
+    HEAD_LOCK(&_PyRuntime);
+    _PyThread_AddShutdownHandle(&state->shutdown_handles, handle);
+    HEAD_UNLOCK(&_PyRuntime);
+}
+
+static inline void
+clear_shutdown_handles(thread_module_state *state)
+{
+    HEAD_LOCK(&_PyRuntime);
+    struct llist_node *node;
+    llist_for_each_safe(node, &state->shutdown_handles) {
+        llist_remove(node);
+    }
+    HEAD_UNLOCK(&_PyRuntime);
+}
+
+static inline void
+remove_from_shutdown_handles(PyThread_handle_t *handle)
+{
+    HEAD_LOCK(&_PyRuntime);
+    _PyThread_RemoveShutdownHandle(handle);
+    HEAD_UNLOCK(&_PyRuntime);
+}
+
+
 // _ThreadHandle type
 
 // Handles state transitions according to the following diagram:
@@ -149,35 +180,6 @@ static int
 _PyThreadHandle_IsExiting(PyThread_handle_t *handle)
 {
     return _PyEvent_IsSet(&handle->thread_is_exiting);
-}
-
-static void
-add_to_shutdown_handles(thread_module_state *state, PyThread_handle_t *handle)
-{
-    HEAD_LOCK(&_PyRuntime);
-    llist_insert_tail(&state->shutdown_handles, &handle->shutdown_node);
-    HEAD_UNLOCK(&_PyRuntime);
-}
-
-static void
-clear_shutdown_handles(thread_module_state *state)
-{
-    HEAD_LOCK(&_PyRuntime);
-    struct llist_node *node;
-    llist_for_each_safe(node, &state->shutdown_handles) {
-        llist_remove(node);
-    }
-    HEAD_UNLOCK(&_PyRuntime);
-}
-
-static void
-remove_from_shutdown_handles(PyThread_handle_t *handle)
-{
-    HEAD_LOCK(&_PyRuntime);
-    if (handle->shutdown_node.next != NULL) {
-        llist_remove(&handle->shutdown_node);
-    }
-    HEAD_UNLOCK(&_PyRuntime);
 }
 
 static PyThread_handle_t *
@@ -302,6 +304,61 @@ _PyThread_AfterFork(struct _pythread_runtime_state *state)
         llist_remove(node);
         remove_from_shutdown_handles(handle);
     }
+}
+
+static void
+_PyThread_AddShutdownHandle(struct llist_node *handles, PyThread_handle_t *handle)
+{
+    llist_insert_tail(handles, &handle->shutdown_node);
+}
+
+static void
+_PyThread_RemoveShutdownHandle(PyThread_handle_t *handle)
+{
+    if (handle->shutdown_node.next != NULL) {
+        llist_remove(&handle->shutdown_node);
+    }
+}
+
+static int _PyThreadHandle_Join(PyThread_handle_t *h, PyTime_t timeout_ns);
+
+static int
+_PyThread_Shutdown(struct llist_node *handles)
+{
+    PyThread_ident_t ident = PyThread_get_thread_ident_ex();
+
+    for (;;) {
+        PyThread_handle_t *handle = NULL;
+
+        // Find a thread that's not yet finished.
+        HEAD_LOCK(&_PyRuntime);
+        struct llist_node *node;
+        llist_for_each_safe(node, handles) {
+            PyThread_handle_t *cur = llist_data(node, PyThread_handle_t, shutdown_node);
+            if (cur->ident != ident) {
+                handle_incref(cur);
+                handle = cur;
+                break;
+            }
+        }
+        HEAD_UNLOCK(&_PyRuntime);
+
+        if (!handle) {
+            // No more threads to wait on!
+            break;
+        }
+
+        // Wait for the thread to finish. If we're interrupted, such
+        // as by a ctrl-c we print the error and exit early.
+        if (_PyThreadHandle_Join(handle, -1) < 0) {
+            PyErr_WriteUnraisable(NULL);
+            _PyThreadHandle_Release(handle);
+            return 0;
+        }
+
+        _PyThreadHandle_Release(handle);
+    }
+    return 1;
 }
 
 // bootstate is used to "bootstrap" new threads. Any arguments needed by
@@ -2302,41 +2359,8 @@ Return True if the current interpreter is the main Python interpreter.");
 static PyObject *
 thread_shutdown(PyObject *self, PyObject *args)
 {
-    PyThread_ident_t ident = PyThread_get_thread_ident_ex();
     thread_module_state *state = get_thread_state(self);
-
-    for (;;) {
-        PyThread_handle_t *handle = NULL;
-
-        // Find a thread that's not yet finished.
-        HEAD_LOCK(&_PyRuntime);
-        struct llist_node *node;
-        llist_for_each_safe(node, &state->shutdown_handles) {
-            PyThread_handle_t *cur = llist_data(node, PyThread_handle_t, shutdown_node);
-            if (cur->ident != ident) {
-                handle_incref(cur);
-                handle = cur;
-                break;
-            }
-        }
-        HEAD_UNLOCK(&_PyRuntime);
-
-        if (!handle) {
-            // No more threads to wait on!
-            break;
-        }
-
-        // Wait for the thread to finish. If we're interrupted, such
-        // as by a ctrl-c we print the error and exit early.
-        if (_PyThreadHandle_Join(handle, -1) < 0) {
-            PyErr_WriteUnraisable(NULL);
-            _PyThreadHandle_Release(handle);
-            Py_RETURN_NONE;
-        }
-
-        _PyThreadHandle_Release(handle);
-    }
-
+    (void)_PyThread_Shutdown(&state->shutdown_handles);
     Py_RETURN_NONE;
 }
 
