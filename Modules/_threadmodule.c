@@ -145,6 +145,12 @@ handle_get_os_handle(PyThread_handle_t *handle, PyThread_os_handle_t *os_handle)
     return has_os_handle;
 }
 
+static int
+_PyThreadHandle_IsExiting(PyThread_handle_t *handle)
+{
+    return _PyEvent_IsSet(&handle->thread_is_exiting);
+}
+
 static void
 add_to_shutdown_handles(thread_module_state *state, PyThread_handle_t *handle)
 {
@@ -199,6 +205,20 @@ _PyThreadHandle_New(void)
     return self;
 }
 
+static PyThread_handle_t *
+_PyThreadHandle_FromIdent(PyThread_ident_t ident)
+{
+    PyThread_handle_t *self = _PyThreadHandle_New();
+    if (self == NULL) {
+        return NULL;
+    }
+    PyMutex_Lock(&self->mutex);
+    self->ident = ident;
+    self->state = THREAD_HANDLE_RUNNING;
+    PyMutex_Unlock(&self->mutex);
+    return self;
+}
+
 static void
 handle_incref(PyThread_handle_t *self)
 {
@@ -217,6 +237,13 @@ _PyThreadHandle_DetachThread(PyThread_handle_t *self)
         return -1;
     }
     return 0;
+}
+
+static PyThread_handle_t *
+_PyThreadHandle_NewRef(PyThread_handle_t *handle)
+{
+    handle_incref(handle);
+    return handle;
 }
 
 // NB: This may be called after the PyThreadState in `thread_run` has been
@@ -569,21 +596,15 @@ typedef struct {
 } PyThreadHandleObject;
 
 static PyThreadHandleObject *
-PyThreadHandleObject_new(PyTypeObject *type)
+PyThreadHandleObject_new(PyTypeObject *type, PyThread_handle_t *handle)
 {
-    PyThread_handle_t *handle = _PyThreadHandle_New();
-    if (handle == NULL) {
-        return NULL;
-    }
-
     PyThreadHandleObject *self =
         (PyThreadHandleObject *)type->tp_alloc(type, 0);
     if (self == NULL) {
-        _PyThreadHandle_Release(handle);
         return NULL;
     }
 
-    self->handle = handle;
+    self->handle = _PyThreadHandle_NewRef(handle);
 
     return self;
 }
@@ -591,7 +612,13 @@ PyThreadHandleObject_new(PyTypeObject *type)
 static PyObject *
 PyThreadHandleObject_tp_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
-    return (PyObject *)PyThreadHandleObject_new(type);
+    PyThread_handle_t *handle = _PyThreadHandle_New();
+    if (handle == NULL) {
+        return NULL;
+    }
+    PyThreadHandleObject *self = PyThreadHandleObject_new(type, handle);
+    _PyThreadHandle_Release(handle);
+    return (PyObject *)self;
 }
 
 static int
@@ -657,7 +684,7 @@ static PyObject *
 PyThreadHandleObject_is_done(PyObject *op, PyObject *Py_UNUSED(ignored))
 {
     PyThreadHandleObject *self = (PyThreadHandleObject*)op;
-    if (_PyEvent_IsSet(&self->handle->thread_is_exiting)) {
+    if (_PyThreadHandle_IsExiting(self->handle)) {
         Py_RETURN_TRUE;
     }
     else {
@@ -1895,7 +1922,13 @@ thread_PyThread_start_joinable_thread(PyObject *module, PyObject *fargs,
     }
 
     if (hobj == Py_None) {
-        hobj = (PyObject *)PyThreadHandleObject_new(state->thread_handle_type);
+        PyThread_handle_t *handle = _PyThreadHandle_New();
+        if (handle == NULL) {
+            return NULL;
+        }
+        hobj = (PyObject *)PyThreadHandleObject_new(
+                                state->thread_handle_type, handle);
+        _PyThreadHandle_Release(handle);
         if (hobj == NULL) {
             return NULL;
         }
@@ -2325,15 +2358,16 @@ thread__make_thread_handle(PyObject *module, PyObject *identobj)
     if (PyErr_Occurred()) {
         return NULL;
     }
+    PyThread_handle_t *handle = _PyThreadHandle_FromIdent(ident);
+    if (handle == NULL) {
+        return NULL;
+    }
     PyThreadHandleObject *hobj =
-        PyThreadHandleObject_new(state->thread_handle_type);
+        PyThreadHandleObject_new(state->thread_handle_type, handle);
+    _PyThreadHandle_Release(handle);
     if (hobj == NULL) {
         return NULL;
     }
-    PyMutex_Lock(&hobj->handle->mutex);
-    hobj->handle->ident = ident;
-    hobj->handle->state = THREAD_HANDLE_RUNNING;
-    PyMutex_Unlock(&hobj->handle->mutex);
     return (PyObject*) hobj;
 }
 
