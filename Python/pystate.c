@@ -634,6 +634,7 @@ init_interpreter(PyInterpreterState *interp,
     // We would call _PyObject_InitState() at this point
     // if interp->feature_flags were alredy set.
 
+    _PyThread_InitState(interp);
     _PyEval_InitState(interp);
     _PyGC_InitState(&interp->gc);
     PyConfig_InitPythonConfig(&interp->config);
@@ -909,8 +910,7 @@ interpreter_clear(PyInterpreterState *interp, PyThreadState *tstate)
     // per-interpreter GC) we must ensure that all of the interpreter's
     // objects have been cleaned up at the point.
 
-    // We could clear interp->threads.freelist here
-    // if it held more than just the initial thread state.
+    _PyThread_FiniState(interp);
 }
 
 

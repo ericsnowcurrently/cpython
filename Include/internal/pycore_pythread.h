@@ -61,6 +61,11 @@ struct pythread_handles {
     PyMutex mutex;
 };
 
+#define INIT_THREAD_HANDLES(handles) \
+    { \
+        .head = LLIST_INIT((handles).head), \
+    }
+
 struct _pythread_runtime_state {
     int initialized;
 
@@ -89,10 +94,12 @@ struct _pythread_runtime_state {
 
 #define _pythread_RUNTIME_INIT(pythread) \
     { \
-        .handles = { \
-            .head = LLIST_INIT(pythread.handles.head), \
-        }, \
+        .handles = INIT_THREAD_HANDLES(pythread.handles), \
     }
+
+
+extern void _PyThread_InitState(PyInterpreterState *);
+extern void _PyThread_FiniState(PyInterpreterState *);
 
 #ifdef HAVE_FORK
 /* Private function to reinitialize a lock at fork in the child process.
@@ -179,9 +186,6 @@ void _Py_NO_RETURN PyThread_hang_thread(void);
 typedef struct pythread_handle PyThread_handle_t;
 typedef struct pythread_handles PyThread_handles_t;
 
-PyAPI_FUNC(PyThread_handles_t *) _PyThreadHandles_New(void);
-PyAPI_FUNC(void) _PyThreadHandles_Free(PyThread_handles_t *);
-
 PyAPI_FUNC(PyThread_handle_t *) _PyThreadHandle_New(void);
 PyAPI_FUNC(PyThread_handle_t *) _PyThreadHandle_FromIdent(PyThread_ident_t);
 PyAPI_FUNC(PyThread_handle_t *) _PyThreadHandle_NewRef(PyThread_handle_t *);
@@ -199,13 +203,7 @@ PyAPI_FUNC(PyThread_ident_t) _PyThreadHandle_GetIdent(PyThread_handle_t *);
 PyAPI_FUNC(int) _PyThreadHandle_IsExiting(PyThread_handle_t *);
 PyAPI_FUNC(int) _PyThreadHandle_SetDone(PyThread_handle_t *);
 
-PyAPI_FUNC(int) _PyThread_Shutdown(PyThread_handles_t *);
-PyAPI_FUNC(void) _PyThread_AddShutdownHandle(
-    PyThread_handles_t *,
-    PyThread_handle_t *);
-PyAPI_FUNC(void) _PyThread_RemoveShutdownHandle(
-    PyThread_handles_t *,
-    PyThread_handle_t *);
+PyAPI_FUNC(int) _PyThread_Shutdown(PyInterpreterState *);
 
 
 #ifdef __cplusplus

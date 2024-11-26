@@ -337,9 +337,10 @@ typedef enum {
 // This must be separately reference counted because it may be destroyed
 // in `thread_run()` after the PyThreadState has been destroyed.
 struct pythread_handle {
-    struct llist_node node;  // linked list node (see _pythread_runtime_state)
+    // linked list node (see _pythread_runtime_state)
+    struct llist_node global_node;
 
-    // linked list node (see thread_module_state)
+    // linked list node (see PyInterpreterState.threads.handles)
     struct llist_node shutdown_node;
 
     int wait_at_shutdown;
@@ -437,6 +438,8 @@ thandle_is_exiting(PyThread_handle_t *handle)
 static inline void
 thandle_set_exiting(PyThread_handle_t *handle)
 {
+    // Don't need to wait for this thread anymore
+    handle->wait_at_shutdown = 0;
     _PyEvent_Notify(&handle->thread_is_exiting);
 }
 
@@ -456,11 +459,20 @@ thandle_force_done(PyThread_handle_t *handle)
     return 0;
 }
 
+static void
+thandle_set_orphaned(PyThread_handle_t *handle)
+{
+    handle->state = THREAD_HANDLE_DONE;
+    handle->once = (_PyOnceFlag){_Py_ONCE_INITIALIZED};
+    handle->mutex = (PyMutex){_Py_UNLOCKED};
+    thandle_set_exiting(handle);
+}
+
 
 /* PyThread_handle_t linked lists */
 
 static inline void
-init_handles(PyThread_handles_t *handles)
+thandles_init(PyThread_handles_t *handles)
 {
     PyMutex_Lock(&handles->mutex);
     llist_init(&handles->head);
@@ -468,7 +480,7 @@ init_handles(PyThread_handles_t *handles)
 }
 
 void
-clear_handles(PyThread_handles_t *handles)
+thandles_clear(PyThread_handles_t *handles)
 {
     PyMutex_Lock(&handles->mutex);
     struct llist_node *node;
@@ -478,54 +490,81 @@ clear_handles(PyThread_handles_t *handles)
     PyMutex_Unlock(&handles->mutex);
 }
 
-static inline void
-add_global_handle(PyThread_handle_t *handle)
+static void
+thandles_reinit(PyThread_ident_t ident)
 {
-    PyThread_handles_t *handles = &_PyRuntime.threads.handles;
-    PyMutex_Lock(&handles->mutex);
-    llist_insert_tail(&handles->head, &handle->node);
-    PyMutex_Unlock(&handles->mutex);
-}
+    // gh-115035: We mark ThreadHandles as not joinable early in the child's
+    // after-fork handler. We do this before calling any Python code to ensure
+    // that it happens before any ThreadHandles are deallocated, such as by a
+    // GC cycle.
 
-static inline void
-remove_global_handle(PyThread_handle_t *handle)
-{
     PyThread_handles_t *handles = &_PyRuntime.threads.handles;
-    PyMutex_Lock(&handles->mutex);
-    if (handle->node.next != NULL) {
-        llist_remove(&handle->node);
+    handles->mutex = (PyMutex){_Py_UNLOCKED};
+    // The current thread is the only one, so we don't need to actually
+    // acquire the lock.
+
+    struct llist_node *node;
+    llist_for_each_safe(node, &handles->head) {
+        PyThread_handle_t *handle = llist_data(
+                                node, PyThread_handle_t, global_node);
+        if (handle->ident == ident) {
+            continue;
+        }
+
+        // Mark all threads as done. Any attempts to join or detach the
+        // underlying OS thread (if any) could crash. We are the only thread;
+        // it's safe to set this non-atomically.
+        thandle_set_orphaned(handle);
+        llist_remove(node);
     }
-    PyMutex_Unlock(&handles->mutex);
 }
 
 static inline void
-add_shutdown_handle(PyThread_handles_t *handles, PyThread_handle_t *handle)
+thandles_add(PyInterpreterState *interp, PyThread_handle_t *handle)
 {
+    PyThread_handles_t *handles = &interp->threads.handles;
     PyMutex_Lock(&handles->mutex);
     llist_insert_tail(&handles->head, &handle->shutdown_node);
     PyMutex_Unlock(&handles->mutex);
+
+    handles = &_PyRuntime.threads.handles;
+    PyMutex_Lock(&handles->mutex);
+    llist_insert_tail(&handles->head, &handle->global_node);
+    PyMutex_Unlock(&handles->mutex);
 }
 
 static inline void
-remove_shutdown_handle(PyThread_handles_t *handles, PyThread_handle_t *handle)
+thandles_remove(PyInterpreterState *interp, PyThread_handle_t *handle)
 {
+    PyThread_handles_t *handles = &interp->threads.handles;
     PyMutex_Lock(&handles->mutex);
     if (handle->shutdown_node.next != NULL) {
         llist_remove(&handle->shutdown_node);
     }
-    handle->wait_at_shutdown = 0;
+    PyMutex_Unlock(&handles->mutex);
+
+    handles = &_PyRuntime.threads.handles;
+    PyMutex_Lock(&handles->mutex);
+    if (handle->global_node.next != NULL) {
+        llist_remove(&handle->global_node);
+    }
     PyMutex_Unlock(&handles->mutex);
 }
 
 static PyThread_handle_t *
-next_other_shutdown_handle(PyThread_handles_t *handles, PyThread_ident_t ident)
+next_other_shutdown_handle(PyInterpreterState *interp,
+                           PyThread_ident_t ident)
 {
+    PyThread_handles_t *handles = &interp->threads.handles;
     PyThread_handle_t *handle = NULL;
 
     PyMutex_Lock(&handles->mutex);
     struct llist_node *node;
     llist_for_each_safe(node, &handles->head) {
         PyThread_handle_t *cur = llist_data(node, PyThread_handle_t, shutdown_node);
+        if (!cur->wait_at_shutdown) {
+            continue;
+        }
         if (cur->ident != ident) {
             thandle_incref(cur);
             handle = cur;
@@ -552,7 +591,16 @@ struct bootstate {
     PyEvent handle_ready;
 };
 
-static void thandle_release(PyThread_handle_t *);
+static inline PyInterpreterState *
+bootstate_interp(struct bootstate *boot)
+{
+    if (boot->tstate == NULL) {
+        return NULL;
+    }
+    return boot->tstate->interp;
+}
+
+static void thandle_release(PyThread_handle_t *, PyInterpreterState *);
 
 static void
 thread_bootstate_free(struct bootstate *boot, int decref)
@@ -562,7 +610,7 @@ thread_bootstate_free(struct bootstate *boot, int decref)
         Py_DECREF(boot->args);
         Py_XDECREF(boot->kwargs);
     }
-    thandle_release(boot->handle);
+    thandle_release(boot->handle, bootstate_interp(boot));
     PyMem_RawFree(boot);
 }
 
@@ -571,6 +619,7 @@ thread_run(void *boot_raw)
 {
     struct bootstate *boot = (struct bootstate *) boot_raw;
     PyThreadState *tstate = boot->tstate;
+    PyInterpreterState *interp = tstate->interp;
 
     // Wait until the handle is marked as running
     PyEvent_Wait(&boot->handle_ready);
@@ -594,13 +643,16 @@ thread_run(void *boot_raw)
         //
         // Py_DECREF() cannot be called because the GIL is not held: leak
         // references on purpose. Python is being finalized anyway.
+        interp = NULL;
+        boot->tstate = NULL;
         thread_bootstate_free(boot, 0);
+        boot = NULL;
         goto exit;
     }
 
     _PyThreadState_Bind(tstate);
     PyEval_AcquireThread(tstate);
-    _Py_atomic_add_ssize(&tstate->interp->threads.count, 1);
+    _Py_atomic_add_ssize(&interp->threads.count, 1);
 
     PyObject *res = PyObject_Call(boot->func, boot->args, boot->kwargs);
     if (res == NULL) {
@@ -618,17 +670,13 @@ thread_run(void *boot_raw)
 
     thread_bootstate_free(boot, 1);
 
-    _Py_atomic_add_ssize(&tstate->interp->threads.count, -1);
+    _Py_atomic_add_ssize(&interp->threads.count, -1);
     PyThreadState_Clear(tstate);
     _PyThreadState_DeleteCurrent(tstate);
 
 exit:
-    // Don't need to wait for this thread anymore
-    // XXX Passing NULL isn't right.
-    remove_shutdown_handle(NULL, handle);
-
     thandle_set_exiting(handle);
-    thandle_release(handle);
+    thandle_release(handle, interp);
 
     // bpo-44434: Don't call explicitly PyThread_exit_thread(). On Linux with
     // the glibc, pthread_exit() can abort the whole process if dlopen() fails
@@ -718,13 +766,13 @@ thandle_detach_thread(PyThread_handle_t *self)
 // deleted; it cannot call anything that relies on a valid PyThreadState
 // existing.
 static void
-thandle_release(PyThread_handle_t *self)
+thandle_release(PyThread_handle_t *self, PyInterpreterState *interp)
 {
     if (thandle_decref(self) > 0) {
         return;
     }
 
-    remove_global_handle(self);
+    thandles_remove(interp, self);
 
     assert(self->shutdown_node.next == NULL);
 
@@ -756,7 +804,8 @@ _PyThreadHandle_New(void)
         .refcount = 1,
     };
 
-    add_global_handle(self);
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    thandles_add(interp, self);
 
     return self;
 }
@@ -785,7 +834,8 @@ _PyThreadHandle_NewRef(PyThread_handle_t *handle)
 void
 _PyThreadHandle_Release(PyThread_handle_t *self)
 {
-    thandle_release(self);
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    thandle_release(self, interp);
 }
 
 PyThread_ident_t
@@ -794,79 +844,10 @@ _PyThreadHandle_GetIdent(PyThread_handle_t *handle)
     return thandle_get_ident(handle);
 }
 
-PyThread_handles_t *
-_PyThreadHandles_New(void)
-{
-    PyThread_handles_t *handles = PyMem_RawMalloc(sizeof(PyThread_handles_t));
-    if (handles == NULL) {
-        PyErr_NoMemory();
-        return NULL;
-    }
-    *handles = (PyThread_handles_t){0};
-    init_handles(handles);
-    return handles;
-}
-
-void
-_PyThreadHandles_Free(PyThread_handles_t *handles)
-{
-    clear_handles(handles);
-    PyMem_RawFree(handles);
-}
-
-void
-_PyThread_AddShutdownHandle(PyThread_handles_t *handles,
-                            PyThread_handle_t *handle)
-{
-    add_shutdown_handle(handles, handle);
-}
-
-void
-_PyThread_RemoveShutdownHandle(PyThread_handles_t *handles,
-                               PyThread_handle_t *handle)
-{
-    remove_shutdown_handle(handles, handle);
-}
-
 int
 _PyThreadHandle_IsExiting(PyThread_handle_t *handle)
 {
     return thandle_is_exiting(handle);
-}
-
-void
-_PyThread_AfterFork(struct _pythread_runtime_state *state)
-{
-    // gh-115035: We mark ThreadHandles as not joinable early in the child's
-    // after-fork handler. We do this before calling any Python code to ensure
-    // that it happens before any ThreadHandles are deallocated, such as by a
-    // GC cycle.
-    PyThread_ident_t current = PyThread_get_thread_ident_ex();
-
-    PyThread_handles_t *handles = &state->handles;
-
-    handles->mutex = (PyMutex){_Py_UNLOCKED};
-    // The current thread is the only one, so we don't need to actually
-    // acquire the lock.
-
-    struct llist_node *node;
-    llist_for_each_safe(node, &handles->head) {
-        PyThread_handle_t *handle = llist_data(node, PyThread_handle_t, node);
-        if (handle->ident == current) {
-            continue;
-        }
-
-        // Mark all threads as done. Any attempts to join or detach the
-        // underlying OS thread (if any) could crash. We are the only thread;
-        // it's safe to set this non-atomically.
-        handle->state = THREAD_HANDLE_DONE;
-        handle->once = (_PyOnceFlag){_Py_ONCE_INITIALIZED};
-        handle->mutex = (PyMutex){_Py_UNLOCKED};
-        thandle_set_exiting(handle);
-        llist_remove(node);
-        // XXX NULL isn't right.
-        remove_shutdown_handle(NULL, handle);
-    }
 }
 
 int
@@ -1019,12 +1000,12 @@ _PyThreadHandle_SetDone(PyThread_handle_t *self)
 }
 
 int
-_PyThread_Shutdown(PyThread_handles_t *handles)
+_PyThread_Shutdown(PyInterpreterState *interp)
 {
     PyThread_ident_t ident = PyThread_get_thread_ident_ex();
 
     for (;;) {
-        PyThread_handle_t *handle = next_other_shutdown_handle(handles, ident);
+        PyThread_handle_t *handle = next_other_shutdown_handle(interp, ident);
         if (!handle) {
             // No more threads to wait on!
             break;
@@ -1041,4 +1022,29 @@ _PyThread_Shutdown(PyThread_handles_t *handles)
         _PyThreadHandle_Release(handle);
     }
     return 1;
+}
+
+
+/* other API */
+
+void
+_PyThread_InitState(PyInterpreterState *interp)
+{
+    thandles_init(&interp->threads.handles);
+}
+
+void
+_PyThread_FiniState(PyInterpreterState *interp)
+{
+    // Remove any remaining handles (e.g. if shutdown exited early due to
+    // interrupt) so that attempts to unlink the handle after our module state
+    // is destroyed do not crash.
+    thandles_clear(&interp->threads.handles);
+}
+
+void
+_PyThread_AfterFork(struct _pythread_runtime_state *state)
+{
+    PyThread_ident_t ident = PyThread_get_thread_ident_ex();
+    thandles_reinit(ident);
 }

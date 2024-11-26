@@ -31,10 +31,6 @@ typedef struct {
     PyTypeObject *local_type;
     PyTypeObject *local_dummy_type;
     PyTypeObject *thread_handle_type;
-
-    // Set of handles to all non-daemon threads created by the
-    // threading module. We wait for these to finish at shutdown.
-    PyThread_handles_t *shutdown_handles;
 } thread_module_state;
 
 static inline thread_module_state*
@@ -43,35 +39,6 @@ get_thread_state(PyObject *module)
     void *state = _PyModule_GetState(module);
     assert(state != NULL);
     return (thread_module_state *)state;
-}
-
-static void
-init_shutdown_handles(thread_module_state *state)
-{
-    state->shutdown_handles = _PyThreadHandles_New();
-}
-
-static inline void
-clear_shutdown_handles(thread_module_state *state)
-{
-    if (state->shutdown_handles == NULL) {
-        return;
-    }
-    _PyThreadHandles_Free(state->shutdown_handles);
-    state->shutdown_handles = NULL;
-}
-
-static inline void
-add_to_shutdown_handles(thread_module_state *state, PyThread_handle_t *handle)
-{
-    _PyThread_AddShutdownHandle(state->shutdown_handles, handle);
-}
-
-static inline void
-remove_from_shutdown_handles(thread_module_state *state,
-                             PyThread_handle_t *handle)
-{
-    _PyThread_RemoveShutdownHandle(state->shutdown_handles, handle);
 }
 
 
@@ -1276,34 +1243,10 @@ PyDoc_STRVAR(daemon_threads_allowed_doc,
 Return True if daemon threads are allowed in the current interpreter,\n\
 and False otherwise.\n");
 
-static int
-do_start_new_thread(thread_module_state *state, PyObject *func, PyObject *args,
-                    PyObject *kwargs, PyThread_handle_t *handle,
-                    int wait_at_shutdown)
-{
-    if (wait_at_shutdown) {
-        // Add the handle before starting the thread to avoid adding a handle
-        // to a thread that has already finished (i.e. if the thread finishes
-        // before the call to `ThreadHandle_start()` below returns).
-        add_to_shutdown_handles(state, handle);
-    }
-
-    int st = _PyThreadHandle_Start(handle, wait_at_shutdown,
-                                   func, args, kwargs);
-    if (st < 0) {
-        if (wait_at_shutdown) {
-            remove_from_shutdown_handles(state, handle);
-        }
-        return -1;
-    }
-    return 0;
-}
-
 static PyObject *
 thread_PyThread_start_new_thread(PyObject *module, PyObject *fargs)
 {
     PyObject *func, *args, *kwargs = NULL;
-    thread_module_state *state = get_thread_state(module);
 
     if (!PyArg_UnpackTuple(fargs, "start_new_thread", 2, 3,
                            &func, &args, &kwargs))
@@ -1336,7 +1279,7 @@ thread_PyThread_start_new_thread(PyObject *module, PyObject *fargs)
 
     int wait_at_shutdown = 0;
     int st =
-        do_start_new_thread(state, func, args, kwargs, handle, wait_at_shutdown);
+        _PyThreadHandle_Start(handle, wait_at_shutdown, func, args, kwargs);
     if (st < 0) {
         _PyThreadHandle_Release(handle);
         return NULL;
@@ -1429,8 +1372,8 @@ thread_PyThread_start_joinable_thread(PyObject *module, PyObject *fargs,
         return NULL;
     }
     int wait_at_shutdown = !daemon;
-    int st = do_start_new_thread(state, func, args, /*kwargs=*/ NULL, handle,
-                                 wait_at_shutdown);
+    int st = _PyThreadHandle_Start(handle, wait_at_shutdown,
+                                   func, args, /*kwargs=*/ NULL);
     Py_DECREF(args);
     if (st < 0) {
         Py_DECREF(hobj);
@@ -1790,8 +1733,8 @@ Return True if the current interpreter is the main Python interpreter.");
 static PyObject *
 thread_shutdown(PyObject *self, PyObject *args)
 {
-    thread_module_state *state = get_thread_state(self);
-    (void)_PyThread_Shutdown(state->shutdown_handles);
+    PyInterpreterState *interp = PyInterpreterState_Get();
+    (void)_PyThread_Shutdown(interp);
     Py_RETURN_NONE;
 }
 
@@ -1974,8 +1917,6 @@ thread_module_exec(PyObject *module)
         return -1;
     }
 
-    init_shutdown_handles(state);
-
     return 0;
 }
 
@@ -2001,10 +1942,6 @@ thread_module_clear(PyObject *module)
     Py_CLEAR(state->local_type);
     Py_CLEAR(state->local_dummy_type);
     Py_CLEAR(state->thread_handle_type);
-    // Remove any remaining handles (e.g. if shutdown exited early due to
-    // interrupt) so that attempts to unlink the handle after our module state
-    // is destroyed do not crash.
-    clear_shutdown_handles(state);
     return 0;
 }
 

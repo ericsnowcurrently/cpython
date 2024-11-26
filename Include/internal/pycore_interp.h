@@ -140,6 +140,9 @@ struct _is {
            or the size specified by the THREAD_STACK_SIZE macro. */
         /* Used in Python/thread.c. */
         size_t stacksize;
+        // Set of handles to all threads started by the runtime.
+        // We wait for these to finish at shutdown.
+        struct pythread_handles handles;
     } threads;
 
     /* Reference to the _PyRuntime global variable. This field exists
