@@ -513,6 +513,7 @@ remove_shutdown_handle(PyThread_handles_t *handles, PyThread_handle_t *handle)
     if (handle->shutdown_node.next != NULL) {
         llist_remove(&handle->shutdown_node);
     }
+    handle->wait_at_shutdown = 0;
     PyMutex_Unlock(&handles->mutex);
 }
 
@@ -639,7 +640,8 @@ exit:
 /* OS thread operations for handles */
 
 static int
-thandle_start(PyThread_handle_t *self, struct bootstate *boot)
+thandle_start(PyThread_handle_t *self, int wait_at_shutdown,
+              struct bootstate *boot)
 {
     assert(boot->handle == self);
 
@@ -650,6 +652,7 @@ thandle_start(PyThread_handle_t *self, struct bootstate *boot)
         PyErr_SetString(ThreadError, "thread already started");
         return -1;
     }
+    self->wait_at_shutdown = wait_at_shutdown;
     self->state = THREAD_HANDLE_STARTING;
     PyMutex_Unlock(&self->mutex);
 
@@ -740,7 +743,7 @@ thandle_release(PyThread_handle_t *self)
 /* PyThread_handle_t API functions */
 
 PyThread_handle_t *
-_PyThreadHandle_New(int wait_at_shutdown)
+_PyThreadHandle_New(void)
 {
     PyThread_handle_t *self =
         (PyThread_handle_t *)PyMem_RawCalloc(1, sizeof(PyThread_handle_t));
@@ -749,7 +752,6 @@ _PyThreadHandle_New(int wait_at_shutdown)
         return NULL;
     }
     *self = (PyThread_handle_t){
-        .wait_at_shutdown = wait_at_shutdown,
         .state = THREAD_HANDLE_NOT_STARTED,
         .refcount = 1,
     };
@@ -762,7 +764,7 @@ _PyThreadHandle_New(int wait_at_shutdown)
 PyThread_handle_t *
 _PyThreadHandle_FromIdent(PyThread_ident_t ident)
 {
-    PyThread_handle_t *self = _PyThreadHandle_New(0);
+    PyThread_handle_t *self = _PyThreadHandle_New();
     if (self == NULL) {
         return NULL;
     }
@@ -784,19 +786,6 @@ void
 _PyThreadHandle_Release(PyThread_handle_t *self)
 {
     thandle_release(self);
-}
-
-int
-_PyThreadHandle_GetWaitAtShutdown(PyThread_handle_t *handle)
-{
-    return handle->wait_at_shutdown;
-}
-
-void
-_PyThreadHandle_SetWaitAtShutdown(PyThread_handle_t *handle,
-                                  int wait_at_shutdown)
-{
-    handle->wait_at_shutdown = wait_at_shutdown;
 }
 
 PyThread_ident_t
@@ -881,8 +870,8 @@ _PyThread_AfterFork(struct _pythread_runtime_state *state)
 }
 
 int
-_PyThreadHandle_Start(PyThread_handle_t *handle,
-                        PyObject *func, PyObject *args, PyObject *kwargs)
+_PyThreadHandle_Start(PyThread_handle_t *handle, int wait_at_shutdown,
+                      PyObject *func, PyObject *args, PyObject *kwargs)
 {
     PyInterpreterState *interp = _PyInterpreterState_GET();
     if (!_PyInterpreterState_HasFeature(interp, Py_RTFLAGS_THREADS)) {
@@ -924,7 +913,7 @@ _PyThreadHandle_Start(PyThread_handle_t *handle,
         .handle_ready = (PyEvent){0},
     };
 
-    if (thandle_start(handle, boot) < 0) {
+    if (thandle_start(handle, wait_at_shutdown, boot) < 0) {
         PyThreadState_Clear(boot->tstate);
         PyThreadState_Delete(boot->tstate);
         thread_bootstate_free(boot, 1);

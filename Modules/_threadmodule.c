@@ -99,15 +99,7 @@ PyThreadHandleObject_new(PyTypeObject *type, PyThread_handle_t *handle)
 static PyObject *
 PyThreadHandleObject_tp_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
-    static char *keywords[] = {"wait_at_shutdown", NULL};
-    int wait_at_shutdown = 0;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds,
-                                     "$p:ThreadHandle.__new__", keywords,
-                                     &wait_at_shutdown)) {
-        return NULL;
-    }
-
-    PyThread_handle_t *handle = _PyThreadHandle_New(wait_at_shutdown);
+    PyThread_handle_t *handle = _PyThreadHandle_New();
     if (handle == NULL) {
         return NULL;
     }
@@ -149,27 +141,6 @@ PyThreadHandleObject_get_ident(PyObject *op, void *Py_UNUSED(ignored))
 {
     PyThreadHandleObject *self = (PyThreadHandleObject*)op;
     return PyLong_FromUnsignedLongLong(_PyThreadHandle_GetIdent(self->handle));
-}
-
-static PyObject *
-PyThreadHandleObject_get_wait_at_shutdown(PyObject *op,
-                                          void *Py_UNUSED(ignored))
-{
-    PyThreadHandleObject *self = (PyThreadHandleObject*)op;
-    return PyBool_FromLong(_PyThreadHandle_GetWaitAtShutdown(self->handle));
-}
-
-static int
-PyThreadHandleObject_set_wait_at_shutdown(PyObject *op, PyObject *value,
-                                          void *Py_UNUSED(ignored))
-{
-    int wait_at_shutdown = PyObject_IsTrue(value);
-    if (wait_at_shutdown < 0) {
-        return -1;
-    }
-    PyThreadHandleObject *self = (PyThreadHandleObject*)op;
-    _PyThreadHandle_SetWaitAtShutdown(self->handle, wait_at_shutdown);
-    return 0;
 }
 
 static PyObject *
@@ -220,9 +191,6 @@ PyThreadHandleObject_set_done(PyObject *op, PyObject *Py_UNUSED(ignored))
 
 static PyGetSetDef ThreadHandle_getsetlist[] = {
     {"ident", PyThreadHandleObject_get_ident, NULL, NULL},
-    {"wait_at_shutdown", PyThreadHandleObject_get_wait_at_shutdown,
-                         PyThreadHandleObject_set_wait_at_shutdown,
-                         NULL},
     {0},
 };
 
@@ -1310,9 +1278,9 @@ and False otherwise.\n");
 
 static int
 do_start_new_thread(thread_module_state *state, PyObject *func, PyObject *args,
-                    PyObject *kwargs, PyThread_handle_t *handle)
+                    PyObject *kwargs, PyThread_handle_t *handle,
+                    int wait_at_shutdown)
 {
-    int wait_at_shutdown = _PyThreadHandle_GetWaitAtShutdown(handle);
     if (wait_at_shutdown) {
         // Add the handle before starting the thread to avoid adding a handle
         // to a thread that has already finished (i.e. if the thread finishes
@@ -1320,7 +1288,8 @@ do_start_new_thread(thread_module_state *state, PyObject *func, PyObject *args,
         add_to_shutdown_handles(state, handle);
     }
 
-    int st = _PyThreadHandle_Start(handle, func, args, kwargs);
+    int st = _PyThreadHandle_Start(handle, wait_at_shutdown,
+                                   func, args, kwargs);
     if (st < 0) {
         if (wait_at_shutdown) {
             remove_from_shutdown_handles(state, handle);
@@ -1360,12 +1329,15 @@ thread_PyThread_start_new_thread(PyObject *module, PyObject *fargs)
         return NULL;
     }
 
-    PyThread_handle_t *handle = _PyThreadHandle_New(/*wait_at_shutdown=*/0);
+    PyThread_handle_t *handle = _PyThreadHandle_New();
     if (handle == NULL) {
         return NULL;
     }
 
-    if (do_start_new_thread(state, func, args, kwargs, handle) < 0) {
+    int wait_at_shutdown = 0;
+    int st =
+        do_start_new_thread(state, func, args, kwargs, handle, wait_at_shutdown);
+    if (st < 0) {
         _PyThreadHandle_Release(handle);
         return NULL;
     }
@@ -1399,7 +1371,7 @@ thread_PyThread_start_joinable_thread(PyObject *module, PyObject *fargs,
 {
     static char *keywords[] = {"function", "handle", "daemon", NULL};
     PyObject *func = NULL;
-    int daemon = -1;
+    int daemon = 1;
     thread_module_state *state = get_thread_state(module);
     PyObject *hobj_arg = NULL;
     if (!PyArg_ParseTupleAndKeywords(fargs, fkwargs,
@@ -1412,16 +1384,6 @@ thread_PyThread_start_joinable_thread(PyObject *module, PyObject *fargs,
         PyErr_SetString(PyExc_TypeError,
                         "thread function must be callable");
         return NULL;
-    }
-
-    int wait_at_shutdown = -1;
-    if (daemon >= 0) {
-        const char *msg = "\"daemon\" is deprecated, "
-                          "set\"wait_at_shutdown\" on the handle instead";
-        if (PyErr_WarnEx(PyExc_DeprecationWarning, msg, 1) < 0) {
-            return NULL;
-        }
-        wait_at_shutdown = !daemon;
     }
 
     if (hobj_arg == NULL) {
@@ -1443,20 +1405,11 @@ thread_PyThread_start_joinable_thread(PyObject *module, PyObject *fargs,
     if (hobj_arg != Py_None) {
         hobj = (PyThreadHandleObject*)hobj_arg;
         assert(hobj->handle != NULL);
-        if (wait_at_shutdown >= 0) {
-            int actual = _PyThreadHandle_GetWaitAtShutdown(hobj->handle);
-            if (actual != wait_at_shutdown) {
-                 hobj = NULL;
-            }
-        }
     }
 
     PyThread_handle_t *handle;
     if (hobj == NULL) {
-        if (wait_at_shutdown < 0) {
-            wait_at_shutdown = 0;
-        }
-        handle = _PyThreadHandle_New(wait_at_shutdown);
+        handle = _PyThreadHandle_New();
         if (handle == NULL) {
             return NULL;
         }
@@ -1475,13 +1428,15 @@ thread_PyThread_start_joinable_thread(PyObject *module, PyObject *fargs,
         Py_DECREF(hobj);
         return NULL;
     }
-    int st = do_start_new_thread(state, func, args, /*kwargs=*/ NULL, handle);
+    int wait_at_shutdown = !daemon;
+    int st = do_start_new_thread(state, func, args, /*kwargs=*/ NULL, handle,
+                                 wait_at_shutdown);
     Py_DECREF(args);
     if (st < 0) {
         Py_DECREF(hobj);
         return NULL;
     }
-    return (PyObject *)hobj;
+    return (PyObject *) hobj;
 }
 
 PyDoc_STRVAR(start_joinable_doc,
