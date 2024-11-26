@@ -342,6 +342,7 @@ struct pythread_handle {
     // linked list node (see thread_module_state)
     struct llist_node shutdown_node;
 
+    int wait_at_shutdown;
     // The `ident`, `os_handle`, `has_os_handle`, and `state` fields are
     // protected by `mutex`.
     PyThread_ident_t ident;
@@ -739,7 +740,7 @@ thandle_release(PyThread_handle_t *self)
 /* PyThread_handle_t API functions */
 
 PyThread_handle_t *
-_PyThreadHandle_New(void)
+_PyThreadHandle_New(int wait_at_shutdown)
 {
     PyThread_handle_t *self =
         (PyThread_handle_t *)PyMem_RawCalloc(1, sizeof(PyThread_handle_t));
@@ -748,6 +749,7 @@ _PyThreadHandle_New(void)
         return NULL;
     }
     *self = (PyThread_handle_t){
+        .wait_at_shutdown = wait_at_shutdown,
         .state = THREAD_HANDLE_NOT_STARTED,
         .refcount = 1,
     };
@@ -760,7 +762,7 @@ _PyThreadHandle_New(void)
 PyThread_handle_t *
 _PyThreadHandle_FromIdent(PyThread_ident_t ident)
 {
-    PyThread_handle_t *self = _PyThreadHandle_New();
+    PyThread_handle_t *self = _PyThreadHandle_New(0);
     if (self == NULL) {
         return NULL;
     }
@@ -782,6 +784,19 @@ void
 _PyThreadHandle_Release(PyThread_handle_t *self)
 {
     thandle_release(self);
+}
+
+int
+_PyThreadHandle_GetWaitAtShutdown(PyThread_handle_t *handle)
+{
+    return handle->wait_at_shutdown;
+}
+
+void
+_PyThreadHandle_SetWaitAtShutdown(PyThread_handle_t *handle,
+                                  int wait_at_shutdown)
+{
+    handle->wait_at_shutdown = wait_at_shutdown;
 }
 
 PyThread_ident_t

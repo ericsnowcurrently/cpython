@@ -58,6 +58,7 @@ struct py_stub_tls_entry {
 
 struct pythread_handles {
     struct llist_node head;
+    size_t count;
     PyMutex mutex;
 };
 
@@ -182,7 +183,7 @@ typedef struct pythread_handles PyThread_handles_t;
 PyAPI_FUNC(PyThread_handles_t *) _PyThreadHandles_New(void);
 PyAPI_FUNC(void) _PyThreadHandles_Free(PyThread_handles_t *);
 
-PyAPI_FUNC(PyThread_handle_t *) _PyThreadHandle_New(void);
+PyAPI_FUNC(PyThread_handle_t *) _PyThreadHandle_New(int);
 PyAPI_FUNC(PyThread_handle_t *) _PyThreadHandle_FromIdent(PyThread_ident_t);
 PyAPI_FUNC(PyThread_handle_t *) _PyThreadHandle_NewRef(PyThread_handle_t *);
 PyAPI_FUNC(void) _PyThreadHandle_Release(PyThread_handle_t *);
@@ -194,6 +195,8 @@ PyAPI_FUNC(int) _PyThreadHandle_Start(
     PyObject *kwargs);
 PyAPI_FUNC(int) _PyThreadHandle_Join(PyThread_handle_t *h, PyTime_t timeout_ns);
 
+PyAPI_FUNC(int) _PyThreadHandle_GetWaitAtShutdown(PyThread_handle_t *);
+PyAPI_FUNC(void) _PyThreadHandle_SetWaitAtShutdown(PyThread_handle_t *, int);
 PyAPI_FUNC(PyThread_ident_t) _PyThreadHandle_GetIdent(PyThread_handle_t *);
 PyAPI_FUNC(int) _PyThreadHandle_IsExiting(PyThread_handle_t *);
 PyAPI_FUNC(int) _PyThreadHandle_SetDone(PyThread_handle_t *);

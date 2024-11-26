@@ -916,7 +916,9 @@ class Thread:
         self._ident = None
         if _HAVE_THREAD_NATIVE_ID:
             self._native_id = None
-        self._handle = _ThreadHandle()
+        self._handle = _ThreadHandle(
+            wait_at_shutdown=not self._daemonic,
+        )
         self._started = Event()
         self._initialized = True
         # Copy of sys.stderr used by self._invoke_excepthook()
@@ -970,8 +972,7 @@ class Thread:
             _limbo[self] = self
         try:
             # Start joinable thread
-            _start_joinable_thread(self._bootstrap, handle=self._handle,
-                                   daemon=self.daemon)
+            _start_joinable_thread(self._bootstrap, handle=self._handle)
         except Exception:
             with _active_limbo_lock:
                 del _limbo[self]
@@ -1165,6 +1166,7 @@ class Thread:
             raise RuntimeError('daemon threads are disabled in this interpreter')
         if self._started.is_set():
             raise RuntimeError("cannot set daemon status of active thread")
+        self._handle.wait_at_shutdown = not daemonic
         self._daemonic = daemonic
 
     def isDaemon(self):
