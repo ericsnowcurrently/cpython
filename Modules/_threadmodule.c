@@ -464,8 +464,8 @@ handle_force_done(PyThread_handle_t *handle)
 }
 
 static int
-_PyThreadHandle_Start(PyThread_handle_t *self, PyObject *func, PyObject *args,
-                   PyObject *kwargs)
+handle_start(PyThread_handle_t *self,
+             PyObject *func, PyObject *args, PyObject *kwargs)
 {
     // Mark the handle as starting to prevent any other threads from doing so
     PyMutex_Lock(&self->mutex);
@@ -644,6 +644,30 @@ _PyThreadHandle_SetDone(PyThread_handle_t *self)
     assert(handle_get_state(self) == THREAD_HANDLE_DONE);
     return 0;
 }
+
+int
+_PyThreadHandle_Start(PyThread_handle_t *handle,
+                        PyObject *func, PyObject *args, PyObject *kwargs)
+{
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    if (!_PyInterpreterState_HasFeature(interp, Py_RTFLAGS_THREADS)) {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "thread is not supported for isolated subinterpreters");
+        return -1;
+    }
+    if (_PyInterpreterState_GetFinalizing(interp) != NULL) {
+        PyErr_SetString(PyExc_PythonFinalizationError,
+                        "can't create new thread at interpreter shutdown");
+        return -1;
+    }
+
+    if (handle_start(handle, func, args, kwargs) < 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
 
 // A wrapper around a PyThread_handle_t.
 typedef struct {
@@ -1850,32 +1874,20 @@ static int
 do_start_new_thread(thread_module_state *state, PyObject *func, PyObject *args,
                     PyObject *kwargs, PyThread_handle_t *handle, int daemon)
 {
-    PyInterpreterState *interp = _PyInterpreterState_GET();
-    if (!_PyInterpreterState_HasFeature(interp, Py_RTFLAGS_THREADS)) {
-        PyErr_SetString(PyExc_RuntimeError,
-                        "thread is not supported for isolated subinterpreters");
-        return -1;
-    }
-    if (_PyInterpreterState_GetFinalizing(interp) != NULL) {
-        PyErr_SetString(PyExc_PythonFinalizationError,
-                        "can't create new thread at interpreter shutdown");
-        return -1;
-    }
-
     if (!daemon) {
         // Add the handle before starting the thread to avoid adding a handle
         // to a thread that has already finished (i.e. if the thread finishes
-        // before the call to `_PyThreadHandle_Start()` below returns).
+        // before the call to `ThreadHandle_start()` below returns).
         add_to_shutdown_handles(state, handle);
     }
 
-    if (_PyThreadHandle_Start(handle, func, args, kwargs) < 0) {
-        if (!daemon) {
-            remove_from_shutdown_handles(handle);
+    int st = _PyThreadHandle_Start(handle, func, args, kwargs);
+    if (st < 0) {
+       if (!daemon) {
+           remove_from_shutdown_handles(handle);
         }
-        return -1;
+       return -1;
     }
-
     return 0;
 }
 
