@@ -47,6 +47,11 @@ config_sys_flag_not(int value)
 /* --- PyConfig spec ---------------------------------------------- */
 
 typedef enum {
+    PyConfig_KIND_PYCONFIG = 0,
+    PyConfig_KIND_PYPRECONFIG = 1,
+} PyConfigKind;
+
+typedef enum {
     PyConfig_MEMBER_INT = 0,
     PyConfig_MEMBER_UINT = 1,
     PyConfig_MEMBER_ULONG = 2,
@@ -75,6 +80,7 @@ typedef struct {
 } PyConfigSysSpec;
 
 typedef struct {
+    PyConfigKind kind;
     const char *name;
     size_t offset;
     PyConfigMemberType type;
@@ -83,7 +89,7 @@ typedef struct {
 } PyConfigSpec;
 
 #define SPEC(MEMBER, TYPE, VISIBILITY, sys) \
-    {#MEMBER, offsetof(PyConfig, MEMBER), \
+    {PyConfig_KIND_PYCONFIG, #MEMBER, offsetof(PyConfig, MEMBER), \
      PyConfig_MEMBER_##TYPE, PyConfig_MEMBER_##VISIBILITY, sys}
 
 #define SYS_ATTR(name) {name, -1, NULL}
@@ -182,13 +188,13 @@ static const PyConfigSpec PYCONFIG_SPEC[] = {
     SPEC(sys_path_0, WSTR_OPT, INIT_ONLY, NO_SYS),
 
     // Array terminator
-    {NULL, 0, 0, 0, NO_SYS},
+    {0, NULL, 0, 0, 0, NO_SYS},
 };
 
 #undef SPEC
 #define SPEC(MEMBER, TYPE, VISIBILITY) \
-    {#MEMBER, offsetof(PyPreConfig, MEMBER), PyConfig_MEMBER_##TYPE, \
-     PyConfig_MEMBER_##VISIBILITY, NO_SYS}
+    {PyConfig_KIND_PYPRECONFIG, #MEMBER, offsetof(PyPreConfig, MEMBER), \
+     PyConfig_MEMBER_##TYPE, PyConfig_MEMBER_##VISIBILITY, NO_SYS}
 
 static const PyConfigSpec PYPRECONFIG_SPEC[] = {
     // --- Read-only options -----------
@@ -212,7 +218,7 @@ static const PyConfigSpec PYPRECONFIG_SPEC[] = {
     SPEC(use_environment, BOOL, INIT_ONLY),
 
     // Array terminator
-    {NULL, 0, 0, 0, NO_SYS},
+    {0, NULL, 0, 0, 0, NO_SYS},
 };
 
 #undef SPEC
