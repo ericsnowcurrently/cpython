@@ -1053,6 +1053,19 @@ PyConfig_InitIsolatedConfig(PyConfig *config)
 #endif
 }
 
+PyConfig *
+_PyConfig_New(void)
+{
+    return (PyConfig *)PyMem_RawMalloc(sizeof(PyConfig));
+}
+
+void
+_PyConfig_Free(PyConfig *config)
+{
+    PyConfig_Clear(config);
+    PyMem_RawFree(config);
+}
+
 
 /* Copy str into *config_str (duplicate the string) */
 PyStatus

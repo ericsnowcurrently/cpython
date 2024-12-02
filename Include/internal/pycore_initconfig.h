@@ -170,6 +170,9 @@ typedef enum {
     _PyConfig_GIL_ENABLE = 1,
 } _PyConfigGILEnum;
 
+extern PyConfig * _PyConfig_New(void);
+extern void _PyConfig_Free(PyConfig *config);
+
 // Export for '_testembed' program
 PyAPI_FUNC(void) _PyConfig_InitCompatConfig(PyConfig *config);
 
