@@ -4414,7 +4414,7 @@ static int
 config_set_sys_flag(const PyConfigSpec *spec, int int_value)
 {
     PyInterpreterState *interp = _PyInterpreterState_GET();
-    PyConfig *config = &interp->config;
+    PyConfig *config = interp->config;
 
     if (spec->type == PyConfig_MEMBER_BOOL) {
         if (int_value != 0) {

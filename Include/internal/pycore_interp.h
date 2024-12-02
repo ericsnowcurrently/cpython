@@ -188,7 +188,8 @@ struct _is {
 
     struct codecs_state codecs;
 
-    PyConfig config;
+    PyConfig *config;
+    PyConfig _config;
     unsigned long feature_flags;
 
     PyObject *dict;  /* Stores per-interpreter state */

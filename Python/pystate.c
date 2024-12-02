@@ -636,7 +636,8 @@ init_interpreter(PyInterpreterState *interp,
 
     _PyEval_InitState(interp);
     _PyGC_InitState(&interp->gc);
-    PyConfig_InitPythonConfig(&interp->config);
+    interp->config = &interp->_config;
+    PyConfig_InitPythonConfig(interp->config);
     _PyType_InitCache(interp);
 #ifdef Py_GIL_DISABLED
     _Py_brc_init_state(interp);
@@ -840,7 +841,8 @@ interpreter_clear(PyInterpreterState *interp, PyThreadState *tstate)
         Py_CLEAR(interp->monitoring_tool_names[t]);
     }
 
-    PyConfig_Clear(&interp->config);
+    interp->config = NULL;
+    PyConfig_Clear(&interp->_config);
     _PyCodec_Fini(interp);
 
     assert(interp->imports.modules == NULL);
@@ -2845,7 +2847,10 @@ _PyInterpreterState_SetEvalFrameFunc(PyInterpreterState *interp,
 const PyConfig*
 _PyInterpreterState_GetConfig(PyInterpreterState *interp)
 {
-    return &interp->config;
+    if (interp->config == NULL) {
+        return &interp->_config;
+    }
+    return interp->config;
 }
 
 
@@ -2854,7 +2859,7 @@ _PyInterpreterState_GetConfigCopy(PyConfig *config)
 {
     PyInterpreterState *interp = _PyInterpreterState_GET();
 
-    PyStatus status = _PyConfig_Copy(config, &interp->config);
+    PyStatus status = _PyConfig_Copy(config, interp->config);
     if (PyStatus_Exception(status)) {
         _PyErr_SetFromPyStatus(status);
         return -1;

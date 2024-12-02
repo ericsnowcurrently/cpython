@@ -2742,7 +2742,7 @@ use_frozen(void)
         return false;
     }
     else {
-        return interp->config.use_frozen_modules;
+        return interp->config->use_frozen_modules;
     }
 }
 
