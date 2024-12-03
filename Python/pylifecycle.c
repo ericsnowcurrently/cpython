@@ -1070,6 +1070,38 @@ _Py_PreInitializeFromConfig(const PyConfig *config,
 }
 
 
+static PyStatus
+pycore_init_config(_PyRuntimeState *runtime, const PyConfig *src_config,
+                   PyConfig *config)
+{
+    PyStatus status;
+
+    status = _Py_PreInitializeFromConfig(src_config, NULL);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+
+    PyConfig_InitPythonConfig(config);
+
+    if (config != src_config) {
+        status = _PyConfig_Copy(config, src_config);
+        if (_PyStatus_EXCEPTION(status)) {
+            return status;
+        }
+    }
+
+    // Read the configuration, but don't compute the path configuration
+    // (it is computed in the main init).
+    const PyPreConfig *preconfig = runtime->preconfig;
+    status = _PyConfig_Read(config, preconfig, 0);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+
+    return PyStatus_Ok();
+}
+
+
 /* Begin interpreter initialization
  *
  * On return, the first thread and interpreter state have been created,
@@ -1089,45 +1121,20 @@ _Py_PreInitializeFromConfig(const PyConfig *config,
  */
 static PyStatus
 pyinit_core(_PyRuntimeState *runtime,
-            const PyConfig *src_config,
+            const PyConfig *config,
             PyThreadState **tstate_p)
 {
     PyStatus status;
-
-    status = _Py_PreInitializeFromConfig(src_config, NULL);
+    if (!runtime->core_initialized) {
+        status = pyinit_config(runtime, tstate_p, config);
+    }
+    else {
+        status = pyinit_core_reconfigure(runtime, tstate_p, config);
+    }
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
-
-    PyConfig config;
-    PyConfig_InitPythonConfig(&config);
-
-    status = _PyConfig_Copy(&config, src_config);
-    if (_PyStatus_EXCEPTION(status)) {
-        goto done;
-    }
-
-    // Read the configuration, but don't compute the path configuration
-    // (it is computed in the main init).
-    const PyPreConfig *preconfig = runtime->preconfig;
-    status = _PyConfig_Read(&config, preconfig, 0);
-    if (_PyStatus_EXCEPTION(status)) {
-        goto done;
-    }
-
-    if (!runtime->core_initialized) {
-        status = pyinit_config(runtime, tstate_p, &config);
-    }
-    else {
-        status = pyinit_core_reconfigure(runtime, tstate_p, &config);
-    }
-    if (_PyStatus_EXCEPTION(status)) {
-        goto done;
-    }
-
-done:
-    PyConfig_Clear(&config);
-    return status;
+    return PyStatus_Ok();
 }
 
 
@@ -1441,16 +1448,28 @@ _Py_InitializeFromConfig(const PyConfig *config)
 
 
 PyStatus
-Py_InitializeFromConfig(const PyConfig *config)
+Py_InitializeFromConfig(const PyConfig *src_config)
 {
-    if (config == NULL) {
+    if (src_config == NULL) {
         return _PyStatus_ERR("initialization config is NULL");
     }
+
     PyStatus status = _PyRuntime_Initialize();
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
-    return _Py_InitializeFromConfig(config);
+    _PyRuntimeState *runtime = &_PyRuntime;
+
+    PyConfig config;
+    status = pycore_init_config(runtime, src_config, &config);
+    if (_PyStatus_EXCEPTION(status)) {
+        PyConfig_Clear(&config);
+        return status;
+    }
+
+    status = _Py_InitializeFromConfig(&config);
+    PyConfig_Clear(&config);
+    return status;
 }
 
 
@@ -1475,7 +1494,13 @@ Py_InitializeEx(int install_sigs)
 
     config.install_signal_handlers = install_sigs;
 
-    status = Py_InitializeFromConfig(&config);
+    status = pycore_init_config(runtime, &config, &config);
+    if (_PyStatus_EXCEPTION(status)) {
+        PyConfig_Clear(&config);
+        Py_ExitStatusException(status);
+    }
+
+    status = _Py_InitializeFromConfig(&config);
     PyConfig_Clear(&config);
     if (_PyStatus_EXCEPTION(status)) {
         Py_ExitStatusException(status);
