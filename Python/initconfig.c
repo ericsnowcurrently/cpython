@@ -2693,12 +2693,6 @@ _PyConfig_Apply(const PyConfig *config, _PyRuntimeState *runtime)
         return _PyStatus_NO_MEMORY();
     }
 
-#ifdef Py_STATS
-    if (config->_pystats) {
-        _Py_StatsOn();
-    }
-#endif
-
     return _PyStatus_OK();
 }
 

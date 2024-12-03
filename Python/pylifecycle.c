@@ -525,6 +525,12 @@ pycore_init_runtime(_PyRuntimeState *runtime,
         return status;
     }
 
+#ifdef Py_STATS
+    if (config->_pystats) {
+        _Py_StatsOn();
+    }
+#endif
+
     /* Py_Finalize leaves _Py_Finalizing set in order to help daemon
      * threads behave a little more gracefully at interpreter shutdown.
      * We clobber it here so the new interpreter can start with a clean

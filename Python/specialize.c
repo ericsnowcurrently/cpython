@@ -26,6 +26,7 @@ extern const char *_PyUOpName(int index);
 
 #ifdef Py_STATS
 GCStats _py_gc_stats[NUM_GENERATIONS] = { 0 };
+// XXX This should be per-interpreter.
 static PyStats _Py_stats_struct = { .gc_stats = _py_gc_stats };
 PyStats *_Py_stats = NULL;
 
