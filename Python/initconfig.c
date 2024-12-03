@@ -305,8 +305,7 @@ static const PyConfigSpec PYPRECONFIG_SPEC[] = {
 
 // Forward declarations
 static PyObject*
-config_get(const PyConfig *config, const PyConfigSpec *spec,
-           int use_sys);
+config_get(const PyConfig *config, const PyConfigSpec *spec);
 
 
 /* --- Command line options --------------------------------------- */
@@ -1299,7 +1298,7 @@ _PyConfig_AsDict(const PyConfig *config)
 
     const PyConfigSpec *spec = PYCONFIG_SPEC;
     for (; spec->name != NULL; spec++) {
-        PyObject *obj = config_get(config, spec, 0);
+        PyObject *obj = config_get(config, spec);
         if (obj == NULL) {
             Py_DECREF(dict);
             return NULL;
@@ -4189,47 +4188,36 @@ config_get_sys(const char *name)
 }
 
 
-static int
-config_get_sys_write_bytecode(const PyConfig *config, int *value)
+static PyObject *
+interp_get(PyInterpreterState *interp, const PyConfigSpec *spec)
 {
-    PyObject *attr = config_get_sys("dont_write_bytecode");
-    if (attr == NULL) {
-        return -1;
+    if (spec->sys.attr != NULL) {
+        return config_get_sys(spec->sys.attr);
     }
 
-    int is_true = PyObject_IsTrue(attr);
-    Py_DECREF(attr);
-    if (is_true < 0) {
-        return -1;
+    if (strcmp(spec->name, "write_bytecode") == 0) {
+        PyObject *attr = config_get_sys("dont_write_bytecode");
+        if (attr == NULL) {
+            return NULL;
+        }
+        int is_true = PyObject_IsTrue(attr);
+        Py_DECREF(attr);
+        if (is_true < 0) {
+            return NULL;
+        }
+        return PyBool_FromLong(!is_true);
     }
-    *value = (!is_true);
-    return 0;
+
+    if (strcmp(spec->name, "int_max_str_digits") == 0) {
+        return PyLong_FromLong(interp->long_state.max_str_digits);
+    }
+
+    return NULL;
 }
 
-
 static PyObject*
-config_get(const PyConfig *config, const PyConfigSpec *spec,
-           int use_sys)
+config_get(const PyConfig *config, const PyConfigSpec *spec)
 {
-    if (use_sys) {
-        if (spec->sys.attr != NULL) {
-            return config_get_sys(spec->sys.attr);
-        }
-
-        if (strcmp(spec->name, "write_bytecode") == 0) {
-            int value;
-            if (config_get_sys_write_bytecode(config, &value) < 0) {
-                return NULL;
-            }
-            return PyBool_FromLong(value);
-        }
-
-        if (strcmp(spec->name, "int_max_str_digits") == 0) {
-            PyInterpreterState *interp = _PyInterpreterState_GET();
-            return PyLong_FromLong(interp->long_state.max_str_digits);
-        }
-    }
-
     const void *member = pyconfig_get_spec_member(config, spec);
     switch (spec->type) {
     case PyConfig_MEMBER_INT:
@@ -4311,8 +4299,18 @@ PyConfig_Get(const char *name)
 {
     const PyConfigSpec *spec = pyconfig_find_spec(name);
     if (spec != NULL) {
+        PyInterpreterState *interp = _PyInterpreterState_GET();
+        PyObject *obj = interp_get(interp, spec);
+        if (obj != NULL) {
+            return obj;
+        }
+        else if (PyErr_Occurred()) {
+            return NULL;
+        }
+        assert(spec->visibility != PyConfig_MEMBER_PUBLIC);
+
         const PyConfig *config = _Py_GetConfig();
-        return config_get(config, spec, 1);
+        return config_get(config, spec);
     }
 
     spec = pypreconfig_find_spec(name);
