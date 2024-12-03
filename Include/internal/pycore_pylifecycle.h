@@ -25,6 +25,8 @@ extern int _PyUnicode_EnableLegacyWindowsFSEncoding(void);
 
 extern int _Py_IsLocaleCoercionTarget(const char *ctype_loc);
 
+extern PyStatus _Py_InitializeFromConfig(const PyConfig *);
+
 /* Various one-time initializers */
 
 extern void _Py_InitVersion(void);

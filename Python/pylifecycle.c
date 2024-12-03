@@ -1409,19 +1409,12 @@ pyinit_main(PyThreadState *tstate)
 
 
 PyStatus
-Py_InitializeFromConfig(const PyConfig *config)
+_Py_InitializeFromConfig(const PyConfig *config)
 {
-    if (config == NULL) {
-        return _PyStatus_ERR("initialization config is NULL");
-    }
-
     PyStatus status;
-
-    status = _PyRuntime_Initialize();
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
+    assert(config != NULL);
     _PyRuntimeState *runtime = &_PyRuntime;
+    assert(runtime->_initialized);
 
     PyThreadState *tstate = NULL;
     status = pyinit_core(runtime, config, &tstate);
@@ -1438,6 +1431,20 @@ Py_InitializeFromConfig(const PyConfig *config)
     }
 
     return _PyStatus_OK();
+}
+
+
+PyStatus
+Py_InitializeFromConfig(const PyConfig *config)
+{
+    if (config == NULL) {
+        return _PyStatus_ERR("initialization config is NULL");
+    }
+    PyStatus status = _PyRuntime_Initialize();
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+    return _Py_InitializeFromConfig(config);
 }
 
 
