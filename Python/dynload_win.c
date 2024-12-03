@@ -186,8 +186,7 @@ _Py_CheckPython3(void)
 
     /* For back-compat, also search {sys.prefix}\DLLs, though
        that has not been a normal install layout for a while */
-    PyInterpreterState *interp = _PyInterpreterState_GET();
-    const PyConfig *config = &interp->_config;
+    const PyConfig *config = _Py_GetConfig();
     assert(config->prefix);
     if (config->prefix) {
         wcscpy_s(py3path, MAXPATHLEN, config->prefix);
