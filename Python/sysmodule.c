@@ -3113,6 +3113,24 @@ static PyStructSequence_Desc flags_desc = {
     18
 };
 
+
+PyObject *
+_PySys_GetFlagObj(Py_ssize_t pos)
+{
+    assert(pos >= 0 && pos < (Py_ssize_t)(Py_ARRAY_LENGTH(flags_fields) - 1));
+    PyObject *flags = Py_XNewRef(PySys_GetObject("flags"));
+    if (flags == NULL) {
+        if (!PyErr_Occurred()) {
+            PyErr_SetString(PyExc_RuntimeError, "lost sys.flags");
+        }
+        return NULL;
+    }
+    PyObject *value = PyStructSequence_GET_ITEM(flags, pos);
+    Py_DECREF(flags);
+    return value;
+}
+
+
 static void
 sys_set_flag(PyObject *flags, Py_ssize_t pos, PyObject *value)
 {
