@@ -297,6 +297,13 @@ struct _Py_unicode_runtime_state {
     struct _Py_unicode_runtime_ids ids;
 };
 
+struct _Py_unicode_encoding {
+    wchar_t *encoding;
+    wchar_t *errors;
+    // We could add encoding_utf8, errors_utf8, and error_handler,
+    // and then get rid of struct _Py_unicode_fs_codec.
+};
+
 /* fs_codec.encoding is initialized to NULL.
    Later, it is set to a non-NULL string by _PyUnicode_InitEncodings(). */
 struct _Py_unicode_fs_codec {
@@ -312,6 +319,8 @@ struct _Py_unicode_ids {
 };
 
 struct _Py_unicode_state {
+    struct _Py_unicode_encoding filesystem;
+    struct _Py_unicode_encoding stdio;
     struct _Py_unicode_fs_codec fs_codec;
 
     _PyUnicode_Name_CAPI *ucnhash_capi;

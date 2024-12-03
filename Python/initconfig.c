@@ -4212,6 +4212,19 @@ interp_get(PyInterpreterState *interp, const PyConfigSpec *spec)
         return PyLong_FromLong(interp->long_state.max_str_digits);
     }
 
+    if (strcmp(spec->name, "filesystem_encoding") == 0) {
+        return PyUnicode_FromWideChar(interp->unicode.filesystem.encoding, -1);
+    }
+    if (strcmp(spec->name, "filesystem_errors") == 0) {
+        return PyUnicode_FromWideChar(interp->unicode.filesystem.errors, -1);
+    }
+    if (strcmp(spec->name, "stdio_encoding") == 0) {
+        return PyUnicode_FromWideChar(interp->unicode.stdio.encoding, -1);
+    }
+    if (strcmp(spec->name, "stdio_errors") == 0) {
+        return PyUnicode_FromWideChar(interp->unicode.stdio.errors, -1);
+    }
+
     return NULL;
 }
 
