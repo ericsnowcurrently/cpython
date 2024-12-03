@@ -447,7 +447,7 @@ _PyInterpreterState_SetConfig(const PyConfig *src_config)
         goto done;
     }
 
-    status = _PyConfig_Copy(interp->config, &config);
+    status = _PyConfig_Copy(&interp->_config, &config);
     if (_PyStatus_EXCEPTION(status)) {
         _PyErr_SetFromPyStatus(status);
         goto done;
@@ -496,7 +496,7 @@ pyinit_core_reconfigure(_PyRuntimeState *runtime,
         return status;
     }
 
-    status = _PyConfig_Copy(interp->config, config);
+    status = _PyConfig_Copy(&interp->_config, config);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
@@ -658,7 +658,7 @@ pycore_create_interpreter(_PyRuntimeState *runtime,
     _PyInterpreterState_SetWhence(interp, _PyInterpreterState_WHENCE_RUNTIME);
     interp->_ready = 1;
 
-    status = _PyConfig_Copy(interp->config, src_config);
+    status = _PyConfig_Copy(&interp->_config, src_config);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
@@ -1192,7 +1192,7 @@ init_interp_main(PyThreadState *tstate)
     }
 
     // Initialize the import-related configuration.
-    status = _PyConfig_InitImportConfig(interp->config);
+    status = _PyConfig_InitImportConfig(&interp->_config);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
@@ -2311,7 +2311,7 @@ new_interpreter(PyThreadState **tstate_p,
     }
 
     /* This does not require that the GIL be held. */
-    status = _PyConfig_Copy(interp->config, src_config);
+    status = _PyConfig_Copy(&interp->_config, src_config);
     if (_PyStatus_EXCEPTION(status)) {
         goto error;
     }

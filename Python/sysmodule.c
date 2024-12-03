@@ -4121,6 +4121,6 @@ _PySys_SetIntMaxStrDigits(int maxdigits)
     // and PyInterpreterState.config.int_max_str_digits.
     PyInterpreterState *interp = _PyInterpreterState_GET();
     interp->long_state.max_str_digits = maxdigits;
-    interp->config->int_max_str_digits = maxdigits;
+    interp->_config.int_max_str_digits = maxdigits;
     return 0;
 }

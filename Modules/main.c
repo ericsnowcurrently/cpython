@@ -618,7 +618,7 @@ pymain_run_python(int *exitcode)
     PyInterpreterState *interp = _PyInterpreterState_GET();
     _PyRuntimeState *runtime = interp->runtime;
     /* pymain_run_stdin() modify the config */
-    PyConfig *config = (PyConfig*)_PyInterpreterState_GetConfig(interp);
+    PyConfig *config = &interp->_config;
 
     /* ensure path config is written into global variables */
     if (_PyStatus_EXCEPTION(_PyPathConfig_UpdateGlobal(config, runtime))) {

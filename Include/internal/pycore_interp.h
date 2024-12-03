@@ -188,7 +188,7 @@ struct _is {
 
     struct codecs_state codecs;
 
-    PyConfig *config;
+    const PyConfig *config;
     PyConfig _config;
     unsigned long feature_flags;
 

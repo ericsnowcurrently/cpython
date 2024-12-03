@@ -636,8 +636,8 @@ init_interpreter(PyInterpreterState *interp,
 
     _PyEval_InitState(interp);
     _PyGC_InitState(&interp->gc);
+    PyConfig_InitPythonConfig(&interp->_config);
     interp->config = &interp->_config;
-    PyConfig_InitPythonConfig(interp->config);
     _PyType_InitCache(interp);
 #ifdef Py_GIL_DISABLED
     _Py_brc_init_state(interp);
