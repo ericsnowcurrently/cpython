@@ -2742,7 +2742,8 @@ use_frozen(void)
         return false;
     }
     else {
-        return interp->config->use_frozen_modules;
+        const PyConfig *config = _PyInterpreterState_GetConfig(interp);
+        return config->use_frozen_modules;
     }
 }
 

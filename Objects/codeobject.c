@@ -541,8 +541,9 @@ init_code(PyCodeObject *co, struct _PyCodeConstructor *con)
     }
     co->_co_firsttraceable = entry_point;
 #ifdef Py_GIL_DISABLED
+    const PyConfig *config = _PyInterpreterState_GetConfig(interp);
     _PyCode_Quicken(_PyCode_CODE(co), Py_SIZE(co), co->co_consts,
-                    interp->config->tlbc_enabled);
+                    config->tlbc_enabled);
 #else
     _PyCode_Quicken(_PyCode_CODE(co), Py_SIZE(co), co->co_consts, 1);
 #endif
@@ -2772,7 +2773,8 @@ _PyCode_Fini(PyInterpreterState *interp)
 int32_t
 _Py_ReserveTLBCIndex(PyInterpreterState *interp)
 {
-    if (interp->config->tlbc_enabled) {
+    const PyConfig *config = _PyInterpreterState_GetConfig(interp);
+    if (config->tlbc_enabled) {
         return _PyIndexPool_AllocIndex(&interp->tlbc_indices);
     }
     // All threads share the main copy of the bytecode when TLBC is disabled
@@ -2783,7 +2785,8 @@ void
 _Py_ClearTLBCIndex(_PyThreadStateImpl *tstate)
 {
     PyInterpreterState *interp = ((PyThreadState *)tstate)->interp;
-    if (interp->config->tlbc_enabled) {
+    const PyConfig *config = _PyInterpreterState_GetConfig(interp);
+    if (config->tlbc_enabled) {
         _PyIndexPool_FreeIndex(&interp->tlbc_indices, tstate->tlbc_index);
     }
 }
