@@ -62,7 +62,14 @@ pymain_init(const _PyArgv *args)
         goto done;
     }
 
-    status = Py_InitializeFromConfig(&config);
+    // Read the configuration, but don't compute the path configuration
+    // (it is computed in the main init).
+    status = _PyConfig_Read(&config, 0);
+    if (_PyStatus_EXCEPTION(status)) {
+        goto done;
+    }
+
+    status = _Py_InitializeFromConfig(&config);
     if (_PyStatus_EXCEPTION(status)) {
         goto done;
     }
