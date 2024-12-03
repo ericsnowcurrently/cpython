@@ -4405,9 +4405,6 @@ error:
 static int
 config_set_sys_flag(const PyConfigSpec *spec, int int_value)
 {
-    PyInterpreterState *interp = _PyInterpreterState_GET();
-    PyConfig *config = &interp->_config;
-
     if (spec->type == PyConfig_MEMBER_BOOL) {
         if (int_value != 0) {
             // convert values < 0 and values > 1 to 1
@@ -4436,11 +4433,6 @@ config_set_sys_flag(const PyConfigSpec *spec, int int_value)
     assert(spec->type == PyConfig_MEMBER_INT
            || spec->type == PyConfig_MEMBER_UINT
            || spec->type == PyConfig_MEMBER_BOOL);
-    int64_t raw_value = (int64_t)int_value;
-    if (pyconfig_set_spec_member(config, spec, (void *)raw_value) < 0) {
-        PyErr_NoMemory();
-        return -1;
-    }
 
     // Set sys.dont_write_bytecode attribute
     if (strcmp(spec->name, "write_bytecode") == 0) {
