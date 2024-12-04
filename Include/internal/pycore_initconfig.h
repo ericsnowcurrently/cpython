@@ -184,7 +184,8 @@ extern PyStatus _PyConfig_Read(
     PyConfig *config,
     const PyPreConfig *preconfig,
     int compute_path_config);
-extern PyStatus _PyConfig_Write(const PyConfig *config,
+extern PyStatus _PyConfig_Apply(
+    const PyConfig *config,
     struct pyruntimestate *runtime);
 extern PyStatus _PyConfig_SetPyArgv(
     PyConfig *config,

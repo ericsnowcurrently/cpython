@@ -812,7 +812,7 @@ _Py_SetArgcArgv(_PyRuntimeState *runtime,
 }
 
 
-// _PyConfig_Write() calls _Py_SetArgcArgv() with PyConfig.orig_argv.
+// _PyConfig_Apply() calls _Py_SetArgcArgv() with PyConfig.orig_argv.
 void
 Py_GetArgcArgv(int *argc, wchar_t ***argv)
 {
@@ -2572,7 +2572,7 @@ config_init_stdio(const PyConfig *config)
    - set Py_xxx global configuration variables
    - initialize C standard streams (stdin, stdout, stderr) */
 PyStatus
-_PyConfig_Write(const PyConfig *config, _PyRuntimeState *runtime)
+_PyConfig_Apply(const PyConfig *config, _PyRuntimeState *runtime)
 {
     config_set_global_vars(config);
 

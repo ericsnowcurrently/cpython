@@ -399,7 +399,7 @@ interpreter_update_config(PyThreadState *tstate, int only_update_path_config)
     const PyConfig *config = &interp->config;
 
     if (!only_update_path_config) {
-        PyStatus status = _PyConfig_Write(config, runtime);
+        PyStatus status = _PyConfig_Apply(config, runtime);
         if (_PyStatus_EXCEPTION(status)) {
             _PyErr_SetFromPyStatus(status);
             return -1;
@@ -491,7 +491,7 @@ pyinit_core_reconfigure(_PyRuntimeState *runtime,
     }
     assert(interp->_ready);
 
-    status = _PyConfig_Write(config, runtime);
+    status = _PyConfig_Apply(config, runtime);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
@@ -520,7 +520,7 @@ pycore_init_runtime(_PyRuntimeState *runtime,
         return _PyStatus_ERR("main interpreter already initialized");
     }
 
-    PyStatus status = _PyConfig_Write(config, runtime);
+    PyStatus status = _PyConfig_Apply(config, runtime);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
