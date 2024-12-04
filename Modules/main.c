@@ -27,10 +27,28 @@
     "Type \"help\", \"copyright\", \"credits\" or \"license\" " \
     "for more information."
 
+
+typedef enum {
+    PyMain_RUN_COMMAND,
+    PyMain_RUN_MODULE,
+    PyMain_RUN_MAIN_IMPORTER,
+    PyMain_RUN_FILENAME,
+    PyMain_RUN_STDIN,
+} PyMain_run_mode_t;
+
+
 /* --- pymain_init() ---------------------------------------------- */
 
+static PyMain_run_mode_t get_run_mode(const PyConfig *);
+static int stdin_is_interactive(const PyConfig *);
+
 static PyStatus
-pymain_init(const _PyArgv *args)
+pymain_config(PyPreConfig *preconfig, PyConfig *config)
+{
+}
+
+static PyStatus
+pymain_init(const _PyArgv *args, PyMain_run_mode_t *p_runmode)
 {
     PyStatus status;
 
@@ -69,11 +87,31 @@ pymain_init(const _PyArgv *args)
         goto done;
     }
 
+    PyMain_mode_t runmode = get_run_mode(&config);
+    switch (runmode) {
+    case PyMain_RUN_COMMAND: _Py_FALLTHROUGH;
+    case PyMain_RUN_MODULE: _Py_FALLTHROUGH;
+    case PyMain_RUN_MAIN_IMPORTER: _Py_FALLTHROUGH;
+    case PyMain_RUN_FILENAME:
+        if (_Py_GetEnv(config.use_environment, "PYTHONINSPECT")) {
+            config.inspect = 1;
+        }
+        break;
+    case PyMain_RUN_STDIN:
+        if (stdin_is_interactive(config)) {
+            // do exit on SystemExit
+            config.inspect = 0;
+        }
+    default:
+        _Py_UNREACHABLE();
+    }
+
     status = _Py_InitializeFromConfig(&config);
     if (_PyStatus_EXCEPTION(status)) {
         goto done;
     }
     status = _PyStatus_OK();
+    *p_runmode = runmode;
 
 done:
     PyConfig_Clear(&config);
@@ -97,7 +135,13 @@ static inline int config_run_code(const PyConfig *config)
 static int
 stdin_is_interactive(const PyConfig *config)
 {
-    return (isatty(fileno(stdin)) || config->interactive);
+    int interactive = config->interactive;
+    if (Py_IsInitialized()) {
+        if (PyConfig_GetInt("interactive", &interactive) < 0) {
+            PyErr_Clear();
+        }
+    }
+    return (interactive || isatty(fileno(stdin)));
 }
 
 
@@ -193,8 +237,10 @@ pymain_header(const PyConfig *config)
         return;
     }
 
-    if (!config->verbose && (config_run_code(config) || !stdin_is_interactive(config))) {
-        return;
+    if (!config->verbose) {
+        if (config_run_code(config) || !stdin_is_interactive(config)) {
+            return;
+        }
     }
 
     fprintf(stderr, "Python %s on %s\n", Py_GetVersion(), Py_GetPlatform());
@@ -231,6 +277,12 @@ pymain_import_readline(const PyConfig *config)
     else {
         Py_DECREF(mod);
     }
+}
+
+
+static PyMain_run_mode_t
+get_run_mode(const PyConfig *config)
+{
 }
 
 
@@ -441,7 +493,7 @@ pymain_run_file(const PyConfig *config)
 
 
 static int
-pymain_run_startup(PyConfig *config, int *exitcode)
+pymain_run_startup(const PyConfig *config, int *exitcode)
 {
     int ret;
     if (!config->use_environment) {
@@ -551,7 +603,8 @@ pymain_run_stdin(PyConfig *config)
 {
     if (stdin_is_interactive(config)) {
         // do exit on SystemExit
-        pymain_set_inspect(config, 0);
+        assert(!config->inspect);
+        assert(!Py_InspectFlag);
 
         int exitcode;
         if (pymain_run_startup(config, &exitcode)) {
@@ -619,16 +672,15 @@ pymain_repl(PyConfig *config, int *exitcode)
 
 
 static void
-pymain_run_python(int *exitcode)
+pymain_run_python(PyMain_mode_t runmode, int *exitcode)
 {
     PyObject *main_importer_path = NULL;
     PyInterpreterState *interp = _PyInterpreterState_GET();
-    _PyRuntimeState *runtime = interp->runtime;
     /* pymain_run_stdin() modify the config */
     PyConfig *config = &interp->_config;
 
     /* ensure path config is written into global variables */
-    if (_PyStatus_EXCEPTION(_PyPathConfig_UpdateGlobal(config, runtime))) {
+    if (_PyStatus_EXCEPTION(_PyPathConfig_UpdateGlobal(config))) {
         goto error;
     }
 
@@ -691,6 +743,24 @@ pymain_run_python(int *exitcode)
     _PyInterpreterState_SetRunningMain(interp);
     assert(!PyErr_Occurred());
 
+//    switch (mode) {
+//    case PyMain_RUN_COMMAND: _Py_FALLTHROUGH;
+//    case PyMain_RUN_MODULE: _Py_FALLTHROUGH;
+//    case PyMain_RUN_MAIN_IMPORTER: _Py_FALLTHROUGH;
+//    case PyMain_RUN_FILENAME:
+//        if (_Py_GetEnv(config.use_environment, "PYTHONINSPECT")) {
+//            config.inspect = 1;
+//        }
+//        break;
+//    case PyMain_RUN_STDIN:
+//        if (stdin_is_interactive(config)) {
+//            // do exit on SystemExit
+//            config.inspect = 0;
+//        }
+//    default:
+//        _Py_UNREACHABLE();
+//    }
+
     if (config->run_command) {
         *exitcode = pymain_run_command(config->run_command);
     }
@@ -724,16 +794,14 @@ done:
 static void
 pymain_free(void)
 {
-    _PyRuntimeState *runtime = &_PyRuntime;
-
     _PyImport_Fini2();
 
     /* Free global variables which cannot be freed in Py_Finalize():
        configuration options set before Py_Initialize() which should
        remain valid after Py_Finalize(), since
        Py_Initialize()-Py_Finalize() can be called multiple times. */
-    _PyPathConfig_ClearGlobal(runtime);
-    _Py_ClearArgcArgv(runtime);
+    _PyPathConfig_ClearGlobal();
+    _Py_ClearArgcArgv();
     _PyRuntime_Finalize();
 }
 
@@ -777,12 +845,12 @@ pymain_exit_error(PyStatus status)
 }
 
 
-int
-Py_RunMain(void)
+static int
+pymain_run(PyMain_run_mode_t runmode)
 {
     int exitcode = 0;
 
-    pymain_run_python(&exitcode);
+    pymain_run_python(runmode, &exitcode);
 
     if (Py_FinalizeEx() < 0) {
         /* Value unlikely to be confused with a non-error exit status or
@@ -800,10 +868,20 @@ Py_RunMain(void)
 }
 
 
+int
+Py_RunMain(void)
+{
+    const PyConfig *config = _Py_GetConfig();
+    PyMain_mode_t runmode = get_run_mode(config);
+    return pymain_run(runmode);
+}
+
+
 static int
 pymain_main(_PyArgv *args)
 {
-    PyStatus status = pymain_init(args);
+    PyMain_run_mode_t runmode;
+    PyStatus status = pymain_init(args, &runmode);
     if (_PyStatus_IS_EXIT(status)) {
         pymain_free();
         return status.exitcode;
@@ -812,7 +890,7 @@ pymain_main(_PyArgv *args)
         pymain_exit_error(status);
     }
 
-    return Py_RunMain();
+    return pymain_run(runmode);
 }
 
 
