@@ -295,7 +295,7 @@ gc_visit_heaps_lock_held(PyInterpreterState *interp, mi_block_visit_fun *visitor
 {
     // Offset of PyObject header from start of memory block.
     Py_ssize_t offset_base = 0;
-    if (_PyMem_DebugEnabled()) {
+    if (_PyMem_DebugEnabled(interp->runtime)) {
         // The debug allocator adds two words at the beginning of each block.
         offset_base += 2 * sizeof(size_t);
     }

@@ -38,10 +38,13 @@ static void _PyObject_DebugDumpAddress(const void *p);
 static void _PyMem_DebugCheckAddress(const char *func, char api_id, const void *p);
 
 
-static void set_up_debug_hooks_domain_unlocked(PyMemAllocatorDomain domain);
-static void set_up_debug_hooks_unlocked(void);
-static void get_allocator_unlocked(PyMemAllocatorDomain, PyMemAllocatorEx *);
-static void set_allocator_unlocked(PyMemAllocatorDomain, PyMemAllocatorEx *);
+static void set_up_debug_hooks_domain_unlocked(_PyRuntimeState *,
+                                               PyMemAllocatorDomain domain);
+static void set_up_debug_hooks_unlocked(_PyRuntimeState *);
+static void get_allocator_unlocked(_PyRuntimeState *, PyMemAllocatorDomain,
+                                   PyMemAllocatorEx *);
+static void set_allocator_unlocked(_PyRuntimeState *, PyMemAllocatorDomain,
+                                   PyMemAllocatorEx *);
 
 
 /***************************************/
@@ -337,12 +340,12 @@ void* _PyMem_DebugCalloc(void *ctx, size_t nelem, size_t elsize);
 void* _PyMem_DebugRealloc(void *ctx, void *ptr, size_t size);
 void _PyMem_DebugFree(void *ctx, void *p);
 
-#define PYDBGRAW_ALLOC \
-    {&_PyRuntime.allocators.debug.raw, _PyMem_DebugRawMalloc, _PyMem_DebugRawCalloc, _PyMem_DebugRawRealloc, _PyMem_DebugRawFree}
-#define PYDBGMEM_ALLOC \
-    {&_PyRuntime.allocators.debug.mem, _PyMem_DebugMalloc, _PyMem_DebugCalloc, _PyMem_DebugRealloc, _PyMem_DebugFree}
-#define PYDBGOBJ_ALLOC \
-    {&_PyRuntime.allocators.debug.obj, _PyMem_DebugMalloc, _PyMem_DebugCalloc, _PyMem_DebugRealloc, _PyMem_DebugFree}
+#define PYDBGRAW_ALLOC(runtime) \
+    {&(runtime)->allocators.debug.raw, _PyMem_DebugRawMalloc, _PyMem_DebugRawCalloc, _PyMem_DebugRawRealloc, _PyMem_DebugRawFree}
+#define PYDBGMEM_ALLOC(runtime) \
+    {&(runtime)->allocators.debug.mem, _PyMem_DebugMalloc, _PyMem_DebugCalloc, _PyMem_DebugRealloc, _PyMem_DebugFree}
+#define PYDBGOBJ_ALLOC(runtime) \
+    {&(runtime)->allocators.debug.obj, _PyMem_DebugMalloc, _PyMem_DebugCalloc, _PyMem_DebugRealloc, _PyMem_DebugFree}
 
 /* the low-level virtual memory allocator */
 
@@ -470,11 +473,12 @@ _PyMem_ArenaFree(void *Py_UNUSED(ctx), void *ptr,
 /***************************/
 
 static int
-set_default_allocator_unlocked(PyMemAllocatorDomain domain, int debug,
+set_default_allocator_unlocked(_PyRuntimeState *runtime,
+                               PyMemAllocatorDomain domain, int debug,
                                PyMemAllocatorEx *old_alloc)
 {
     if (old_alloc != NULL) {
-        get_allocator_unlocked(domain, old_alloc);
+        get_allocator_unlocked(runtime, domain, old_alloc);
     }
 
 
@@ -494,9 +498,9 @@ set_default_allocator_unlocked(PyMemAllocatorDomain domain, int debug,
         /* unknown domain */
         return -1;
     }
-    set_allocator_unlocked(domain, &new_alloc);
+    set_allocator_unlocked(runtime, domain, &new_alloc);
     if (debug) {
-        set_up_debug_hooks_domain_unlocked(domain);
+        set_up_debug_hooks_domain_unlocked(runtime, domain);
     }
     return 0;
 }
@@ -509,12 +513,13 @@ static const int pydebug = 0;
 #endif
 
 int
-_PyMem_SetDefaultAllocator(PyMemAllocatorDomain domain,
+_PyMem_SetDefaultAllocator(_PyRuntimeState *runtime,
+                           PyMemAllocatorDomain domain,
                            PyMemAllocatorEx *old_alloc)
 {
-    ALLOCATORS_LOCK(&_PyRuntime);
-    int res = set_default_allocator_unlocked(domain, pydebug, old_alloc);
-    ALLOCATORS_UNLOCK(&_PyRuntime);
+    ALLOCATORS_LOCK(runtime);
+    int res = set_default_allocator_unlocked(runtime, domain, pydebug, old_alloc);
+    ALLOCATORS_UNLOCK(runtime);
     return res;
 }
 
@@ -566,7 +571,8 @@ _PyMem_GetAllocatorName(const char *name, PyMemAllocatorName *allocator)
 
 
 static int
-set_up_allocators_unlocked(PyMemAllocatorName allocator)
+set_up_allocators_unlocked(_PyRuntimeState *runtime,
+                           PyMemAllocatorName allocator)
 {
     switch (allocator) {
     case PYMEM_ALLOCATOR_NOT_SET:
@@ -574,17 +580,17 @@ set_up_allocators_unlocked(PyMemAllocatorName allocator)
         break;
 
     case PYMEM_ALLOCATOR_DEFAULT:
-        (void)set_default_allocator_unlocked(PYMEM_DOMAIN_RAW, pydebug, NULL);
-        (void)set_default_allocator_unlocked(PYMEM_DOMAIN_MEM, pydebug, NULL);
-        (void)set_default_allocator_unlocked(PYMEM_DOMAIN_OBJ, pydebug, NULL);
-        _PyRuntime.allocators.is_debug_enabled = pydebug;
+        (void)set_default_allocator_unlocked(runtime, PYMEM_DOMAIN_RAW, pydebug, NULL);
+        (void)set_default_allocator_unlocked(runtime, PYMEM_DOMAIN_MEM, pydebug, NULL);
+        (void)set_default_allocator_unlocked(runtime, PYMEM_DOMAIN_OBJ, pydebug, NULL);
+        runtime->allocators.is_debug_enabled = pydebug;
         break;
 
     case PYMEM_ALLOCATOR_DEBUG:
-        (void)set_default_allocator_unlocked(PYMEM_DOMAIN_RAW, 1, NULL);
-        (void)set_default_allocator_unlocked(PYMEM_DOMAIN_MEM, 1, NULL);
-        (void)set_default_allocator_unlocked(PYMEM_DOMAIN_OBJ, 1, NULL);
-        _PyRuntime.allocators.is_debug_enabled = 1;
+        (void)set_default_allocator_unlocked(runtime, PYMEM_DOMAIN_RAW, 1, NULL);
+        (void)set_default_allocator_unlocked(runtime, PYMEM_DOMAIN_MEM, 1, NULL);
+        (void)set_default_allocator_unlocked(runtime, PYMEM_DOMAIN_OBJ, 1, NULL);
+        runtime->allocators.is_debug_enabled = 1;
         break;
 
 #ifdef WITH_PYMALLOC
@@ -592,16 +598,16 @@ set_up_allocators_unlocked(PyMemAllocatorName allocator)
     case PYMEM_ALLOCATOR_PYMALLOC_DEBUG:
     {
         PyMemAllocatorEx malloc_alloc = MALLOC_ALLOC;
-        set_allocator_unlocked(PYMEM_DOMAIN_RAW, &malloc_alloc);
+        set_allocator_unlocked(runtime, PYMEM_DOMAIN_RAW, &malloc_alloc);
 
         PyMemAllocatorEx pymalloc = PYMALLOC_ALLOC;
-        set_allocator_unlocked(PYMEM_DOMAIN_MEM, &pymalloc);
-        set_allocator_unlocked(PYMEM_DOMAIN_OBJ, &pymalloc);
+        set_allocator_unlocked(runtime, PYMEM_DOMAIN_MEM, &pymalloc);
+        set_allocator_unlocked(runtime, PYMEM_DOMAIN_OBJ, &pymalloc);
 
         int is_debug = (allocator == PYMEM_ALLOCATOR_PYMALLOC_DEBUG);
-        _PyRuntime.allocators.is_debug_enabled = is_debug;
+        runtime->allocators.is_debug_enabled = is_debug;
         if (is_debug) {
-            set_up_debug_hooks_unlocked();
+            set_up_debug_hooks_unlocked(runtime);
         }
         break;
     }
@@ -611,18 +617,18 @@ set_up_allocators_unlocked(PyMemAllocatorName allocator)
     case PYMEM_ALLOCATOR_MIMALLOC_DEBUG:
     {
         PyMemAllocatorEx malloc_alloc = MALLOC_ALLOC;
-        set_allocator_unlocked(PYMEM_DOMAIN_RAW, &malloc_alloc);
+        set_allocator_unlocked(runtime, PYMEM_DOMAIN_RAW, &malloc_alloc);
 
         PyMemAllocatorEx pymalloc = MIMALLOC_ALLOC;
-        set_allocator_unlocked(PYMEM_DOMAIN_MEM, &pymalloc);
+        set_allocator_unlocked(runtime, PYMEM_DOMAIN_MEM, &pymalloc);
 
         PyMemAllocatorEx objmalloc = MIMALLOC_OBJALLOC;
-        set_allocator_unlocked(PYMEM_DOMAIN_OBJ, &objmalloc);
+        set_allocator_unlocked(runtime, PYMEM_DOMAIN_OBJ, &objmalloc);
 
         int is_debug = (allocator == PYMEM_ALLOCATOR_MIMALLOC_DEBUG);
-        _PyRuntime.allocators.is_debug_enabled = is_debug;
+        runtime->allocators.is_debug_enabled = is_debug;
         if (is_debug) {
-            set_up_debug_hooks_unlocked();
+            set_up_debug_hooks_unlocked(runtime);
         }
 
         break;
@@ -633,14 +639,14 @@ set_up_allocators_unlocked(PyMemAllocatorName allocator)
     case PYMEM_ALLOCATOR_MALLOC_DEBUG:
     {
         PyMemAllocatorEx malloc_alloc = MALLOC_ALLOC;
-        set_allocator_unlocked(PYMEM_DOMAIN_RAW, &malloc_alloc);
-        set_allocator_unlocked(PYMEM_DOMAIN_MEM, &malloc_alloc);
-        set_allocator_unlocked(PYMEM_DOMAIN_OBJ, &malloc_alloc);
+        set_allocator_unlocked(runtime, PYMEM_DOMAIN_RAW, &malloc_alloc);
+        set_allocator_unlocked(runtime, PYMEM_DOMAIN_MEM, &malloc_alloc);
+        set_allocator_unlocked(runtime, PYMEM_DOMAIN_OBJ, &malloc_alloc);
 
         int is_debug = (allocator == PYMEM_ALLOCATOR_MALLOC_DEBUG);
-        _PyRuntime.allocators.is_debug_enabled = is_debug;
+        runtime->allocators.is_debug_enabled = is_debug;
         if (is_debug) {
-            set_up_debug_hooks_unlocked();
+            set_up_debug_hooks_unlocked(runtime);
         }
         break;
     }
@@ -654,11 +660,11 @@ set_up_allocators_unlocked(PyMemAllocatorName allocator)
 }
 
 int
-_PyMem_SetupAllocators(PyMemAllocatorName allocator)
+_PyMem_SetupAllocators(_PyRuntimeState *runtime, PyMemAllocatorName allocator)
 {
-    ALLOCATORS_LOCK(&_PyRuntime);
-    int res = set_up_allocators_unlocked(allocator);
-    ALLOCATORS_UNLOCK(&_PyRuntime);
+    ALLOCATORS_LOCK(runtime);
+    int res = set_up_allocators_unlocked(runtime, allocator);
+    ALLOCATORS_UNLOCK(runtime);
     return res;
 }
 
@@ -671,7 +677,7 @@ pymemallocator_eq(PyMemAllocatorEx *a, PyMemAllocatorEx *b)
 
 
 static const char*
-get_current_allocator_name_unlocked(void)
+get_current_allocator_name_unlocked(_PyRuntimeState *runtime)
 {
     PyMemAllocatorEx malloc_alloc = MALLOC_ALLOC;
 #ifdef WITH_PYMALLOC
@@ -682,56 +688,56 @@ get_current_allocator_name_unlocked(void)
     PyMemAllocatorEx mimalloc_obj = MIMALLOC_OBJALLOC;
 #endif
 
-    if (pymemallocator_eq(&ALLOCATOR_RAW(&_PyRuntime), &malloc_alloc) &&
-        pymemallocator_eq(&ALLOCATOR_MEM(&_PyRuntime), &malloc_alloc) &&
-        pymemallocator_eq(&ALLOCATOR_OBJ(&_PyRuntime), &malloc_alloc))
+    if (pymemallocator_eq(&ALLOCATOR_RAW(runtime), &malloc_alloc) &&
+        pymemallocator_eq(&ALLOCATOR_MEM(runtime), &malloc_alloc) &&
+        pymemallocator_eq(&ALLOCATOR_OBJ(runtime), &malloc_alloc))
     {
         return "malloc";
     }
 #ifdef WITH_PYMALLOC
-    if (pymemallocator_eq(&ALLOCATOR_RAW(&_PyRuntime), &malloc_alloc) &&
-        pymemallocator_eq(&ALLOCATOR_MEM(&_PyRuntime), &pymalloc) &&
-        pymemallocator_eq(&ALLOCATOR_OBJ(&_PyRuntime), &pymalloc))
+    if (pymemallocator_eq(&ALLOCATOR_RAW(runtime), &malloc_alloc) &&
+        pymemallocator_eq(&ALLOCATOR_MEM(runtime), &pymalloc) &&
+        pymemallocator_eq(&ALLOCATOR_OBJ(runtime), &pymalloc))
     {
         return "pymalloc";
     }
 #endif
 #ifdef WITH_MIMALLOC
-    if (pymemallocator_eq(&ALLOCATOR_RAW(&_PyRuntime), &malloc_alloc) &&
-        pymemallocator_eq(&ALLOCATOR_MEM(&_PyRuntime), &mimalloc) &&
-        pymemallocator_eq(&ALLOCATOR_OBJ(&_PyRuntime), &mimalloc_obj))
+    if (pymemallocator_eq(&ALLOCATOR_RAW(runtime), &malloc_alloc) &&
+        pymemallocator_eq(&ALLOCATOR_MEM(runtime), &mimalloc) &&
+        pymemallocator_eq(&ALLOCATOR_OBJ(runtime), &mimalloc_obj))
     {
         return "mimalloc";
     }
 #endif
 
-    PyMemAllocatorEx dbg_raw = PYDBGRAW_ALLOC;
-    PyMemAllocatorEx dbg_mem = PYDBGMEM_ALLOC;
-    PyMemAllocatorEx dbg_obj = PYDBGOBJ_ALLOC;
+    PyMemAllocatorEx dbg_raw = PYDBGRAW_ALLOC(runtime);
+    PyMemAllocatorEx dbg_mem = PYDBGMEM_ALLOC(runtime);
+    PyMemAllocatorEx dbg_obj = PYDBGOBJ_ALLOC(runtime);
 
-    if (pymemallocator_eq(&ALLOCATOR_RAW(&_PyRuntime), &dbg_raw) &&
-        pymemallocator_eq(&ALLOCATOR_MEM(&_PyRuntime), &dbg_mem) &&
-        pymemallocator_eq(&ALLOCATOR_OBJ(&_PyRuntime), &dbg_obj))
+    if (pymemallocator_eq(&ALLOCATOR_RAW(runtime), &dbg_raw) &&
+        pymemallocator_eq(&ALLOCATOR_MEM(runtime), &dbg_mem) &&
+        pymemallocator_eq(&ALLOCATOR_OBJ(runtime), &dbg_obj))
     {
         /* Debug hooks installed */
-        if (pymemallocator_eq(&ALLOCATOR_DEBUG(&_PyRuntime).raw.alloc, &malloc_alloc) &&
-            pymemallocator_eq(&ALLOCATOR_DEBUG(&_PyRuntime).mem.alloc, &malloc_alloc) &&
-            pymemallocator_eq(&ALLOCATOR_DEBUG(&_PyRuntime).obj.alloc, &malloc_alloc))
+        if (pymemallocator_eq(&ALLOCATOR_DEBUG(runtime).raw.alloc, &malloc_alloc) &&
+            pymemallocator_eq(&ALLOCATOR_DEBUG(runtime).mem.alloc, &malloc_alloc) &&
+            pymemallocator_eq(&ALLOCATOR_DEBUG(runtime).obj.alloc, &malloc_alloc))
         {
             return "malloc_debug";
         }
 #ifdef WITH_PYMALLOC
-        if (pymemallocator_eq(&ALLOCATOR_DEBUG(&_PyRuntime).raw.alloc, &malloc_alloc) &&
-            pymemallocator_eq(&ALLOCATOR_DEBUG(&_PyRuntime).mem.alloc, &pymalloc) &&
-            pymemallocator_eq(&ALLOCATOR_DEBUG(&_PyRuntime).obj.alloc, &pymalloc))
+        if (pymemallocator_eq(&ALLOCATOR_DEBUG(runtime).raw.alloc, &malloc_alloc) &&
+            pymemallocator_eq(&ALLOCATOR_DEBUG(runtime).mem.alloc, &pymalloc) &&
+            pymemallocator_eq(&ALLOCATOR_DEBUG(runtime).obj.alloc, &pymalloc))
         {
             return "pymalloc_debug";
         }
 #endif
 #ifdef WITH_MIMALLOC
-        if (pymemallocator_eq(&ALLOCATOR_DEBUG(&_PyRuntime).raw.alloc, &malloc_alloc) &&
-            pymemallocator_eq(&ALLOCATOR_DEBUG(&_PyRuntime).mem.alloc, &mimalloc) &&
-            pymemallocator_eq(&ALLOCATOR_DEBUG(&_PyRuntime).obj.alloc, &mimalloc_obj))
+        if (pymemallocator_eq(&ALLOCATOR_DEBUG(runtime).raw.alloc, &malloc_alloc) &&
+            pymemallocator_eq(&ALLOCATOR_DEBUG(runtime).mem.alloc, &mimalloc) &&
+            pymemallocator_eq(&ALLOCATOR_DEBUG(runtime).obj.alloc, &mimalloc_obj))
         {
             return "mimalloc_debug";
         }
@@ -741,45 +747,45 @@ get_current_allocator_name_unlocked(void)
 }
 
 const char*
-_PyMem_GetCurrentAllocatorName(void)
+_PyMem_GetCurrentAllocatorName(_PyRuntimeState *runtime)
 {
-    ALLOCATORS_LOCK(&_PyRuntime);
-    const char *name = get_current_allocator_name_unlocked();
-    ALLOCATORS_UNLOCK(&_PyRuntime);
+    ALLOCATORS_LOCK(runtime);
+    const char *name = get_current_allocator_name_unlocked(runtime);
+    ALLOCATORS_UNLOCK(runtime);
     return name;
 }
 
 
 int
-_PyMem_DebugEnabled(void)
+_PyMem_DebugEnabled(_PyRuntimeState *runtime)
 {
-    return _PyRuntime.allocators.is_debug_enabled;
+    return runtime->allocators.is_debug_enabled;
 }
 
 #ifdef WITH_PYMALLOC
 static int
-_PyMem_PymallocEnabled(void)
+_PyMem_PymallocEnabled(_PyRuntimeState *runtime)
 {
-    if (_PyMem_DebugEnabled()) {
-        return (ALLOCATOR_DEBUG(&_PyRuntime).obj.alloc.malloc == _PyObject_Malloc);
+    if (_PyMem_DebugEnabled(runtime)) {
+        return (ALLOCATOR_DEBUG(runtime).obj.alloc.malloc == _PyObject_Malloc);
     }
     else {
-        return (ALLOCATOR_OBJ(&_PyRuntime).malloc == _PyObject_Malloc);
+        return (ALLOCATOR_OBJ(runtime).malloc == _PyObject_Malloc);
     }
 }
 
 #ifdef WITH_MIMALLOC
 static int
-_PyMem_MimallocEnabled(void)
+_PyMem_MimallocEnabled(_PyRuntimeState *runtime)
 {
 #ifdef Py_GIL_DISABLED
     return 1;
 #else
-    if (_PyMem_DebugEnabled()) {
-        return (ALLOCATOR_DEBUG(&_PyRuntime).obj.alloc.malloc == _PyObject_MiMalloc);
+    if (_PyMem_DebugEnabled(runtime)) {
+        return (ALLOCATOR_DEBUG(runtime).obj.alloc.malloc == _PyObject_MiMalloc);
     }
     else {
-        return (ALLOCATOR_OBJ(&_PyRuntime).malloc == _PyObject_MiMalloc);
+        return (ALLOCATOR_OBJ(runtime).malloc == _PyObject_MiMalloc);
     }
 #endif
 }
@@ -789,77 +795,79 @@ _PyMem_MimallocEnabled(void)
 
 
 static void
-set_up_debug_hooks_domain_unlocked(PyMemAllocatorDomain domain)
+set_up_debug_hooks_domain_unlocked(_PyRuntimeState *runtime,
+                                   PyMemAllocatorDomain domain)
 {
     PyMemAllocatorEx alloc;
 
     if (domain == PYMEM_DOMAIN_RAW) {
-        if (ALLOCATOR_RAW(&_PyRuntime).malloc == _PyMem_DebugRawMalloc) {
+        if (ALLOCATOR_RAW(runtime).malloc == _PyMem_DebugRawMalloc) {
             return;
         }
 
-        get_allocator_unlocked(domain, &ALLOCATOR_DEBUG(&_PyRuntime).raw.alloc);
-        alloc.ctx = &ALLOCATOR_DEBUG(&_PyRuntime).raw;
+        get_allocator_unlocked(runtime, domain, &ALLOCATOR_DEBUG(runtime).raw.alloc);
+        alloc.ctx = &ALLOCATOR_DEBUG(runtime).raw;
         alloc.malloc = _PyMem_DebugRawMalloc;
         alloc.calloc = _PyMem_DebugRawCalloc;
         alloc.realloc = _PyMem_DebugRawRealloc;
         alloc.free = _PyMem_DebugRawFree;
-        set_allocator_unlocked(domain, &alloc);
+        set_allocator_unlocked(runtime, domain, &alloc);
     }
     else if (domain == PYMEM_DOMAIN_MEM) {
-        if (ALLOCATOR_MEM(&_PyRuntime).malloc == _PyMem_DebugMalloc) {
+        if (ALLOCATOR_MEM(runtime).malloc == _PyMem_DebugMalloc) {
             return;
         }
 
-        get_allocator_unlocked(domain, &ALLOCATOR_DEBUG(&_PyRuntime).mem.alloc);
-        alloc.ctx = &ALLOCATOR_DEBUG(&_PyRuntime).mem;
+        get_allocator_unlocked(runtime, domain, &ALLOCATOR_DEBUG(runtime).mem.alloc);
+        alloc.ctx = &ALLOCATOR_DEBUG(runtime).mem;
         alloc.malloc = _PyMem_DebugMalloc;
         alloc.calloc = _PyMem_DebugCalloc;
         alloc.realloc = _PyMem_DebugRealloc;
         alloc.free = _PyMem_DebugFree;
-        set_allocator_unlocked(domain, &alloc);
+        set_allocator_unlocked(runtime, domain, &alloc);
     }
     else if (domain == PYMEM_DOMAIN_OBJ)  {
-        if (ALLOCATOR_OBJ(&_PyRuntime).malloc == _PyMem_DebugMalloc) {
+        if (ALLOCATOR_OBJ(runtime).malloc == _PyMem_DebugMalloc) {
             return;
         }
 
-        get_allocator_unlocked(domain, &ALLOCATOR_DEBUG(&_PyRuntime).obj.alloc);
-        alloc.ctx = &ALLOCATOR_DEBUG(&_PyRuntime).obj;
+        get_allocator_unlocked(runtime, domain, &ALLOCATOR_DEBUG(runtime).obj.alloc);
+        alloc.ctx = &ALLOCATOR_DEBUG(runtime).obj;
         alloc.malloc = _PyMem_DebugMalloc;
         alloc.calloc = _PyMem_DebugCalloc;
         alloc.realloc = _PyMem_DebugRealloc;
         alloc.free = _PyMem_DebugFree;
-        set_allocator_unlocked(domain, &alloc);
+        set_allocator_unlocked(runtime, domain, &alloc);
     }
 }
 
 
 static void
-set_up_debug_hooks_unlocked(void)
+set_up_debug_hooks_unlocked(_PyRuntimeState *runtime)
 {
-    set_up_debug_hooks_domain_unlocked(PYMEM_DOMAIN_RAW);
-    set_up_debug_hooks_domain_unlocked(PYMEM_DOMAIN_MEM);
-    set_up_debug_hooks_domain_unlocked(PYMEM_DOMAIN_OBJ);
-    _PyRuntime.allocators.is_debug_enabled = 1;
+    set_up_debug_hooks_domain_unlocked(runtime, PYMEM_DOMAIN_RAW);
+    set_up_debug_hooks_domain_unlocked(runtime, PYMEM_DOMAIN_MEM);
+    set_up_debug_hooks_domain_unlocked(runtime, PYMEM_DOMAIN_OBJ);
+    runtime->allocators.is_debug_enabled = 1;
 }
 
 void
 PyMem_SetupDebugHooks(void)
 {
     ALLOCATORS_LOCK(&_PyRuntime);
-    set_up_debug_hooks_unlocked();
+    set_up_debug_hooks_unlocked(&_PyRuntime);
     ALLOCATORS_UNLOCK(&_PyRuntime);
 }
 
 static void
-get_allocator_unlocked(PyMemAllocatorDomain domain, PyMemAllocatorEx *allocator)
+get_allocator_unlocked(_PyRuntimeState *runtime, PyMemAllocatorDomain domain,
+                       PyMemAllocatorEx *allocator)
 {
     switch(domain)
     {
-    case PYMEM_DOMAIN_RAW: *allocator = ALLOCATOR_RAW(&_PyRuntime); break;
-    case PYMEM_DOMAIN_MEM: *allocator = ALLOCATOR_MEM(&_PyRuntime); break;
-    case PYMEM_DOMAIN_OBJ: *allocator = ALLOCATOR_OBJ(&_PyRuntime); break;
+    case PYMEM_DOMAIN_RAW: *allocator = ALLOCATOR_RAW(runtime); break;
+    case PYMEM_DOMAIN_MEM: *allocator = ALLOCATOR_MEM(runtime); break;
+    case PYMEM_DOMAIN_OBJ: *allocator = ALLOCATOR_OBJ(runtime); break;
     default:
         /* unknown domain: set all attributes to NULL */
         allocator->ctx = NULL;
@@ -871,13 +879,14 @@ get_allocator_unlocked(PyMemAllocatorDomain domain, PyMemAllocatorEx *allocator)
 }
 
 static void
-set_allocator_unlocked(PyMemAllocatorDomain domain, PyMemAllocatorEx *allocator)
+set_allocator_unlocked(_PyRuntimeState *runtime, PyMemAllocatorDomain domain,
+                       PyMemAllocatorEx *allocator)
 {
     switch(domain)
     {
-    case PYMEM_DOMAIN_RAW: ALLOCATOR_RAW(&_PyRuntime) = *allocator; break;
-    case PYMEM_DOMAIN_MEM: ALLOCATOR_MEM(&_PyRuntime) = *allocator; break;
-    case PYMEM_DOMAIN_OBJ: ALLOCATOR_OBJ(&_PyRuntime) = *allocator; break;
+    case PYMEM_DOMAIN_RAW: ALLOCATOR_RAW(runtime) = *allocator; break;
+    case PYMEM_DOMAIN_MEM: ALLOCATOR_MEM(runtime) = *allocator; break;
+    case PYMEM_DOMAIN_OBJ: ALLOCATOR_OBJ(runtime) = *allocator; break;
     /* ignore unknown domain */
     }
 }
@@ -886,7 +895,7 @@ void
 PyMem_GetAllocator(PyMemAllocatorDomain domain, PyMemAllocatorEx *allocator)
 {
     ALLOCATORS_LOCK(&_PyRuntime);
-    get_allocator_unlocked(domain, allocator);
+    get_allocator_unlocked(&_PyRuntime, domain, allocator);
     ALLOCATORS_UNLOCK(&_PyRuntime);
 }
 
@@ -894,7 +903,7 @@ void
 PyMem_SetAllocator(PyMemAllocatorDomain domain, PyMemAllocatorEx *allocator)
 {
     ALLOCATORS_LOCK(&_PyRuntime);
-    set_allocator_unlocked(domain, allocator);
+    set_allocator_unlocked(&_PyRuntime, domain, allocator);
     ALLOCATORS_UNLOCK(&_PyRuntime);
 }
 
@@ -1481,7 +1490,7 @@ Py_ssize_t
 _PyInterpreterState_GetAllocatedBlocks(PyInterpreterState *interp)
 {
 #ifdef WITH_MIMALLOC
-    if (_PyMem_MimallocEnabled()) {
+    if (_PyMem_MimallocEnabled(interp->runtime)) {
         return get_mimalloc_allocated_blocks(interp);
     }
 #endif
@@ -1526,7 +1535,7 @@ void
 _PyInterpreterState_FinalizeAllocatedBlocks(PyInterpreterState *interp)
 {
 #ifdef WITH_MIMALLOC
-    if (_PyMem_MimallocEnabled()) {
+    if (_PyMem_MimallocEnabled(interp->runtime)) {
         Py_ssize_t leaked = _PyInterpreterState_GetAllocatedBlocks(interp);
         interp->runtime->obmalloc.interpreter_leaks += leaked;
         return;
@@ -1585,7 +1594,7 @@ get_num_global_allocated_blocks(_PyRuntimeState *runtime)
         }
     }
     else {
-        _PyEval_StopTheWorldAll(&_PyRuntime);
+        _PyEval_StopTheWorldAll(runtime);
         HEAD_LOCK(runtime);
         PyInterpreterState *interp = PyInterpreterState_Head();
         assert(interp != NULL);
@@ -1605,7 +1614,7 @@ get_num_global_allocated_blocks(_PyRuntimeState *runtime)
             }
         }
         HEAD_UNLOCK(runtime);
-        _PyEval_StartTheWorldAll(&_PyRuntime);
+        _PyEval_StartTheWorldAll(runtime);
 #ifdef Py_DEBUG
         assert(got_main);
 #endif
@@ -3494,13 +3503,13 @@ int
 _PyObject_DebugMallocStats(FILE *out)
 {
 #ifdef WITH_MIMALLOC
-    if (_PyMem_MimallocEnabled()) {
+    if (_PyMem_MimallocEnabled(&_PyRuntime)) {
         py_mimalloc_print_stats(out);
         return 1;
     }
     else
 #endif
-    if (_PyMem_PymallocEnabled()) {
+    if (_PyMem_PymallocEnabled(&_PyRuntime)) {
         pymalloc_print_stats(out);
         return 1;
     }

@@ -784,10 +784,11 @@ _PyWideStringList_AsTuple(const PyWideStringList *list)
 void
 _Py_ClearArgcArgv(void)
 {
+    _PyRuntimeState *runtime = &_PyRuntime;
     PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+    _PyMem_SetDefaultAllocator(runtime, PYMEM_DOMAIN_RAW, &old_alloc);
 
-    _PyWideStringList_Clear(&_PyRuntime.orig_argv);
+    _PyWideStringList_Clear(&runtime->orig_argv);
 
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
 }
@@ -799,12 +800,13 @@ _Py_SetArgcArgv(Py_ssize_t argc, wchar_t * const *argv)
     const PyWideStringList argv_list = {.length = argc, .items = (wchar_t **)argv};
     int res;
 
+    _PyRuntimeState *runtime = &_PyRuntime;
     PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+    _PyMem_SetDefaultAllocator(runtime, PYMEM_DOMAIN_RAW, &old_alloc);
 
     // XXX _PyRuntime.orig_argv only gets cleared by Py_Main(),
     // so it currently leaks for embedders.
-    res = _PyWideStringList_Copy(&_PyRuntime.orig_argv, &argv_list);
+    res = _PyWideStringList_Copy(&runtime->orig_argv, &argv_list);
 
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
     return res;

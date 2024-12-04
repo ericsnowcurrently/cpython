@@ -5,6 +5,7 @@
 #include "pycore_fileutils.h"     // _Py_wgetcwd()
 #include "pycore_pathconfig.h"
 #include "pycore_pymem.h"         // _PyMem_SetDefaultAllocator()
+#include "pycore_runtime.h"       // _PyRuntimeState
 #include <wchar.h>
 
 #include "marshal.h"              // PyMarshal_ReadObjectFromString
@@ -54,8 +55,9 @@ _PyPathConfig_GetGlobalModuleSearchPath(void)
 void
 _PyPathConfig_ClearGlobal(void)
 {
+    _PyRuntimeState *runtime = &_PyRuntime;
     PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+    _PyMem_SetDefaultAllocator(runtime, PYMEM_DOMAIN_RAW, &old_alloc);
 
 #define CLEAR(ATTR) \
     do { \
@@ -126,8 +128,9 @@ done:
 PyStatus
 _PyPathConfig_UpdateGlobal(const PyConfig *config)
 {
+    _PyRuntimeState *runtime = &_PyRuntime;
     PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+    _PyMem_SetDefaultAllocator(runtime, PYMEM_DOMAIN_RAW, &old_alloc);
 
 #define COPY(ATTR) \
     do { \
@@ -218,8 +221,9 @@ Py_SetPath(const wchar_t *path)
         return;
     }
 
+    _PyRuntimeState *runtime = &_PyRuntime;
     PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+    _PyMem_SetDefaultAllocator(runtime, PYMEM_DOMAIN_RAW, &old_alloc);
 
     PyMem_RawFree(_Py_path_config.prefix);
     PyMem_RawFree(_Py_path_config.exec_prefix);
@@ -256,8 +260,9 @@ Py_SetPythonHome(const wchar_t *home)
 {
     int has_value = home && home[0];
 
+    _PyRuntimeState *runtime = &_PyRuntime;
     PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+    _PyMem_SetDefaultAllocator(runtime, PYMEM_DOMAIN_RAW, &old_alloc);
 
     PyMem_RawFree(_Py_path_config.home);
     _Py_path_config.home = NULL;
@@ -279,8 +284,9 @@ Py_SetProgramName(const wchar_t *program_name)
 {
     int has_value = program_name && program_name[0];
 
+    _PyRuntimeState *runtime = &_PyRuntime;
     PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+    _PyMem_SetDefaultAllocator(runtime, PYMEM_DOMAIN_RAW, &old_alloc);
 
     PyMem_RawFree(_Py_path_config.program_name);
     _Py_path_config.program_name = NULL;

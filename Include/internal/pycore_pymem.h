@@ -12,10 +12,13 @@ extern "C" {
 #  error "this header requires Py_BUILD_CORE define"
 #endif
 
+// forward declaration (see pycore_runtime.h)
+struct pyruntimestate;
+
 // Try to get the allocators name set by _PyMem_SetupAllocators().
 // Return NULL if unknown.
 // Export for '_testinternalcapi' shared extension.
-PyAPI_FUNC(const char*) _PyMem_GetCurrentAllocatorName(void);
+PyAPI_FUNC(const char*) _PyMem_GetCurrentAllocatorName(struct pyruntimestate *);
 
 // strdup() using PyMem_RawMalloc()
 extern char* _PyMem_RawStrdup(const char *str);
@@ -59,6 +62,7 @@ struct _Py_mem_interp_free_queue {
    Save the old allocator into *old_alloc if it's non-NULL.
    Return on success, or return -1 if the domain is unknown. */
 extern int _PyMem_SetDefaultAllocator(
+    struct pyruntimestate *runtime,
     PyMemAllocatorDomain domain,
     PyMemAllocatorEx *old_alloc);
 
@@ -111,10 +115,12 @@ extern int _PyMem_GetAllocatorName(
 /* Configure the Python memory allocators.
    Pass PYMEM_ALLOCATOR_DEFAULT to use default allocators.
    PYMEM_ALLOCATOR_NOT_SET does nothing. */
-extern int _PyMem_SetupAllocators(PyMemAllocatorName allocator);
+extern int _PyMem_SetupAllocators(
+    struct pyruntimestate *runtime,
+    PyMemAllocatorName allocator);
 
 /* Is the debug allocator enabled? */
-extern int _PyMem_DebugEnabled(void);
+extern int _PyMem_DebugEnabled(struct pyruntimestate *runtime);
 
 // Enqueue a pointer to be freed possibly after some delay.
 extern void _PyMem_FreeDelayed(void *ptr);

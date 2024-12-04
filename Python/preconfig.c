@@ -952,7 +952,7 @@ _PyPreConfig_Write(const PyPreConfig *src_config)
 
     PyMemAllocatorName name = (PyMemAllocatorName)config.allocator;
     if (name != PYMEM_ALLOCATOR_NOT_SET) {
-        if (_PyMem_SetupAllocators(name) < 0) {
+        if (_PyMem_SetupAllocators(&_PyRuntime, name) < 0) {
             return _PyStatus_ERR("Unknown PYTHONMALLOC allocator");
         }
     }

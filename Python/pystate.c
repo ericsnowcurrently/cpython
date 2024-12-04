@@ -3025,7 +3025,7 @@ tstate_mimalloc_bind(PyThreadState *tstate)
     // access ob_tid and the refcount fields in the dict and list lock-less
     // accesses, so they must remain valid for a while after deallocation.
     size_t base_offset = offsetof(PyObject, ob_type);
-    if (_PyMem_DebugEnabled()) {
+    if (_PyMem_DebugEnabled(tstate->interp->runtime)) {
         // The debug allocator adds two words at the beginning of each block.
         base_offset += 2 * sizeof(size_t);
     }

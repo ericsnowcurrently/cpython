@@ -2686,8 +2686,9 @@ _alloc_preinit_entry(const wchar_t *value)
     /* Force default allocator, so we can ensure that it also gets used to
      * destroy the linked list in _clear_preinit_entries.
      */
+    _PyRuntimeState *runtime = &_PyRuntime;
     PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+    _PyMem_SetDefaultAllocator(runtime, PYMEM_DOMAIN_RAW, &old_alloc);
 
     _Py_PreInitEntry node = PyMem_RawCalloc(1, sizeof(*node));
     if (node != NULL) {
@@ -2730,8 +2731,9 @@ _clear_preinit_entries(_Py_PreInitEntry *optionlist)
     _Py_PreInitEntry current = *optionlist;
     *optionlist = NULL;
     /* Deallocate the nodes and their contents using the default allocator */
+    _PyRuntimeState *runtime = &_PyRuntime;
     PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+    _PyMem_SetDefaultAllocator(runtime, PYMEM_DOMAIN_RAW, &old_alloc);
     while (current != NULL) {
         _Py_PreInitEntry next = current->next;
         PyMem_RawFree(current->value);

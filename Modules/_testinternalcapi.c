@@ -1343,7 +1343,8 @@ check_pyobject_freed_is_freed(PyObject *self, PyObject *Py_UNUSED(args))
 static PyObject *
 test_pymem_getallocatorsname(PyObject *self, PyObject *args)
 {
-    const char *name = _PyMem_GetCurrentAllocatorName();
+    PyInterpreterState *interp = PyInterpreterState_Get();
+    const char *name = _PyMem_GetCurrentAllocatorName(interp->runtime);
     if (name == NULL) {
         PyErr_SetString(PyExc_RuntimeError, "cannot get allocators name");
         return NULL;

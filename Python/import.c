@@ -2365,6 +2365,7 @@ finally:
 int
 PyImport_ExtendInittab(struct _inittab *newtab)
 {
+    _PyRuntimeState *runtime = &_PyRuntime;
     struct _inittab *p;
     size_t i, n;
     int res = 0;
@@ -2384,7 +2385,7 @@ PyImport_ExtendInittab(struct _inittab *newtab)
     /* Force default raw memory allocator to get a known allocator to be able
        to release the memory in _PyImport_Fini2() */
     PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+    _PyMem_SetDefaultAllocator(runtime, PYMEM_DOMAIN_RAW, &old_alloc);
 
     /* Allocate new memory for the combined table */
     p = NULL;
@@ -3975,11 +3976,12 @@ _PyImport_Init(void)
     }
 
     PyStatus status = _PyStatus_OK();
+    _PyRuntimeState *runtime = &_PyRuntime;
 
     /* Force default raw memory allocator to get a known allocator to be able
        to release the memory in _PyImport_Fini() */
     PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+    _PyMem_SetDefaultAllocator(runtime, PYMEM_DOMAIN_RAW, &old_alloc);
 
     if (init_builtin_modules_table() != 0) {
         status = PyStatus_NoMemory();
@@ -3994,6 +3996,7 @@ done:
 void
 _PyImport_Fini(void)
 {
+    _PyRuntimeState *runtime = &_PyRuntime;
     /* Destroy the database used by _PyImport_{Fixup,Find}Extension */
     // XXX Should we actually leave them (mostly) intact, since we don't
     // ever dlclose() the module files?
@@ -4001,7 +4004,7 @@ _PyImport_Fini(void)
 
     /* Use the same memory allocator as _PyImport_Init(). */
     PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+    _PyMem_SetDefaultAllocator(runtime, PYMEM_DOMAIN_RAW, &old_alloc);
 
     /* Free memory allocated by _PyImport_Init() */
     fini_builtin_modules_table();
@@ -4012,9 +4015,10 @@ _PyImport_Fini(void)
 void
 _PyImport_Fini2(void)
 {
+    _PyRuntimeState *runtime = &_PyRuntime;
     /* Use the same memory allocator than PyImport_ExtendInittab(). */
     PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+    _PyMem_SetDefaultAllocator(runtime, PYMEM_DOMAIN_RAW, &old_alloc);
 
     // Reset PyImport_Inittab
     PyImport_Inittab = _PyImport_Inittab;
