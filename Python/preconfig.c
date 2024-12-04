@@ -925,7 +925,7 @@ done:
 }
 
 
-/* Write the pre-configuration:
+/* Apply the pre-configuration:
 
    - set the memory allocators
    - set Py_xxx global configuration variables
@@ -938,7 +938,7 @@ done:
    Do nothing if called after Py_Initialize(): ignore the new
    pre-configuration. */
 PyStatus
-_PyPreConfig_Write(const PyPreConfig *src_config, _PyRuntimeState *runtime)
+_PyPreConfig_Apply(const PyPreConfig *src_config, _PyRuntimeState *runtime)
 {
     PyPreConfig config;
 

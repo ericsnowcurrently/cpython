@@ -993,7 +993,7 @@ _Py_PreInitializeFromPyArgv(const PyPreConfig *src_config, const _PyArgv *args)
         return status;
     }
 
-    status = _PyPreConfig_Write(&config, runtime);
+    status = _PyPreConfig_Apply(&config, runtime);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }

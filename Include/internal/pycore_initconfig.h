@@ -144,7 +144,7 @@ extern PyStatus _PyPreConfig_Read(
     PyPreConfig *preconfig,
     const _PyArgv *args,
     struct pyruntimestate *runtime);
-extern PyStatus _PyPreConfig_Write(
+extern PyStatus _PyPreConfig_Apply(
     const PyPreConfig *preconfig,
     struct pyruntimestate *runtime);
 
