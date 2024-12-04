@@ -424,7 +424,8 @@ init_runtime(_PyRuntimeState *runtime,
     runtime->open_code_userdata = open_code_userdata;
     runtime->audit_hooks.head = audit_hook_head;
 
-    PyPreConfig_InitPythonConfig(&runtime->preconfig);
+    PyPreConfig_InitPythonConfig(&runtime->_preconfig);
+    runtime->preconfig = &runtime->_preconfig;
 
     // Set it to the ID of the main thread of the main interpreter.
     runtime->main_thread = PyThread_get_thread_ident();

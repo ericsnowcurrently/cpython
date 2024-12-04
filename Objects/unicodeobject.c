@@ -3822,7 +3822,7 @@ PyUnicode_EncodeLocale(PyObject *unicode, const char *errors)
     _Py_error_handler error_handler = _Py_GetErrorHandler(errors);
     _PyRuntimeState *runtime = PyInterpreterState_Get()->runtime;
     _Py_encoding_options opts;
-    _Py_encoding_options_from_config(&runtime->preconfig, &opts);
+    _Py_encoding_options_from_config(runtime->preconfig, &opts);
     return unicode_encode_locale(unicode, error_handler, 1, &opts);
 }
 
@@ -3856,7 +3856,7 @@ PyUnicode_EncodeFSDefault(PyObject *unicode)
         return unicode_encode_utf8(unicode, errors, NULL);
 #else
         _Py_encoding_options opts;
-        _Py_encoding_options_from_config(&interp->runtime->preconfig, &opts);
+        _Py_encoding_options_from_config(interp->runtime->preconfig, &opts);
         return unicode_encode_locale(unicode, errors, 0, &opts);
 #endif
     }
@@ -4012,7 +4012,7 @@ unicode_decode_locale(const char *str, Py_ssize_t len,
 
     PyInterpreterState *interp = _PyInterpreterState_GET();
     _Py_encoding_options opts;
-    _Py_encoding_options_from_config(&interp->runtime->preconfig, &opts);
+    _Py_encoding_options_from_config(interp->runtime->preconfig, &opts);
 
     wchar_t *wstr;
     size_t wlen;

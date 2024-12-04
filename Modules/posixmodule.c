@@ -14689,7 +14689,7 @@ os_device_encoding_impl(PyObject *module, int fd)
 {
     _PyRuntimeState *runtime = PyInterpreterState_Get()->runtime;
     _Py_encoding_options opts;
-    _Py_encoding_options_from_config(&runtime->preconfig, &opts);
+    _Py_encoding_options_from_config(runtime->preconfig, &opts);
     return _Py_device_encoding(fd, &opts);
 }
 

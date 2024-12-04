@@ -1075,7 +1075,7 @@ static void set_all_global_config_variables(void)
 static int check_preinit_isolated_config(int preinit)
 {
     PyStatus status;
-    PyPreConfig *rt_preconfig;
+    const PyPreConfig *rt_preconfig;
 
     /* environment variables must be ignored */
     set_all_env_vars();
@@ -1092,7 +1092,7 @@ static int check_preinit_isolated_config(int preinit)
             Py_ExitStatusException(status);
         }
 
-        rt_preconfig = &_PyRuntime.preconfig;
+        rt_preconfig = _PyRuntime.preconfig;
         assert(rt_preconfig->isolated == 1);
         assert(rt_preconfig->use_environment == 0);
     }
@@ -1103,7 +1103,7 @@ static int check_preinit_isolated_config(int preinit)
     config_set_program_name(&config);
     init_from_config_clear(&config);
 
-    rt_preconfig = &_PyRuntime.preconfig;
+    rt_preconfig = _PyRuntime.preconfig;
     assert(rt_preconfig->isolated == 1);
     assert(rt_preconfig->use_environment == 0);
 

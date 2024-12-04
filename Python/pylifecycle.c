@@ -221,7 +221,7 @@ static const char *_C_LOCALE_WARNING =
 static void
 emit_stderr_warning_for_legacy_locale(_PyRuntimeState *runtime)
 {
-    const PyPreConfig *preconfig = &runtime->preconfig;
+    const PyPreConfig *preconfig = runtime->preconfig;
     if (preconfig->coerce_c_locale_warn && _Py_LegacyLocaleDetected(1)) {
         PySys_FormatStderr("%s", _C_LOCALE_WARNING);
     }
@@ -430,7 +430,7 @@ _PyInterpreterState_SetConfig(const PyConfig *src_config)
     PyThreadState *tstate = _PyThreadState_GET();
     PyInterpreterState *interp = tstate->interp;
     _PyRuntimeState *runtime = interp->runtime;
-    const PyPreConfig *preconfig = &runtime->preconfig;
+    const PyPreConfig *preconfig = runtime->preconfig;
     int res = -1;
 
     PyConfig config;
@@ -1103,7 +1103,7 @@ pyinit_core(_PyRuntimeState *runtime,
 
     // Read the configuration, but don't compute the path configuration
     // (it is computed in the main init).
-    const PyPreConfig *preconfig = &runtime->preconfig;
+    const PyPreConfig *preconfig = runtime->preconfig;
     status = _PyConfig_Read(&config, preconfig, 0);
     if (_PyStatus_EXCEPTION(status)) {
         goto done;

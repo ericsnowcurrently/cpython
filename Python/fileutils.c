@@ -680,7 +680,7 @@ Py_DecodeLocale(const char* arg, size_t *wlen)
 {
     _PyRuntimeState *runtime = &_PyRuntime;
     _Py_encoding_options opts;
-    _Py_encoding_options_from_config(&runtime->preconfig, &opts);
+    _Py_encoding_options_from_config(runtime->preconfig, &opts);
 
     wchar_t *wstr;
     int res = _Py_DecodeLocaleEx(arg, &wstr, wlen,
@@ -888,7 +888,7 @@ Py_EncodeLocale(const wchar_t *text, size_t *error_pos)
 {
     _PyRuntimeState *runtime = &_PyRuntime;
     _Py_encoding_options opts;
-    _Py_encoding_options_from_config(&runtime->preconfig, &opts);
+    _Py_encoding_options_from_config(runtime->preconfig, &opts);
     return encode_locale(text, error_pos, 0, 0, &opts);
 }
 
@@ -1369,7 +1369,7 @@ _Py_wstat(const wchar_t* path, struct stat *buf)
 
     _PyRuntimeState *runtime = &_PyRuntime;
     _Py_encoding_options opts;
-    _Py_encoding_options_from_config(&runtime->preconfig, &opts);
+    _Py_encoding_options_from_config(runtime->preconfig, &opts);
 
     char *fname;
     fname = _Py_EncodeLocaleRaw(path, NULL, &opts);
@@ -1763,7 +1763,7 @@ _Py_wfopen(const wchar_t *path, const wchar_t *mode)
 
     _PyRuntimeState *runtime = &_PyRuntime;
     _Py_encoding_options opts;
-    _Py_encoding_options_from_config(&runtime->preconfig, &opts);
+    _Py_encoding_options_from_config(runtime->preconfig, &opts);
 
     cpath = _Py_EncodeLocaleRaw(path, NULL, &opts);
     if (cpath == NULL) {
@@ -2106,7 +2106,7 @@ _Py_wreadlink(const wchar_t *path, wchar_t *buf, size_t buflen)
 
     _PyRuntimeState *runtime = &_PyRuntime;
     _Py_encoding_options opts;
-    _Py_encoding_options_from_config(&runtime->preconfig, &opts);
+    _Py_encoding_options_from_config(runtime->preconfig, &opts);
 
     cpath = _Py_EncodeLocaleRaw(path, NULL, &opts);
     if (cpath == NULL) {
@@ -2159,7 +2159,7 @@ _Py_wrealpath(const wchar_t *path,
 
     _PyRuntimeState *runtime = &_PyRuntime;
     _Py_encoding_options opts;
-    _Py_encoding_options_from_config(&runtime->preconfig, &opts);
+    _Py_encoding_options_from_config(runtime->preconfig, &opts);
 
     cpath = _Py_EncodeLocaleRaw(path, NULL, &opts);
     if (cpath == NULL) {

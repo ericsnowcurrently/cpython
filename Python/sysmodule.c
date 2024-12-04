@@ -3158,7 +3158,7 @@ _PySys_SetFlagInt(Py_ssize_t pos, int value)
 static int
 set_flags_from_config(PyInterpreterState *interp, PyObject *flags)
 {
-    const PyPreConfig *preconfig = &interp->runtime->preconfig;
+    const PyPreConfig *preconfig = interp->runtime->preconfig;
     const PyConfig *config = _PyInterpreterState_GetConfig(interp);
 
     // _PySys_UpdateConfig() modifies sys.flags in-place:

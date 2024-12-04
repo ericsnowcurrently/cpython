@@ -833,7 +833,7 @@ _PyPreConfig_Read(PyPreConfig *config, const _PyArgv *args,
     }
 
     PyPreConfig save_runtime_config;
-    preconfig_copy(&save_runtime_config, &runtime->preconfig);
+    preconfig_copy(&save_runtime_config, runtime->preconfig);
 
     _PyPreCmdline cmdline = _PyPreCmdline_INIT;
     int locale_coerced = 0;
@@ -853,7 +853,7 @@ _PyPreConfig_Read(PyPreConfig *config, const _PyArgv *args,
         /* bpo-34207: Py_DecodeLocale() and Py_EncodeLocale() depend
            on the utf8_mode and legacy_windows_fs_encoding members
            of _PyRuntime.preconfig. */
-        preconfig_copy(&runtime->preconfig, config);
+        preconfig_copy(&runtime->_preconfig, config);
 
         if (args) {
             // Set command line arguments at each iteration. If they are bytes
@@ -919,7 +919,7 @@ done:
     // Revert side effects
     setlocale(LC_CTYPE, init_ctype_locale);
     PyMem_RawFree(init_ctype_locale);
-    preconfig_copy(&runtime->preconfig, &save_runtime_config);
+    preconfig_copy(&runtime->_preconfig, &save_runtime_config);
     _PyPreCmdline_Clear(&cmdline);
     return status;
 }
@@ -975,7 +975,7 @@ _PyPreConfig_Apply(const PyPreConfig *src_config, _PyRuntimeState *runtime)
     }
 
     /* Write the new pre-configuration into _PyRuntime */
-    preconfig_copy(&runtime->preconfig, &config);
+    preconfig_copy(&runtime->_preconfig, &config);
 
     return _PyStatus_OK();
 }

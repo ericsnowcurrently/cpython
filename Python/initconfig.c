@@ -2682,7 +2682,7 @@ _PyConfig_Apply(const PyConfig *config, _PyRuntimeState *runtime)
     }
 
     /* Write the new pre-configuration into _PyRuntime */
-    PyPreConfig *preconfig = &runtime->preconfig;
+    PyPreConfig *preconfig = &runtime->_preconfig;
     preconfig->isolated = config->isolated;
     preconfig->use_environment = config->use_environment;
     preconfig->dev_mode = config->dev_mode;
@@ -3416,7 +3416,7 @@ done:
 PyStatus
 PyConfig_Read(PyConfig *config)
 {
-    return _PyConfig_Read(config, &_PyRuntime.preconfig, 0);
+    return _PyConfig_Read(config, _PyRuntime.preconfig, 0);
 }
 
 
@@ -3443,7 +3443,7 @@ _Py_GetConfigsAsDict(void)
 
     /* pre config */
     PyInterpreterState *interp = _PyInterpreterState_GET();
-    const PyPreConfig *pre_config = &interp->runtime->preconfig;
+    const PyPreConfig *pre_config = interp->runtime->preconfig;
     dict = _PyPreConfig_AsDict(pre_config);
     if (dict == NULL) {
         goto error;
@@ -4324,7 +4324,7 @@ PyConfig_Get(const char *name)
     spec = pypreconfig_find_spec(name);
     if (spec != NULL) {
         PyInterpreterState *interp = _PyInterpreterState_GET();
-        const PyPreConfig *preconfig = &interp->runtime->preconfig;
+        const PyPreConfig *preconfig = interp->runtime->preconfig;
         return preconfig_get(preconfig, spec);
     }
 

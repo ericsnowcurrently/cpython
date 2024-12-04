@@ -1148,7 +1148,7 @@ _io_TextIOWrapper___init___impl(textio *self, PyObject *buffer,
     self->encodefunc = NULL;
     self->b2cratio = 0.0;
 
-    if (encoding == NULL && _PyRuntime.preconfig.utf8_mode) {
+    if (encoding == NULL && _PyRuntime.preconfig->utf8_mode) {
         _Py_DECLARE_STR(utf_8, "utf-8");
         self->encoding = &_Py_STR(utf_8);
     }

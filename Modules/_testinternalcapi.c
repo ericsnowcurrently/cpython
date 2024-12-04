@@ -600,7 +600,7 @@ encode_locale_ex(PyObject *self, PyObject *args)
 
     PyInterpreterState *interp = PyInterpreterState_Get();
     _Py_encoding_options opts;
-    _Py_encoding_options_from_config(&interp->runtime->preconfig, &opts);
+    _Py_encoding_options_from_config(interp->runtime->preconfig, &opts);
 
     char *str = NULL;
     size_t error_pos;
@@ -648,7 +648,7 @@ decode_locale_ex(PyObject *self, PyObject *args)
 
     PyInterpreterState *interp = PyInterpreterState_Get();
     _Py_encoding_options opts;
-    _Py_encoding_options_from_config(&interp->runtime->preconfig, &opts);
+    _Py_encoding_options_from_config(interp->runtime->preconfig, &opts);
 
     wchar_t *wstr = NULL;
     size_t wlen = 0;
