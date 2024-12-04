@@ -453,6 +453,17 @@ _PyMem_ArenaFree(void *Py_UNUSED(ctx), void *ptr,
 #define ALLOCATORS_UNLOCK(runtime) \
     PyMutex_Unlock(&(runtime)->allocators.mutex)
 
+#define ALLOCATOR_RAW(runtime) \
+    ((runtime)->allocators.standard.raw)
+#define ALLOCATOR_MEM(runtime) \
+    ((runtime)->allocators.standard.mem)
+#define ALLOCATOR_OBJ(runtime) \
+    ((runtime)->allocators.standard.obj)
+#define ALLOCATOR_DEBUG(runtime) \
+    ((runtime)->allocators.debug)
+#define ALLOCATOR_ARENA(runtime) \
+    ((runtime)->allocators.obj_arena)
+
 
 /***************************/
 /* managing the allocators */
@@ -671,24 +682,24 @@ get_current_allocator_name_unlocked(void)
     PyMemAllocatorEx mimalloc_obj = MIMALLOC_OBJALLOC;
 #endif
 
-    if (pymemallocator_eq(&_PyMem_Raw, &malloc_alloc) &&
-        pymemallocator_eq(&_PyMem, &malloc_alloc) &&
-        pymemallocator_eq(&_PyObject, &malloc_alloc))
+    if (pymemallocator_eq(&ALLOCATOR_RAW(&_PyRuntime), &malloc_alloc) &&
+        pymemallocator_eq(&ALLOCATOR_MEM(&_PyRuntime), &malloc_alloc) &&
+        pymemallocator_eq(&ALLOCATOR_OBJ(&_PyRuntime), &malloc_alloc))
     {
         return "malloc";
     }
 #ifdef WITH_PYMALLOC
-    if (pymemallocator_eq(&_PyMem_Raw, &malloc_alloc) &&
-        pymemallocator_eq(&_PyMem, &pymalloc) &&
-        pymemallocator_eq(&_PyObject, &pymalloc))
+    if (pymemallocator_eq(&ALLOCATOR_RAW(&_PyRuntime), &malloc_alloc) &&
+        pymemallocator_eq(&ALLOCATOR_MEM(&_PyRuntime), &pymalloc) &&
+        pymemallocator_eq(&ALLOCATOR_OBJ(&_PyRuntime), &pymalloc))
     {
         return "pymalloc";
     }
 #endif
 #ifdef WITH_MIMALLOC
-    if (pymemallocator_eq(&_PyMem_Raw, &malloc_alloc) &&
-        pymemallocator_eq(&_PyMem, &mimalloc) &&
-        pymemallocator_eq(&_PyObject, &mimalloc_obj))
+    if (pymemallocator_eq(&ALLOCATOR_RAW(&_PyRuntime), &malloc_alloc) &&
+        pymemallocator_eq(&ALLOCATOR_MEM(&_PyRuntime), &mimalloc) &&
+        pymemallocator_eq(&ALLOCATOR_OBJ(&_PyRuntime), &mimalloc_obj))
     {
         return "mimalloc";
     }
@@ -698,29 +709,29 @@ get_current_allocator_name_unlocked(void)
     PyMemAllocatorEx dbg_mem = PYDBGMEM_ALLOC;
     PyMemAllocatorEx dbg_obj = PYDBGOBJ_ALLOC;
 
-    if (pymemallocator_eq(&_PyMem_Raw, &dbg_raw) &&
-        pymemallocator_eq(&_PyMem, &dbg_mem) &&
-        pymemallocator_eq(&_PyObject, &dbg_obj))
+    if (pymemallocator_eq(&ALLOCATOR_RAW(&_PyRuntime), &dbg_raw) &&
+        pymemallocator_eq(&ALLOCATOR_MEM(&_PyRuntime), &dbg_mem) &&
+        pymemallocator_eq(&ALLOCATOR_OBJ(&_PyRuntime), &dbg_obj))
     {
         /* Debug hooks installed */
-        if (pymemallocator_eq(&_PyMem_Debug.raw.alloc, &malloc_alloc) &&
-            pymemallocator_eq(&_PyMem_Debug.mem.alloc, &malloc_alloc) &&
-            pymemallocator_eq(&_PyMem_Debug.obj.alloc, &malloc_alloc))
+        if (pymemallocator_eq(&ALLOCATOR_DEBUG(&_PyRuntime).raw.alloc, &malloc_alloc) &&
+            pymemallocator_eq(&ALLOCATOR_DEBUG(&_PyRuntime).mem.alloc, &malloc_alloc) &&
+            pymemallocator_eq(&ALLOCATOR_DEBUG(&_PyRuntime).obj.alloc, &malloc_alloc))
         {
             return "malloc_debug";
         }
 #ifdef WITH_PYMALLOC
-        if (pymemallocator_eq(&_PyMem_Debug.raw.alloc, &malloc_alloc) &&
-            pymemallocator_eq(&_PyMem_Debug.mem.alloc, &pymalloc) &&
-            pymemallocator_eq(&_PyMem_Debug.obj.alloc, &pymalloc))
+        if (pymemallocator_eq(&ALLOCATOR_DEBUG(&_PyRuntime).raw.alloc, &malloc_alloc) &&
+            pymemallocator_eq(&ALLOCATOR_DEBUG(&_PyRuntime).mem.alloc, &pymalloc) &&
+            pymemallocator_eq(&ALLOCATOR_DEBUG(&_PyRuntime).obj.alloc, &pymalloc))
         {
             return "pymalloc_debug";
         }
 #endif
 #ifdef WITH_MIMALLOC
-        if (pymemallocator_eq(&_PyMem_Debug.raw.alloc, &malloc_alloc) &&
-            pymemallocator_eq(&_PyMem_Debug.mem.alloc, &mimalloc) &&
-            pymemallocator_eq(&_PyMem_Debug.obj.alloc, &mimalloc_obj))
+        if (pymemallocator_eq(&ALLOCATOR_DEBUG(&_PyRuntime).raw.alloc, &malloc_alloc) &&
+            pymemallocator_eq(&ALLOCATOR_DEBUG(&_PyRuntime).mem.alloc, &mimalloc) &&
+            pymemallocator_eq(&ALLOCATOR_DEBUG(&_PyRuntime).obj.alloc, &mimalloc_obj))
         {
             return "mimalloc_debug";
         }
@@ -750,10 +761,10 @@ static int
 _PyMem_PymallocEnabled(void)
 {
     if (_PyMem_DebugEnabled()) {
-        return (_PyMem_Debug.obj.alloc.malloc == _PyObject_Malloc);
+        return (ALLOCATOR_DEBUG(&_PyRuntime).obj.alloc.malloc == _PyObject_Malloc);
     }
     else {
-        return (_PyObject.malloc == _PyObject_Malloc);
+        return (ALLOCATOR_OBJ(&_PyRuntime).malloc == _PyObject_Malloc);
     }
 }
 
@@ -765,10 +776,10 @@ _PyMem_MimallocEnabled(void)
     return 1;
 #else
     if (_PyMem_DebugEnabled()) {
-        return (_PyMem_Debug.obj.alloc.malloc == _PyObject_MiMalloc);
+        return (ALLOCATOR_DEBUG(&_PyRuntime).obj.alloc.malloc == _PyObject_MiMalloc);
     }
     else {
-        return (_PyObject.malloc == _PyObject_MiMalloc);
+        return (ALLOCATOR_OBJ(&_PyRuntime).malloc == _PyObject_MiMalloc);
     }
 #endif
 }
@@ -783,12 +794,12 @@ set_up_debug_hooks_domain_unlocked(PyMemAllocatorDomain domain)
     PyMemAllocatorEx alloc;
 
     if (domain == PYMEM_DOMAIN_RAW) {
-        if (_PyMem_Raw.malloc == _PyMem_DebugRawMalloc) {
+        if (ALLOCATOR_RAW(&_PyRuntime).malloc == _PyMem_DebugRawMalloc) {
             return;
         }
 
-        get_allocator_unlocked(domain, &_PyMem_Debug.raw.alloc);
-        alloc.ctx = &_PyMem_Debug.raw;
+        get_allocator_unlocked(domain, &ALLOCATOR_DEBUG(&_PyRuntime).raw.alloc);
+        alloc.ctx = &ALLOCATOR_DEBUG(&_PyRuntime).raw;
         alloc.malloc = _PyMem_DebugRawMalloc;
         alloc.calloc = _PyMem_DebugRawCalloc;
         alloc.realloc = _PyMem_DebugRawRealloc;
@@ -796,12 +807,12 @@ set_up_debug_hooks_domain_unlocked(PyMemAllocatorDomain domain)
         set_allocator_unlocked(domain, &alloc);
     }
     else if (domain == PYMEM_DOMAIN_MEM) {
-        if (_PyMem.malloc == _PyMem_DebugMalloc) {
+        if (ALLOCATOR_MEM(&_PyRuntime).malloc == _PyMem_DebugMalloc) {
             return;
         }
 
-        get_allocator_unlocked(domain, &_PyMem_Debug.mem.alloc);
-        alloc.ctx = &_PyMem_Debug.mem;
+        get_allocator_unlocked(domain, &ALLOCATOR_DEBUG(&_PyRuntime).mem.alloc);
+        alloc.ctx = &ALLOCATOR_DEBUG(&_PyRuntime).mem;
         alloc.malloc = _PyMem_DebugMalloc;
         alloc.calloc = _PyMem_DebugCalloc;
         alloc.realloc = _PyMem_DebugRealloc;
@@ -809,12 +820,12 @@ set_up_debug_hooks_domain_unlocked(PyMemAllocatorDomain domain)
         set_allocator_unlocked(domain, &alloc);
     }
     else if (domain == PYMEM_DOMAIN_OBJ)  {
-        if (_PyObject.malloc == _PyMem_DebugMalloc) {
+        if (ALLOCATOR_OBJ(&_PyRuntime).malloc == _PyMem_DebugMalloc) {
             return;
         }
 
-        get_allocator_unlocked(domain, &_PyMem_Debug.obj.alloc);
-        alloc.ctx = &_PyMem_Debug.obj;
+        get_allocator_unlocked(domain, &ALLOCATOR_DEBUG(&_PyRuntime).obj.alloc);
+        alloc.ctx = &ALLOCATOR_DEBUG(&_PyRuntime).obj;
         alloc.malloc = _PyMem_DebugMalloc;
         alloc.calloc = _PyMem_DebugCalloc;
         alloc.realloc = _PyMem_DebugRealloc;
@@ -846,9 +857,9 @@ get_allocator_unlocked(PyMemAllocatorDomain domain, PyMemAllocatorEx *allocator)
 {
     switch(domain)
     {
-    case PYMEM_DOMAIN_RAW: *allocator = _PyMem_Raw; break;
-    case PYMEM_DOMAIN_MEM: *allocator = _PyMem; break;
-    case PYMEM_DOMAIN_OBJ: *allocator = _PyObject; break;
+    case PYMEM_DOMAIN_RAW: *allocator = ALLOCATOR_RAW(&_PyRuntime); break;
+    case PYMEM_DOMAIN_MEM: *allocator = ALLOCATOR_MEM(&_PyRuntime); break;
+    case PYMEM_DOMAIN_OBJ: *allocator = ALLOCATOR_OBJ(&_PyRuntime); break;
     default:
         /* unknown domain: set all attributes to NULL */
         allocator->ctx = NULL;
@@ -864,9 +875,9 @@ set_allocator_unlocked(PyMemAllocatorDomain domain, PyMemAllocatorEx *allocator)
 {
     switch(domain)
     {
-    case PYMEM_DOMAIN_RAW: _PyMem_Raw = *allocator; break;
-    case PYMEM_DOMAIN_MEM: _PyMem = *allocator; break;
-    case PYMEM_DOMAIN_OBJ: _PyObject = *allocator; break;
+    case PYMEM_DOMAIN_RAW: ALLOCATOR_RAW(&_PyRuntime) = *allocator; break;
+    case PYMEM_DOMAIN_MEM: ALLOCATOR_MEM(&_PyRuntime) = *allocator; break;
+    case PYMEM_DOMAIN_OBJ: ALLOCATOR_OBJ(&_PyRuntime) = *allocator; break;
     /* ignore unknown domain */
     }
 }
@@ -891,7 +902,7 @@ void
 PyObject_GetArenaAllocator(PyObjectArenaAllocator *allocator)
 {
     ALLOCATORS_LOCK(&_PyRuntime);
-    *allocator = _PyObject_Arena;
+    *allocator = ALLOCATOR_ARENA(&_PyRuntime);
     ALLOCATORS_UNLOCK(&_PyRuntime);
 }
 
@@ -899,7 +910,7 @@ void
 PyObject_SetArenaAllocator(PyObjectArenaAllocator *allocator)
 {
     ALLOCATORS_LOCK(&_PyRuntime);
-    _PyObject_Arena = *allocator;
+    ALLOCATOR_ARENA(&_PyRuntime) = *allocator;
     ALLOCATORS_UNLOCK(&_PyRuntime);
 }
 
