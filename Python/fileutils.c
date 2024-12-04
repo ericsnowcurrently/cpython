@@ -57,6 +57,19 @@ static const size_t DECODE_ERROR = ((size_t)-1);
 static const size_t INCOMPLETE_CHARACTER = (size_t)-2;
 
 
+void
+_Py_encoding_options_from_config(const PyPreConfig *preconfig,
+                                 _Py_encoding_options *opts)
+{
+    *opts = (_Py_encoding_options){
+#ifdef MS_WINDOWS
+        .legacy_windows_fs_encoding = preconfig->legacy_windows_fs_encoding,
+#endif
+        .utf8_mode = preconfig->utf8_mode,
+    };
+}
+
+
 static int
 get_surrogateescape(_Py_error_handler errors, int *surrogateescape)
 {
@@ -75,7 +88,7 @@ get_surrogateescape(_Py_error_handler errors, int *surrogateescape)
 
 
 PyObject *
-_Py_device_encoding(int fd)
+_Py_device_encoding(int fd, const _Py_encoding_options *opts)
 {
     int valid;
     Py_BEGIN_ALLOW_THREADS
@@ -87,6 +100,7 @@ _Py_device_encoding(int fd)
         Py_RETURN_NONE;
 
 #ifdef MS_WINDOWS
+    (void)opts;  // We don't use it.
 #ifdef HAVE_WINDOWS_CONSOLE_IO
     UINT cp;
     if (fd == 0)
@@ -106,7 +120,7 @@ _Py_device_encoding(int fd)
     Py_RETURN_NONE;
 #endif /* HAVE_WINDOWS_CONSOLE_IO */
 #else
-    if (_PyRuntime.preconfig.utf8_mode) {
+    if (opts->utf8_mode) {
         _Py_DECLARE_STR(utf_8, "utf-8");
         return &_Py_STR(utf_8);
     }
@@ -601,7 +615,8 @@ decode_error:
 int
 _Py_DecodeLocaleEx(const char* arg, wchar_t **wstr, size_t *wlen,
                    const char **reason,
-                   int current_locale, _Py_error_handler errors)
+                   int current_locale, _Py_error_handler errors,
+                   const _Py_encoding_options *opts)
 {
     if (current_locale) {
 #ifdef _Py_FORCE_UTF8_LOCALE
@@ -616,9 +631,9 @@ _Py_DecodeLocaleEx(const char* arg, wchar_t **wstr, size_t *wlen,
     return _Py_DecodeUTF8Ex(arg, strlen(arg), wstr, wlen, reason,
                             errors);
 #else
-    int use_utf8 = (_PyRuntime.preconfig.utf8_mode >= 1);
+    int use_utf8 = (opts->utf8_mode >= 1);
 #ifdef MS_WINDOWS
-    use_utf8 |= (_PyRuntime.preconfig.legacy_windows_fs_encoding == 0);
+    use_utf8 |= (opts->legacy_windows_fs_encoding == 0);
 #endif
     if (use_utf8) {
         return _Py_DecodeUTF8Ex(arg, strlen(arg), wstr, wlen, reason,
@@ -663,10 +678,14 @@ _Py_DecodeLocaleEx(const char* arg, wchar_t **wstr, size_t *wlen,
 wchar_t*
 Py_DecodeLocale(const char* arg, size_t *wlen)
 {
+    _PyRuntimeState *runtime = &_PyRuntime;
+    _Py_encoding_options opts;
+    _Py_encoding_options_from_config(&runtime->preconfig, &opts);
+
     wchar_t *wstr;
     int res = _Py_DecodeLocaleEx(arg, &wstr, wlen,
                                  NULL, 0,
-                                 _Py_ERROR_SURROGATEESCAPE);
+                                 _Py_ERROR_SURROGATEESCAPE, &opts);
     if (res != 0) {
         assert(res != -3);
         if (wlen != NULL) {
@@ -792,7 +811,8 @@ encode_error:
 static int
 encode_locale_ex(const wchar_t *text, char **str, size_t *error_pos,
                  const char **reason,
-                 int raw_malloc, int current_locale, _Py_error_handler errors)
+                 int raw_malloc, int current_locale, _Py_error_handler errors,
+                 const _Py_encoding_options *opts)
 {
     if (current_locale) {
 #ifdef _Py_FORCE_UTF8_LOCALE
@@ -808,9 +828,9 @@ encode_locale_ex(const wchar_t *text, char **str, size_t *error_pos,
     return _Py_EncodeUTF8Ex(text, str, error_pos, reason,
                             raw_malloc, errors);
 #else
-    int use_utf8 = (_PyRuntime.preconfig.utf8_mode >= 1);
+    int use_utf8 = (opts->utf8_mode >= 1);
 #ifdef MS_WINDOWS
-    use_utf8 |= (_PyRuntime.preconfig.legacy_windows_fs_encoding == 0);
+    use_utf8 |= (opts->legacy_windows_fs_encoding == 0);
 #endif
     if (use_utf8) {
         return _Py_EncodeUTF8Ex(text, str, error_pos, reason,
@@ -835,12 +855,13 @@ encode_locale_ex(const wchar_t *text, char **str, size_t *error_pos,
 
 static char*
 encode_locale(const wchar_t *text, size_t *error_pos,
-              int raw_malloc, int current_locale)
+              int raw_malloc, int current_locale,
+              const _Py_encoding_options *opts)
 {
     char *str;
     int res = encode_locale_ex(text, &str, error_pos, NULL,
                                raw_malloc, current_locale,
-                               _Py_ERROR_SURROGATEESCAPE);
+                               _Py_ERROR_SURROGATEESCAPE, opts);
     if (res != -2 && error_pos) {
         *error_pos = (size_t)-1;
     }
@@ -865,26 +886,31 @@ encode_locale(const wchar_t *text, size_t *error_pos,
 char*
 Py_EncodeLocale(const wchar_t *text, size_t *error_pos)
 {
-    return encode_locale(text, error_pos, 0, 0);
+    _PyRuntimeState *runtime = &_PyRuntime;
+    _Py_encoding_options opts;
+    _Py_encoding_options_from_config(&runtime->preconfig, &opts);
+    return encode_locale(text, error_pos, 0, 0, &opts);
 }
 
 
 /* Similar to Py_EncodeLocale(), but result must be freed by PyMem_RawFree()
    instead of PyMem_Free(). */
 char*
-_Py_EncodeLocaleRaw(const wchar_t *text, size_t *error_pos)
+_Py_EncodeLocaleRaw(const wchar_t *text, size_t *error_pos,
+                    const _Py_encoding_options *opts)
 {
-    return encode_locale(text, error_pos, 1, 0);
+    return encode_locale(text, error_pos, 1, 0, opts);
 }
 
 
 int
 _Py_EncodeLocaleEx(const wchar_t *text, char **str,
                    size_t *error_pos, const char **reason,
-                   int current_locale, _Py_error_handler errors)
+                   int current_locale, _Py_error_handler errors,
+                   const _Py_encoding_options *opts)
 {
     return encode_locale_ex(text, str, error_pos, reason, 1,
-                            current_locale, errors);
+                            current_locale, errors, opts);
 }
 
 
@@ -1340,8 +1366,13 @@ _Py_wstat(const wchar_t* path, struct stat *buf)
         buf->st_mode = wstatbuf.st_mode;
     }
 #else
+
+    _PyRuntimeState *runtime = &_PyRuntime;
+    _Py_encoding_options opts;
+    _Py_encoding_options_from_config(&runtime->preconfig, &opts);
+
     char *fname;
-    fname = _Py_EncodeLocaleRaw(path, NULL);
+    fname = _Py_EncodeLocaleRaw(path, NULL, &opts);
     if (fname == NULL) {
         errno = EINVAL;
         return -1;
@@ -1729,7 +1760,12 @@ _Py_wfopen(const wchar_t *path, const wchar_t *mode)
         errno = EINVAL;
         return NULL;
     }
-    cpath = _Py_EncodeLocaleRaw(path, NULL);
+
+    _PyRuntimeState *runtime = &_PyRuntime;
+    _Py_encoding_options opts;
+    _Py_encoding_options_from_config(&runtime->preconfig, &opts);
+
+    cpath = _Py_EncodeLocaleRaw(path, NULL, &opts);
     if (cpath == NULL) {
         return NULL;
     }
@@ -2068,7 +2104,11 @@ _Py_wreadlink(const wchar_t *path, wchar_t *buf, size_t buflen)
     Py_ssize_t res;
     size_t r1;
 
-    cpath = _Py_EncodeLocaleRaw(path, NULL);
+    _PyRuntimeState *runtime = &_PyRuntime;
+    _Py_encoding_options opts;
+    _Py_encoding_options_from_config(&runtime->preconfig, &opts);
+
+    cpath = _Py_EncodeLocaleRaw(path, NULL, &opts);
     if (cpath == NULL) {
         errno = EINVAL;
         return -1;
@@ -2116,7 +2156,12 @@ _Py_wrealpath(const wchar_t *path,
     wchar_t *wresolved_path;
     char *res;
     size_t r;
-    cpath = _Py_EncodeLocaleRaw(path, NULL);
+
+    _PyRuntimeState *runtime = &_PyRuntime;
+    _Py_encoding_options opts;
+    _Py_encoding_options_from_config(&runtime->preconfig, &opts);
+
+    cpath = _Py_EncodeLocaleRaw(path, NULL, &opts);
     if (cpath == NULL) {
         errno = EINVAL;
         return NULL;

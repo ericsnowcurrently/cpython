@@ -597,12 +597,16 @@ encode_locale_ex(PyObject *self, PyObject *args)
     }
     _Py_error_handler error_handler = _Py_GetErrorHandler(errors);
 
+    PyInterpreterState *interp = PyInterpreterState_Get();
+    _Py_encoding_options opts;
+    _Py_encoding_options_from_config(&interp->runtime->preconfig, &opts);
+
     char *str = NULL;
     size_t error_pos;
     const char *reason = NULL;
     int ret = _Py_EncodeLocaleEx(wstr,
                                  &str, &error_pos, &reason,
-                                 current_locale, error_handler);
+                                 current_locale, error_handler, &opts);
     PyMem_Free(wstr);
 
     switch(ret) {
@@ -641,12 +645,16 @@ decode_locale_ex(PyObject *self, PyObject *args)
     }
     _Py_error_handler error_handler = _Py_GetErrorHandler(errors);
 
+    PyInterpreterState *interp = PyInterpreterState_Get();
+    _Py_encoding_options opts;
+    _Py_encoding_options_from_config(&interp->runtime->preconfig, &opts);
+
     wchar_t *wstr = NULL;
     size_t wlen = 0;
     const char *reason = NULL;
     int ret = _Py_DecodeLocaleEx(str,
                                  &wstr, &wlen, &reason,
-                                 current_locale, error_handler);
+                                 current_locale, error_handler, &opts);
 
     switch(ret) {
     case 0:

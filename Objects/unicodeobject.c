@@ -3768,7 +3768,7 @@ PyUnicode_AsEncodedObject(PyObject *unicode,
 
 static PyObject *
 unicode_encode_locale(PyObject *unicode, _Py_error_handler error_handler,
-                      int current_locale)
+                      int current_locale, const _Py_encoding_options *opts)
 {
     Py_ssize_t wlen;
     wchar_t *wstr = PyUnicode_AsWideCharString(unicode, &wlen);
@@ -3786,7 +3786,7 @@ unicode_encode_locale(PyObject *unicode, _Py_error_handler error_handler,
     size_t error_pos;
     const char *reason;
     int res = _Py_EncodeLocaleEx(wstr, &str, &error_pos, &reason,
-                                 current_locale, error_handler);
+                                 current_locale, error_handler, opts);
     PyMem_Free(wstr);
 
     if (res != 0) {
@@ -3820,7 +3820,10 @@ PyObject *
 PyUnicode_EncodeLocale(PyObject *unicode, const char *errors)
 {
     _Py_error_handler error_handler = _Py_GetErrorHandler(errors);
-    return unicode_encode_locale(unicode, error_handler, 1);
+    _PyRuntimeState *runtime = PyInterpreterState_Get()->runtime;
+    _Py_encoding_options opts;
+    _Py_encoding_options_from_config(&runtime->preconfig, &opts);
+    return unicode_encode_locale(unicode, error_handler, 1, &opts);
 }
 
 PyObject *
@@ -3852,7 +3855,9 @@ PyUnicode_EncodeFSDefault(PyObject *unicode)
 #ifdef _Py_FORCE_UTF8_FS_ENCODING
         return unicode_encode_utf8(unicode, errors, NULL);
 #else
-        return unicode_encode_locale(unicode, errors, 0);
+        _Py_encoding_options opts;
+        _Py_encoding_options_from_config(&interp->runtime->preconfig, &opts);
+        return unicode_encode_locale(unicode, errors, 0, &opts);
 #endif
     }
 }
@@ -4005,11 +4010,15 @@ unicode_decode_locale(const char *str, Py_ssize_t len,
         return NULL;
     }
 
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    _Py_encoding_options opts;
+    _Py_encoding_options_from_config(&interp->runtime->preconfig, &opts);
+
     wchar_t *wstr;
     size_t wlen;
     const char *reason;
     int res = _Py_DecodeLocaleEx(str, &wstr, &wlen, &reason,
-                                 current_locale, errors);
+                                 current_locale, errors, &opts);
     if (res != 0) {
         if (res == -2) {
             PyObject *exc;

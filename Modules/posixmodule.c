@@ -14687,7 +14687,10 @@ static PyObject *
 os_device_encoding_impl(PyObject *module, int fd)
 /*[clinic end generated code: output=e0d294bbab7e8c2b input=9e1d4a42b66df312]*/
 {
-    return _Py_device_encoding(fd);
+    _PyRuntimeState *runtime = PyInterpreterState_Get()->runtime;
+    _Py_encoding_options opts;
+    _Py_encoding_options_from_config(&runtime->preconfig, &opts);
+    return _Py_device_encoding(fd, &opts);
 }
 
 

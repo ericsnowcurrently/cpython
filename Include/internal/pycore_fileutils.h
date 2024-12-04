@@ -38,6 +38,21 @@ typedef enum {
 // Export for '_testinternalcapi' shared extension
 PyAPI_FUNC(_Py_error_handler) _Py_GetErrorHandler(const char *errors);
 
+
+typedef struct {
+    // This is effectively a subset of PyPreConfig.
+#ifdef MS_WINDOWS
+    int legacy_windows_fs_encoding;
+#endif
+    int utf8_mode;
+} _Py_encoding_options;
+
+// Export for '_testinternalcapi' shared extension
+PyAPI_FUNC(void) _Py_encoding_options_from_config(
+    const PyPreConfig *,
+    _Py_encoding_options *);
+
+
 // Export for '_testinternalcapi' shared extension
 PyAPI_FUNC(int) _Py_DecodeLocaleEx(
     const char *arg,
@@ -45,7 +60,8 @@ PyAPI_FUNC(int) _Py_DecodeLocaleEx(
     size_t *wlen,
     const char **reason,
     int current_locale,
-    _Py_error_handler errors);
+    _Py_error_handler errors,
+    const _Py_encoding_options *config);
 
 // Export for '_testinternalcapi' shared extension
 PyAPI_FUNC(int) _Py_EncodeLocaleEx(
@@ -54,13 +70,15 @@ PyAPI_FUNC(int) _Py_EncodeLocaleEx(
     size_t *error_pos,
     const char **reason,
     int current_locale,
-    _Py_error_handler errors);
+    _Py_error_handler errors,
+    const _Py_encoding_options *opts);
 
 extern char* _Py_EncodeLocaleRaw(
     const wchar_t *text,
-    size_t *error_pos);
+    size_t *error_pos,
+    const _Py_encoding_options *opts);
 
-extern PyObject* _Py_device_encoding(int);
+extern PyObject* _Py_device_encoding(int, const _Py_encoding_options *);
 
 #if defined(MS_WINDOWS) || defined(__APPLE__)
     /* On Windows, the count parameter of read() is an int (bpo-9015, bpo-9611).
