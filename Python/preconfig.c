@@ -795,10 +795,13 @@ preconfig_read(PyPreConfig *config, _PyPreCmdline *cmdline)
    - Py_xxx global configuration variables
    - the LC_CTYPE locale */
 PyStatus
-_PyPreConfig_Read(PyPreConfig *config, const _PyArgv *args)
+_PyPreConfig_Read(PyPreConfig *config, const _PyArgv *args,
+                  /* Ideally, this runtime arg wouldn't be needed. */
+                  _PyRuntimeState *runtime)
 {
     PyStatus status;
 
+    assert(runtime == &_PyRuntime);
     status = _PyRuntime_Initialize();
     if (_PyStatus_EXCEPTION(status)) {
         return status;
@@ -830,7 +833,7 @@ _PyPreConfig_Read(PyPreConfig *config, const _PyArgv *args)
     }
 
     PyPreConfig save_runtime_config;
-    preconfig_copy(&save_runtime_config, &_PyRuntime.preconfig);
+    preconfig_copy(&save_runtime_config, &runtime->preconfig);
 
     _PyPreCmdline cmdline = _PyPreCmdline_INIT;
     int locale_coerced = 0;
@@ -850,7 +853,7 @@ _PyPreConfig_Read(PyPreConfig *config, const _PyArgv *args)
         /* bpo-34207: Py_DecodeLocale() and Py_EncodeLocale() depend
            on the utf8_mode and legacy_windows_fs_encoding members
            of _PyRuntime.preconfig. */
-        preconfig_copy(&_PyRuntime.preconfig, config);
+        preconfig_copy(&runtime->preconfig, config);
 
         if (args) {
             // Set command line arguments at each iteration. If they are bytes
@@ -916,7 +919,7 @@ done:
     // Revert side effects
     setlocale(LC_CTYPE, init_ctype_locale);
     PyMem_RawFree(init_ctype_locale);
-    preconfig_copy(&_PyRuntime.preconfig, &save_runtime_config);
+    preconfig_copy(&runtime->preconfig, &save_runtime_config);
     _PyPreCmdline_Clear(&cmdline);
     return status;
 }
@@ -935,7 +938,7 @@ done:
    Do nothing if called after Py_Initialize(): ignore the new
    pre-configuration. */
 PyStatus
-_PyPreConfig_Write(const PyPreConfig *src_config)
+_PyPreConfig_Write(const PyPreConfig *src_config, _PyRuntimeState *runtime)
 {
     PyPreConfig config;
 
@@ -944,7 +947,7 @@ _PyPreConfig_Write(const PyPreConfig *src_config)
         return status;
     }
 
-    if (_PyRuntime.core_initialized) {
+    if (runtime->core_initialized) {
         /* bpo-34008: Calling this functions after Py_Initialize() ignores
            the new configuration. */
         return _PyStatus_OK();
@@ -952,7 +955,7 @@ _PyPreConfig_Write(const PyPreConfig *src_config)
 
     PyMemAllocatorName name = (PyMemAllocatorName)config.allocator;
     if (name != PYMEM_ALLOCATOR_NOT_SET) {
-        if (_PyMem_SetupAllocators(&_PyRuntime, name) < 0) {
+        if (_PyMem_SetupAllocators(runtime, name) < 0) {
             return _PyStatus_ERR("Unknown PYTHONMALLOC allocator");
         }
     }
@@ -972,7 +975,7 @@ _PyPreConfig_Write(const PyPreConfig *src_config)
     }
 
     /* Write the new pre-configuration into _PyRuntime */
-    preconfig_copy(&_PyRuntime.preconfig, &config);
+    preconfig_copy(&runtime->preconfig, &config);
 
     return _PyStatus_OK();
 }

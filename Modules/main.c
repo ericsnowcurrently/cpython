@@ -616,11 +616,12 @@ pymain_run_python(int *exitcode)
 {
     PyObject *main_importer_path = NULL;
     PyInterpreterState *interp = _PyInterpreterState_GET();
+    _PyRuntimeState *runtime = interp->runtime;
     /* pymain_run_stdin() modify the config */
     PyConfig *config = (PyConfig*)_PyInterpreterState_GetConfig(interp);
 
     /* ensure path config is written into global variables */
-    if (_PyStatus_EXCEPTION(_PyPathConfig_UpdateGlobal(config))) {
+    if (_PyStatus_EXCEPTION(_PyPathConfig_UpdateGlobal(config, runtime))) {
         goto error;
     }
 
@@ -716,14 +717,16 @@ done:
 static void
 pymain_free(void)
 {
+    _PyRuntimeState *runtime = &_PyRuntime;
+
     _PyImport_Fini2();
 
     /* Free global variables which cannot be freed in Py_Finalize():
        configuration options set before Py_Initialize() which should
        remain valid after Py_Finalize(), since
        Py_Initialize()-Py_Finalize() can be called multiple times. */
-    _PyPathConfig_ClearGlobal();
-    _Py_ClearArgcArgv();
+    _PyPathConfig_ClearGlobal(runtime);
+    _Py_ClearArgcArgv(runtime);
     _PyRuntime_Finalize();
 }
 

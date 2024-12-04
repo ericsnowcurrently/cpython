@@ -8,7 +8,7 @@ extern "C" {
 #  error "this header requires Py_BUILD_CORE define"
 #endif
 
-/* Forward declaration */
+/* Forward declaration (see pycore_runtime.h) */
 struct pyruntimestate;
 
 /* --- PyStatus ----------------------------------------------- */
@@ -94,7 +94,7 @@ extern void _Py_get_env_flag(
     const char *name);
 
 /* Py_GetArgcArgv() helper */
-extern void _Py_ClearArgcArgv(void);
+extern void _Py_ClearArgcArgv(struct pyruntimestate *);
 
 
 /* --- _PyPreCmdline ------------------------------------------------- */
@@ -137,11 +137,16 @@ extern PyStatus _PyPreConfig_InitFromPreConfig(
     PyPreConfig *preconfig,
     const PyPreConfig *config2);
 extern PyObject* _PyPreConfig_AsDict(const PyPreConfig *preconfig);
-extern void _PyPreConfig_GetConfig(PyPreConfig *preconfig,
+extern void _PyPreConfig_GetConfig(
+    PyPreConfig *preconfig,
     const PyConfig *config);
-extern PyStatus _PyPreConfig_Read(PyPreConfig *preconfig,
-    const _PyArgv *args);
-extern PyStatus _PyPreConfig_Write(const PyPreConfig *preconfig);
+extern PyStatus _PyPreConfig_Read(
+    PyPreConfig *preconfig,
+    const _PyArgv *args,
+    struct pyruntimestate *runtime);
+extern PyStatus _PyPreConfig_Write(
+    const PyPreConfig *preconfig,
+    struct pyruntimestate *runtime);
 
 
 /* --- PyConfig ---------------------------------------------- */
@@ -175,7 +180,10 @@ extern PyStatus _PyConfig_InitPathConfig(
     PyConfig *config,
     int compute_path_config);
 extern PyStatus _PyConfig_InitImportConfig(PyConfig *config);
-extern PyStatus _PyConfig_Read(PyConfig *config, int compute_path_config);
+extern PyStatus _PyConfig_Read(
+    PyConfig *config,
+    const PyPreConfig *preconfig,
+    int compute_path_config);
 extern PyStatus _PyConfig_Write(const PyConfig *config,
     struct pyruntimestate *runtime);
 extern PyStatus _PyConfig_SetPyArgv(

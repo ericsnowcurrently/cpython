@@ -782,9 +782,8 @@ _PyWideStringList_AsTuple(const PyWideStringList *list)
 /* --- Py_GetArgcArgv() ------------------------------------------- */
 
 void
-_Py_ClearArgcArgv(void)
+_Py_ClearArgcArgv(_PyRuntimeState *runtime)
 {
-    _PyRuntimeState *runtime = &_PyRuntime;
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(runtime, PYMEM_DOMAIN_RAW, &old_alloc);
 
@@ -795,12 +794,12 @@ _Py_ClearArgcArgv(void)
 
 
 static int
-_Py_SetArgcArgv(Py_ssize_t argc, wchar_t * const *argv)
+_Py_SetArgcArgv(_PyRuntimeState *runtime,
+                Py_ssize_t argc, wchar_t * const *argv)
 {
     const PyWideStringList argv_list = {.length = argc, .items = (wchar_t **)argv};
     int res;
 
-    _PyRuntimeState *runtime = &_PyRuntime;
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(runtime, PYMEM_DOMAIN_RAW, &old_alloc);
 
@@ -817,8 +816,9 @@ _Py_SetArgcArgv(Py_ssize_t argc, wchar_t * const *argv)
 void
 Py_GetArgcArgv(int *argc, wchar_t ***argv)
 {
-    *argc = (int)_PyRuntime.orig_argv.length;
-    *argv = _PyRuntime.orig_argv.items;
+    _PyRuntimeState *runtime = &_PyRuntime;
+    *argc = (int)runtime->orig_argv.length;
+    *argv = runtime->orig_argv.items;
 }
 
 
@@ -2419,10 +2419,10 @@ _PyConfig_InitImportConfig(PyConfig *config)
 
 
 static PyStatus
-config_read(PyConfig *config, int compute_path_config)
+config_read(PyConfig *config,
+            const PyPreConfig *preconfig, int compute_path_config)
 {
     PyStatus status;
-    const PyPreConfig *preconfig = &_PyRuntime.preconfig;
 
     if (config->use_environment) {
         status = config_read_env_vars(config);
@@ -2586,7 +2586,7 @@ _PyConfig_Write(const PyConfig *config, _PyRuntimeState *runtime)
     preconfig->use_environment = config->use_environment;
     preconfig->dev_mode = config->dev_mode;
 
-    if (_Py_SetArgcArgv(config->orig_argv.length,
+    if (_Py_SetArgcArgv(runtime, config->orig_argv.length,
                         config->orig_argv.items) < 0)
     {
         return _PyStatus_NO_MEMORY();
@@ -3058,7 +3058,8 @@ config_update_argv(PyConfig *config, Py_ssize_t opt_index)
 
 
 static PyStatus
-core_read_precmdline(PyConfig *config, _PyPreCmdline *precmdline)
+core_read_precmdline(PyConfig *config, const PyPreConfig *src_preconfig,
+                     _PyPreCmdline *precmdline)
 {
     PyStatus status;
 
@@ -3070,7 +3071,7 @@ core_read_precmdline(PyConfig *config, _PyPreCmdline *precmdline)
 
     PyPreConfig preconfig;
 
-    status = _PyPreConfig_InitFromPreConfig(&preconfig, &_PyRuntime.preconfig);
+    status = _PyPreConfig_InitFromPreConfig(&preconfig, src_preconfig);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
@@ -3251,7 +3252,8 @@ PyConfig_SetWideStringList(PyConfig *config, PyWideStringList *list,
 
    The only side effects are to modify config and to call _Py_SetArgcArgv(). */
 PyStatus
-_PyConfig_Read(PyConfig *config, int compute_path_config)
+_PyConfig_Read(PyConfig *config,
+               const PyPreConfig *preconfig, int compute_path_config)
 {
     PyStatus status;
 
@@ -3272,7 +3274,7 @@ _PyConfig_Read(PyConfig *config, int compute_path_config)
     }
 
     _PyPreCmdline precmdline = _PyPreCmdline_INIT;
-    status = core_read_precmdline(config, &precmdline);
+    status = core_read_precmdline(config, preconfig, &precmdline);
     if (_PyStatus_EXCEPTION(status)) {
         goto done;
     }
@@ -3295,7 +3297,7 @@ _PyConfig_Read(PyConfig *config, int compute_path_config)
         goto done;
     }
 
-    status = config_read(config, compute_path_config);
+    status = config_read(config, preconfig, compute_path_config);
     if (_PyStatus_EXCEPTION(status)) {
         goto done;
     }
@@ -3313,7 +3315,7 @@ done:
 PyStatus
 PyConfig_Read(PyConfig *config)
 {
-    return _PyConfig_Read(config, 0);
+    return _PyConfig_Read(config, &_PyRuntime.preconfig, 0);
 }
 
 
@@ -4213,7 +4215,8 @@ PyConfig_Get(const char *name)
 
     spec = preconfig_find_spec(name);
     if (spec != NULL) {
-        const PyPreConfig *preconfig = &_PyRuntime.preconfig;
+        PyInterpreterState *interp = _PyInterpreterState_GET();
+        const PyPreConfig *preconfig = &interp->runtime->preconfig;
         return preconfig_get(preconfig, spec);
     }
 

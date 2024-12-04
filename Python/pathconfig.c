@@ -53,9 +53,8 @@ _PyPathConfig_GetGlobalModuleSearchPath(void)
 
 
 void
-_PyPathConfig_ClearGlobal(void)
+_PyPathConfig_ClearGlobal(_PyRuntimeState *runtime)
 {
-    _PyRuntimeState *runtime = &_PyRuntime;
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(runtime, PYMEM_DOMAIN_RAW, &old_alloc);
 
@@ -126,9 +125,8 @@ done:
 }
 
 PyStatus
-_PyPathConfig_UpdateGlobal(const PyConfig *config)
+_PyPathConfig_UpdateGlobal(const PyConfig *config, _PyRuntimeState *runtime)
 {
-    _PyRuntimeState *runtime = &_PyRuntime;
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(runtime, PYMEM_DOMAIN_RAW, &old_alloc);
 
@@ -216,12 +214,13 @@ path_out_of_memory(const char *func)
 PyAPI_FUNC(void)
 Py_SetPath(const wchar_t *path)
 {
+    _PyRuntimeState *runtime = &_PyRuntime;
+
     if (path == NULL) {
-        _PyPathConfig_ClearGlobal();
+        _PyPathConfig_ClearGlobal(runtime);
         return;
     }
 
-    _PyRuntimeState *runtime = &_PyRuntime;
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(runtime, PYMEM_DOMAIN_RAW, &old_alloc);
 

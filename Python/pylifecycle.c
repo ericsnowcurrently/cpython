@@ -394,25 +394,27 @@ _Py_SetLocaleFromEnv(int category)
 static int
 interpreter_update_config(PyThreadState *tstate, int only_update_path_config)
 {
-    const PyConfig *config = &tstate->interp->config;
+    PyInterpreterState *interp = tstate->interp;
+    _PyRuntimeState *runtime = interp->runtime;
+    const PyConfig *config = &interp->config;
 
     if (!only_update_path_config) {
-        PyStatus status = _PyConfig_Write(config, tstate->interp->runtime);
+        PyStatus status = _PyConfig_Write(config, runtime);
         if (_PyStatus_EXCEPTION(status)) {
             _PyErr_SetFromPyStatus(status);
             return -1;
         }
     }
 
-    if (_Py_IsMainInterpreter(tstate->interp)) {
-        PyStatus status = _PyPathConfig_UpdateGlobal(config);
+    if (_Py_IsMainInterpreter(interp)) {
+        PyStatus status = _PyPathConfig_UpdateGlobal(config, runtime);
         if (_PyStatus_EXCEPTION(status)) {
             _PyErr_SetFromPyStatus(status);
             return -1;
         }
     }
 
-    tstate->interp->long_state.max_str_digits = config->int_max_str_digits;
+    interp->long_state.max_str_digits = config->int_max_str_digits;
 
     // Update the sys module for the new configuration
     if (_PySys_UpdateConfig(tstate) < 0) {
@@ -426,6 +428,9 @@ int
 _PyInterpreterState_SetConfig(const PyConfig *src_config)
 {
     PyThreadState *tstate = _PyThreadState_GET();
+    PyInterpreterState *interp = tstate->interp;
+    _PyRuntimeState *runtime = interp->runtime;
+    const PyPreConfig *preconfig = &runtime->preconfig;
     int res = -1;
 
     PyConfig config;
@@ -436,13 +441,13 @@ _PyInterpreterState_SetConfig(const PyConfig *src_config)
         goto done;
     }
 
-    status = _PyConfig_Read(&config, 1);
+    status = _PyConfig_Read(&config, preconfig, 1);
     if (_PyStatus_EXCEPTION(status)) {
         _PyErr_SetFromPyStatus(status);
         goto done;
     }
 
-    status = _PyConfig_Copy(&tstate->interp->config, &config);
+    status = _PyConfig_Copy(&interp->config, &config);
     if (_PyStatus_EXCEPTION(status)) {
         _PyErr_SetFromPyStatus(status);
         goto done;
@@ -498,7 +503,7 @@ pyinit_core_reconfigure(_PyRuntimeState *runtime,
     config = _PyInterpreterState_GetConfig(interp);
 
     if (config->_install_importlib) {
-        status = _PyPathConfig_UpdateGlobal(config);
+        status = _PyPathConfig_UpdateGlobal(config, runtime);
         if (_PyStatus_EXCEPTION(status)) {
             return status;
         }
@@ -983,12 +988,12 @@ _Py_PreInitializeFromPyArgv(const PyPreConfig *src_config, const _PyArgv *args)
         return status;
     }
 
-    status = _PyPreConfig_Read(&config, args);
+    status = _PyPreConfig_Read(&config, args, runtime);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
 
-    status = _PyPreConfig_Write(&config);
+    status = _PyPreConfig_Write(&config, runtime);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
@@ -1098,7 +1103,8 @@ pyinit_core(_PyRuntimeState *runtime,
 
     // Read the configuration, but don't compute the path configuration
     // (it is computed in the main init).
-    status = _PyConfig_Read(&config, 0);
+    const PyPreConfig *preconfig = &runtime->preconfig;
+    status = _PyConfig_Read(&config, preconfig, 0);
     if (_PyStatus_EXCEPTION(status)) {
         goto done;
     }

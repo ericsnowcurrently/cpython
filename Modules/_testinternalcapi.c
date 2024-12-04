@@ -356,7 +356,8 @@ error:
 static PyObject *
 test_reset_path_config(PyObject *Py_UNUSED(self), PyObject *Py_UNUSED(arg))
 {
-    _PyPathConfig_ClearGlobal();
+    PyInterpreterState *interp = PyInterpreterState_Get();
+    _PyPathConfig_ClearGlobal(interp->runtime);
     Py_RETURN_NONE;
 }
 
