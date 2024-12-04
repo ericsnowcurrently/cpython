@@ -448,6 +448,11 @@ _PyMem_ArenaFree(void *Py_UNUSED(ctx), void *ptr,
 #define _PyMem_Debug (_PyRuntime.allocators.debug)
 #define _PyObject_Arena (_PyRuntime.allocators.obj_arena)
 
+#define ALLOCATORS_LOCK(runtime) \
+    PyMutex_Lock(&(runtime)->allocators.mutex)
+#define ALLOCATORS_UNLOCK(runtime) \
+    PyMutex_Unlock(&(runtime)->allocators.mutex)
+
 
 /***************************/
 /* managing the allocators */
@@ -496,9 +501,9 @@ int
 _PyMem_SetDefaultAllocator(PyMemAllocatorDomain domain,
                            PyMemAllocatorEx *old_alloc)
 {
-    PyMutex_Lock(&ALLOCATORS_MUTEX);
+    ALLOCATORS_LOCK(&_PyRuntime);
     int res = set_default_allocator_unlocked(domain, pydebug, old_alloc);
-    PyMutex_Unlock(&ALLOCATORS_MUTEX);
+    ALLOCATORS_UNLOCK(&_PyRuntime);
     return res;
 }
 
@@ -640,9 +645,9 @@ set_up_allocators_unlocked(PyMemAllocatorName allocator)
 int
 _PyMem_SetupAllocators(PyMemAllocatorName allocator)
 {
-    PyMutex_Lock(&ALLOCATORS_MUTEX);
+    ALLOCATORS_LOCK(&_PyRuntime);
     int res = set_up_allocators_unlocked(allocator);
-    PyMutex_Unlock(&ALLOCATORS_MUTEX);
+    ALLOCATORS_UNLOCK(&_PyRuntime);
     return res;
 }
 
@@ -727,9 +732,9 @@ get_current_allocator_name_unlocked(void)
 const char*
 _PyMem_GetCurrentAllocatorName(void)
 {
-    PyMutex_Lock(&ALLOCATORS_MUTEX);
+    ALLOCATORS_LOCK(&_PyRuntime);
     const char *name = get_current_allocator_name_unlocked();
-    PyMutex_Unlock(&ALLOCATORS_MUTEX);
+    ALLOCATORS_UNLOCK(&_PyRuntime);
     return name;
 }
 
@@ -831,9 +836,9 @@ set_up_debug_hooks_unlocked(void)
 void
 PyMem_SetupDebugHooks(void)
 {
-    PyMutex_Lock(&ALLOCATORS_MUTEX);
+    ALLOCATORS_LOCK(&_PyRuntime);
     set_up_debug_hooks_unlocked();
-    PyMutex_Unlock(&ALLOCATORS_MUTEX);
+    ALLOCATORS_UNLOCK(&_PyRuntime);
 }
 
 static void
@@ -869,33 +874,33 @@ set_allocator_unlocked(PyMemAllocatorDomain domain, PyMemAllocatorEx *allocator)
 void
 PyMem_GetAllocator(PyMemAllocatorDomain domain, PyMemAllocatorEx *allocator)
 {
-    PyMutex_Lock(&ALLOCATORS_MUTEX);
+    ALLOCATORS_LOCK(&_PyRuntime);
     get_allocator_unlocked(domain, allocator);
-    PyMutex_Unlock(&ALLOCATORS_MUTEX);
+    ALLOCATORS_UNLOCK(&_PyRuntime);
 }
 
 void
 PyMem_SetAllocator(PyMemAllocatorDomain domain, PyMemAllocatorEx *allocator)
 {
-    PyMutex_Lock(&ALLOCATORS_MUTEX);
+    ALLOCATORS_LOCK(&_PyRuntime);
     set_allocator_unlocked(domain, allocator);
-    PyMutex_Unlock(&ALLOCATORS_MUTEX);
+    ALLOCATORS_UNLOCK(&_PyRuntime);
 }
 
 void
 PyObject_GetArenaAllocator(PyObjectArenaAllocator *allocator)
 {
-    PyMutex_Lock(&ALLOCATORS_MUTEX);
+    ALLOCATORS_LOCK(&_PyRuntime);
     *allocator = _PyObject_Arena;
-    PyMutex_Unlock(&ALLOCATORS_MUTEX);
+    ALLOCATORS_UNLOCK(&_PyRuntime);
 }
 
 void
 PyObject_SetArenaAllocator(PyObjectArenaAllocator *allocator)
 {
-    PyMutex_Lock(&ALLOCATORS_MUTEX);
+    ALLOCATORS_LOCK(&_PyRuntime);
     _PyObject_Arena = *allocator;
-    PyMutex_Unlock(&ALLOCATORS_MUTEX);
+    ALLOCATORS_UNLOCK(&_PyRuntime);
 }
 
 
