@@ -45,7 +45,7 @@ class WorkerContext(_thread.WorkerContext):
     PARENT_MAIN_NS = '_parent_main_ns'
 
     @classmethod
-    def prepare(cls, initializer, initargs, shared, on_init):
+    def prepare(cls, initializer, initargs, shared):
         def resolve_task(fn, args, kwargs):
             # XXX Optionally serialize here?
             return (fn, args, kwargs)
@@ -54,10 +54,8 @@ class WorkerContext(_thread.WorkerContext):
             initdata = resolve_task(initializer, initargs, {})
         else:
             initdata = None
-        if on_init is not None:
-            on_init = (on_init, resolve_task)
         def create_context():
-            return cls(initdata, shared, on_init)
+            return cls(initdata, shared)
 
         return create_context, resolve_task
 
@@ -203,10 +201,9 @@ class WorkerContext(_thread.WorkerContext):
         mainns[name] = value
         return name
 
-    def __init__(self, initdata, shared=None, on_init=None):
+    def __init__(self, initdata, shared=None):
         self.initdata = initdata
         self.shared = dict(shared) if shared else None
-        self.on_init = on_init
         self.interpid = None
         self.resultsid = None
         self.mainfile = None
@@ -239,17 +236,6 @@ class WorkerContext(_thread.WorkerContext):
 
             if self.initdata:
                 self.run(self.initdata)
-
-            if self.on_init is not None:
-                on_init, resolve = self.on_init
-                allowed = True
-                def run_on_interp_during_worker_init(fn, /, *args, **kwargs):
-                    if not allowed:
-                        raise RuntimeError('worker initization has finished')
-                    data = resolve(fn, args, kwargs)
-                    return self.run(data)
-                on_init(run_on_interp_during_worker_init)
-                allowed = False
         except BaseException:
             self.finalize()
             raise  # re-raise
@@ -356,11 +342,11 @@ class InterpreterPoolExecutor(_thread.ThreadPoolExecutor):
     BROKEN = BrokenInterpreterPool
 
     @classmethod
-    def prepare_context(cls, initializer, initargs, shared, on_init):
-        return WorkerContext.prepare(initializer, initargs, shared, on_init)
+    def prepare_context(cls, initializer, initargs, shared):
+        return WorkerContext.prepare(initializer, initargs, shared)
 
     def __init__(self, max_workers=None, thread_name_prefix='',
-                 initializer=None, initargs=(), shared=None, on_init=None):
+                 initializer=None, initargs=(), shared=None):
         """Initializes a new InterpreterPoolExecutor instance.
 
         Args:
@@ -371,11 +357,6 @@ class InterpreterPoolExecutor(_thread.ThreadPoolExecutor):
             initargs: A tuple of arguments to pass to the initializer.
             shared: A mapping of shareable objects to be inserted into
                 each worker interpreter's __main__ module.
-            on_init: A function that gets called in the worker thread
-                at the end of initialization.  The function is passed
-                one argument: a temporary function that works similarly
-                to executor.submit(), but runs on the worker's interpreter
-                immediately and returns the result.
         """
         super().__init__(max_workers, thread_name_prefix,
-                         initializer, initargs, shared=shared, on_init=on_init)
+                         initializer, initargs, shared=shared)
