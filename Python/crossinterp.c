@@ -794,6 +794,10 @@ _PyXI_excinfo_Apply(_PyXI_excinfo *info, PyObject *exctype)
 static PyObject *
 _PyXI_excinfo_TypeAsObject(_PyXI_excinfo *info)
 {
+    if (info->type.builtin != NULL) {
+        return (PyObject *)info->type.builtin;
+    }
+
     PyObject *ns = _PyNamespace_New(NULL);
     if (ns == NULL) {
         return NULL;

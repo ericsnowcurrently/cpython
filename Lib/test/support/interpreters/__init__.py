@@ -3,6 +3,7 @@
 import threading
 import weakref
 import _interpreters
+import _interpreters_call as _ic
 
 # aliases:
 from _interpreters import (
@@ -154,6 +155,7 @@ class Interpreter:
         return hash(self._id)
 
     def __del__(self):
+        self._clear_call_queues()
         self._decref()
 
     # for pickling:
@@ -172,6 +174,23 @@ class Interpreter:
             _interpreters.decref(self._id)
         except InterpreterNotFoundError:
             pass
+
+    def _get_call_queues(self):
+        try:
+            callqueues = self._callqueues
+        except AttributeError:
+            self.exec(f'import {_ic.__name__}')
+            callqueues = self._callqueues = _ic._create_call_queues()
+            return callqueues
+
+    def _clear_call_queues(self):
+        try:
+            callqueues = self._callqueues
+        except AttributeError:
+            return
+        if callqueues:
+            _ic._release_call_queues(callqueues)
+        del self._callqueues
 
     @property
     def id(self):
@@ -194,6 +213,7 @@ class Interpreter:
         Attempting to destroy the current interpreter results
         in an InterpreterError.
         """
+        self._clear_call_queues()
         return _interpreters.destroy(self._id, restrict=True)
 
     def prepare_main(self, ns=None, /, **kwargs):
@@ -226,33 +246,39 @@ class Interpreter:
         if excinfo is not None:
             raise ExecutionFailed(excinfo)
 
-    def call(self, callable, /):
+    def call(self, callable, /, *args, **kwargs):
         """Call the object in the interpreter with given args/kwargs.
 
-        Only functions that take no arguments and have no closure
-        are supported.
-
-        The return value is discarded.
+        The return value is returned.
 
         If the callable raises an exception then the error display
         (including full traceback) is send back between the interpreters
         and an ExecutionFailed exception is raised, much like what
         happens with Interpreter.exec().
-        """
-        # XXX Support args and kwargs.
-        # XXX Support arbitrary callables.
-        # XXX Support returning the return value (e.g. via pickle).
-        excinfo = _interpreters.call(self._id, callable, restrict=True)
-        if excinfo is not None:
-            raise ExecutionFailed(excinfo)
 
-    def call_in_thread(self, callable, /):
+        The callable must be shareable or pickleable.
+        """
+        # _interpreters_xid is a workaround until we can make
+        # _interpreters.call() more permissive.
+        callsid, resultsid = self._get_call_queues()
+        # We do not try to preserve the actual exception,
+        # to keep the result consistent.
+        res, excinfo, exc = _ic._call_in_interpreter(
+                self._id, callsid, resultsid,
+                callable, args, kwargs,
+                reraise=False)
+        if excinfo is not None:
+            assert exc is True, (exc, excinfo)
+            raise ExecutionFailed(excinfo)
+        return res
+
+    def call_in_thread(self, callable, /, *args, **kwargs):
         """Return a new thread that calls the object in the interpreter.
 
         The return value and any raised exception are discarded.
         """
         def task():
-            self.call(callable)
+            self.call(callable, *args, **kwargs)
         t = threading.Thread(target=task)
         t.start()
         return t

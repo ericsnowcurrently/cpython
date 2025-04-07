@@ -6,6 +6,7 @@
 #endif
 
 #include "Python.h"
+#include "osdefs.h"               // MAXPATHLEN
 #include "pycore_code.h"          // _PyCode_HAS_EXECUTORS()
 #include "pycore_crossinterp.h"   // _PyXIData_t
 #include "pycore_interp.h"        // _PyInterpreterState_IDIncref()
@@ -15,6 +16,8 @@
 #include "pycore_pybuffer.h"      // _PyBuffer_ReleaseInInterpreterAndRawFree()
 #include "pycore_pylifecycle.h"   // _PyInterpreterConfig_AsDict()
 #include "pycore_pystate.h"       // _PyInterpreterState_IsRunningMain()
+#include "pycore_runtime.h"       // _Py_ID()
+#include "pycore_unicodeobject.h" // _PyUnicode_InternImmortal()
 
 #include "marshal.h"              // PyMarshal_ReadObjectFromString()
 
@@ -80,6 +83,257 @@ static int
 clear_module_state(module_state *state)
 {
     return 0;
+}
+
+
+/* copying the __main__ module **********************************************/
+
+#define MAIN_FILE_KEY "_interpreters_module_parent_main_file"
+#define MAIN_NS_KEY "_interpreters_module_parent_main_ns"
+
+static PyObject *
+_copy_filename(PyObject *filename)
+{
+    wchar_t buf[MAXPATHLEN+1];
+    Py_ssize_t size = PyUnicode_AsWideChar(filename, buf, MAXPATHLEN);
+    if (size < 0) {
+        return NULL;
+    }
+    assert(size > 0);
+    return PyUnicode_FromWideChar(buf, size);
+}
+
+static void
+_clear_cached_parent_main(void)
+{
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    PyObject *ns = PyInterpreterState_GetDict(interp);
+    if (ns == NULL) {
+        PyErr_Clear();
+        return;
+    }
+    if (PyDict_PopString(ns, MAIN_NS_KEY, NULL) < 0) {
+        PyErr_Clear();
+    }
+    if (PyDict_PopString(ns, MAIN_FILE_KEY, NULL) < 0) {
+        PyErr_Clear();
+    }
+}
+
+
+static PyObject *
+_get_cached_mainfile(PyInterpreterState *interp, PyObject **p_ns)
+{
+    assert(interp == _PyInterpreterState_GET());
+    PyObject *ns = PyInterpreterState_GetDict(interp);
+    if (ns == NULL) {
+        return NULL;
+    }
+    PyObject *mainfile = NULL;
+    if (PyDict_GetItemStringRef(ns, MAIN_FILE_KEY, &mainfile) < 0) {
+        return NULL;
+    }
+    assert(mainfile == NULL || PyUnicode_Check(mainfile));
+    if (mainfile == NULL) {
+        mainfile = Py_NewRef(Py_None);
+    }
+    *p_ns = ns;
+    return mainfile;
+}
+
+static PyObject *
+_get_mainmod_file(void)
+{
+    // We could also use _get_mainmod_ns().
+    PyObject *mod = PyImport_GetModule(&_Py_ID(__main__));
+    if (mod == NULL) {
+        return NULL;
+    }
+    if (mod == Py_None) {
+        Py_RETURN_NONE;
+    }
+    PyObject *mainfile = NULL;
+    if (PyObject_GetOptionalAttr(mod, &_Py_ID(__file__), &mainfile) < 0) {
+        return NULL;
+    }
+    if (mainfile == NULL) {
+        Py_RETURN_NONE;
+    }
+    return mainfile;
+}
+
+static PyObject * _get_mainfile(PyInterpreterState *interp);
+
+static PyObject *
+_copy_main_mainfile(void)
+{
+    PyObject *mainfile = NULL;
+    _PyXI_session session = {0};
+    PyInterpreterState *maininterp = _PyInterpreterState_Main();
+    assert(_PyInterpreterState_GET() != maininterp);
+    assert(!PyErr_Occurred());
+
+    // Switch to the main interpreter.
+    if (_PyXI_Enter(&session, maininterp, NULL) < 0) {
+        if (!PyErr_Occurred()) {
+            _PyXI_ApplyCapturedException(&session);
+            assert(PyErr_Occurred());
+        }
+        else {
+            assert(!_PyXI_HasCapturedException(&session));
+        }
+        return NULL;
+    }
+
+    // Get its __main__.__file__.
+    mainfile = _get_mainfile(maininterp);
+    if (mainfile == NULL) {
+#ifdef Py_DEBUG
+        fprintf(stderr, "_copy_main_mainfile(): "
+                        "failed to get main interpreter's __main__.__file__");
+#endif
+        PyErr_Clear();
+        mainfile = Py_NewRef(Py_None);
+    }
+    assert(!PyErr_Occurred());
+
+    // Switch back.
+    _PyXI_Exit(&session);
+    assert(!PyErr_Occurred());
+
+    // Create a copy owned by this interpreter.
+    if (mainfile == Py_None) {
+        return mainfile;
+    }
+    Py_ssize_t size = 0;
+    const char *utf8 = PyUnicode_AsUTF8AndSize(mainfile, &size);
+    mainfile = utf8 == NULL ? NULL : PyUnicode_FromStringAndSize(utf8, size);
+    if (mainfile == NULL) {
+#ifdef Py_DEBUG
+        fprintf(stderr, "_copy_main_mainfile(): "
+                        "failed to copy main interpreter's __main__.__file__");
+#endif
+        PyErr_Clear();
+        mainfile = Py_None;
+    }
+
+    return mainfile;
+}
+
+static PyObject *
+_get_mainfile(PyInterpreterState *interp)
+{
+    assert(interp == _PyInterpreterState_GET());
+    PyObject *ns = NULL;
+    PyObject *mainfile = _get_cached_mainfile(interp, &ns);
+    if (mainfile == NULL) {
+        return NULL;
+    }
+    if (mainfile != Py_None) {
+        return mainfile;
+    }
+
+    if (_Py_IsMainInterpreter(interp)) {
+        mainfile = _get_mainmod_file();
+        if (mainfile == NULL) {
+            return NULL;
+        }
+        else if (mainfile != Py_None) {
+            _PyUnicode_InternImmortal(interp, &mainfile);
+        }
+    }
+    else {
+        mainfile = _copy_main_mainfile();
+        if (mainfile == NULL) {
+            return NULL;
+        }
+    }
+
+    if (mainfile != Py_None) {
+        if (PyDict_SetItemString(ns, MAIN_FILE_KEY, mainfile) < 0) {
+            PyErr_Clear();
+        }
+    }
+    return mainfile;
+}
+
+
+static PyObject *
+_resolve_mainfile_ns(PyObject *parentfilename)
+{
+    assert(parentfilename == NULL || PyUnicode_Check(parentfilename));
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    PyObject *interpns = PyInterpreterState_GetDict(interp);
+    if (interpns == NULL) {
+        return NULL;
+    }
+
+    // Return a cached ns, if available.
+    PyObject *mainns = NULL;
+    if (PyDict_GetItemStringRef(interpns, MAIN_NS_KEY, &mainns) < 0) {
+#ifdef Py_DEBUG
+        fprintf(stderr,
+                "_resolve_mainfile_ns(): failed to get cached mainfile ns");
+#endif
+        PyErr_Clear();
+    }
+    else if (mainns != NULL) {
+        assert(PyDict_Check(mainns));
+        return mainns;
+    }
+
+    // Fall back to loading the parent's __main__.__file__, if possible.
+
+    // First resolve __main__.__file__.
+    PyObject *mainfile = NULL;
+    if (parentfilename != NULL && PyUnicode_GET_LENGTH(parentfilename) > 0) {
+        // parentfilename belongs to another interpreter, so we need a copy.
+        mainfile = _copy_filename(parentfilename);
+        if (mainfile == NULL) {
+#ifdef Py_DEBUG
+            fprintf(stderr,
+                    "_resolve_mainfile_ns(): failed to copy parent mainfile");
+#endif
+            PyErr_Clear();
+        }
+    }
+    if (mainfile == NULL) {
+        // XXX Fall back to the current interpreter's actual __main__.__file__?
+        if (PyDict_GetItemStringRef(interpns, MAIN_FILE_KEY, &mainfile) < 0) {
+            return NULL;
+        }
+        if (mainfile != NULL && PyUnicode_GET_LENGTH(mainfile) == 0) {
+            Py_CLEAR(mainfile);
+        }
+        if (mainfile == NULL) {
+            PyErr_SetString(PyExc_RuntimeError,
+                            "could not resolve parent __main__ ns");
+            return NULL;
+        }
+    }
+
+    // Next, load that file and exec it.
+    PyObject *run_path = PyImport_ImportModuleAttrString("runpy", "run_path");
+    if (run_path == NULL) {
+        Py_DECREF(mainfile);
+        return NULL;
+    }
+    mainns = PyObject_CallOneArg(run_path, mainfile);
+    Py_DECREF(mainfile);
+    Py_DECREF(run_path);
+    if (mainns == NULL) {
+        return NULL;
+    }
+
+    // Finally, cache the ns.
+    if (PyDict_SetItemString(interpns, MAIN_NS_KEY, mainns) < 0) {
+#ifdef Py_DEBUG
+        fprintf(stderr,
+                "_resolve_mainfile_ns(): failed to set cached mainfile ns");
+#endif
+        PyErr_Clear();
+    }
+    return mainns;
 }
 
 
@@ -584,7 +838,7 @@ Return a list containing the ID of every existing interpreter.");
 static PyObject *
 interp_get_current(PyObject *self, PyObject *Py_UNUSED(ignored))
 {
-    PyInterpreterState *interp =_get_current_interp();
+    PyInterpreterState *interp = _get_current_interp();
     if (interp == NULL) {
         return NULL;
     }
@@ -670,6 +924,69 @@ PyDoc_STRVAR(set___main___attrs_doc,
 "set___main___attrs(id, ns, *, restrict=False)\n\
 \n\
 Bind the given attributes in the interpreter's __main__ module.");
+
+
+static PyObject *
+interp_get_mainfile(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    PyInterpreterState *interp = _get_current_interp();
+    if (interp == NULL) {
+        return NULL;
+    }
+    assert(_PyInterpreterState_IsReady(interp));
+    return _get_mainfile(interp);
+}
+
+PyDoc_STRVAR(get_mainfile_doc,
+"get_mainfile() -> filename\n\
+\n\
+Return __main__.__file__ for the current interpreter.\n\
+\n\
+If it isn't set then fall back to that of the main interpreter.");
+
+
+static PyObject *
+interp_get_parent_mainns(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+    static char *kwlist[] = {"mainfile", NULL};
+    PyObject *mainfile = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs,
+                                     "O:" MODULE_NAME_STR ".get_parent_mainns",
+                                     kwlist, &mainfile))
+    {
+        return NULL;
+    }
+
+    Py_XINCREF(mainfile);
+    if (mainfile == NULL || mainfile == Py_None) {
+        Py_XDECREF(mainfile);
+        PyInterpreterState *interp = _get_current_interp();
+        if (interp == NULL) {
+            return NULL;
+        }
+        assert(_PyInterpreterState_IsReady(interp));
+        mainfile = _get_mainfile(interp);
+        if (mainfile == NULL) {
+            return NULL;
+        }
+    }
+    PyObject *mainns = _resolve_mainfile_ns(mainfile);
+    Py_DECREF(mainfile);
+    if (mainns == NULL) {
+        return NULL;
+    }
+    PyObject *readonly = PyDictProxy_New(mainns);
+    Py_DECREF(mainns);
+    return readonly;
+}
+
+PyDoc_STRVAR(get_parent_mainns_doc,
+"get_parent_mainns(mainfile=None) -> mappingproxy\n\
+\n\
+Return a read-only copy_of __main__.__dict__ as if for the given filename.\n\
+\n\
+If a filename is not provided then the one from the main interpreter\n\
+is used.");
 
 
 static PyUnicodeObject *
@@ -1276,6 +1593,10 @@ static PyMethodDef module_functions[] = {
 
     {"set___main___attrs",        _PyCFunction_CAST(interp_set___main___attrs),
      METH_VARARGS | METH_KEYWORDS, set___main___attrs_doc},
+    {"get_mainfile",              _PyCFunction_CAST(interp_get_mainfile),
+     METH_NOARGS,                 get_mainfile_doc},
+    {"get_parent_mainns",         _PyCFunction_CAST(interp_get_parent_mainns),
+     METH_VARARGS | METH_KEYWORDS, get_parent_mainns_doc},
 
     {"incref",                    _PyCFunction_CAST(interp_incref),
      METH_VARARGS | METH_KEYWORDS, NULL},
@@ -1381,6 +1702,7 @@ module_free(void *mod)
     module_state *state = get_module_state((PyObject *)mod);
     assert(state != NULL);
     (void)clear_module_state(state);
+    _clear_cached_parent_main();
 }
 
 static struct PyModuleDef moduledef = {
