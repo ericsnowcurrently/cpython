@@ -45,9 +45,59 @@ if hasattr(os, 'register_at_fork'):
 
 
 class WorkerContext:
+    """The per-worker state managed by the executor.
+
+    Instances are created by the create_context() function returned
+    by prepare().
+
+    The instance methods are all used in each worker thread:
+
+    1. ctx.initialize()
+    2. while True:
+    3.     data = get_task()
+    4.     res = ctx.run(data)
+    5.     send_result(res)
+    6. ctx.finalize()
+    """
 
     @classmethod
     def prepare(cls, initializer, initargs):
+        """Return (create_context, resolve_task) for the executor to use.
+
+        When an executor is created, it calls prepare().  The two
+        returned functions are later used by the executor.
+
+        create_context() takes no arguments and returns a context
+        instance.  The executor calls create_context() once for each
+        worker, right before starting the worker thread.  The worker
+        thread then uses that context instance to do its work.
+
+        resolve_task() takes (func, args, kwargs).  It returns an object
+        that encodes the call in a format suitable to send to a worker,
+        possibly serializing it, or at least sticking the three values
+        in a tuple.  The worker will then pass that object to the run()
+        method of its context instance.
+
+        The executor calls resolve_task() directly in submit().  That
+        means any exception raised by resolve_task() will raise from
+        submit().  Getting an exception immediately from submit() can
+        be a better experience for users than getting the exception
+        later from the task's future object.  For example, if there is
+        some problem with the function or one of the arguments,
+        especially during serialization, it's more helpful if submit()
+        raises the exception right then.
+
+        Getting called directly in submit() also means that the longer
+        resolve_task() takes to finish, the longer submit() will take
+        to finish.  That can be a problem if a program is queueing up
+        a large number of tasks.  The solution to that is to do as much
+        work as possible in WorkerContext.run(), which is called
+        later in the worker thread, rather than the thread where
+        submit() was called..
+
+        The tradeoff between raising exceptions from submit() and
+        keeping submit() faster is one to consider carefully.
+        """
         if initializer is not None:
             if not callable(initializer):
                 raise TypeError("initializer must be a callable")
@@ -62,13 +112,31 @@ class WorkerContext:
         self.initargs = initargs
 
     def initialize(self):
+        """Prepare any resources the worker will need to run requested tasks.
+
+        This is called in each worker thread right before it starts looping.
+        """
         if self.initializer is not None:
             self.initializer(*self.initargs)
 
     def finalize(self):
+        """Clean up any resources created by initialize().
+
+        This is called in each worker thread right after it stops looping.
+        """
         pass
 
     def run(self, task):
+        """Return the result of executing the given task.
+
+        "task" is an object encoded by the resolve_task() function
+        returned from WorkerContext.prepare().  It may be as simple
+        as the tuple (func, args, kwargs), or it might be some
+        serialized form of that.  It depends on how much we're willing
+        to do in submit() vs. in the worker.
+
+        This is called in each worker while looping, once per task.
+        """
         fn, args, kwargs = task
         return fn(*args, **kwargs)
 

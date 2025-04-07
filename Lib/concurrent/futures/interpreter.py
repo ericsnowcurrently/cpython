@@ -47,9 +47,8 @@ class WorkerContext(_thread.WorkerContext):
     @classmethod
     def prepare(cls, initializer, initargs, shared, on_init):
         def resolve_task(fn, args, kwargs):
-            #if _interpreters.is_shareable(arg):
-            data = pickle.dumps((fn, args, kwargs))
-            return data
+            # XXX Optionally serialize here?
+            return (fn, args, kwargs)
 
         if initializer is not None:
             initdata = resolve_task(initializer, initargs, {})
@@ -59,6 +58,7 @@ class WorkerContext(_thread.WorkerContext):
             on_init = (on_init, resolve_task)
         def create_context():
             return cls(initdata, shared, on_init)
+
         return create_context, resolve_task
 
     @classmethod
@@ -85,46 +85,123 @@ class WorkerContext(_thread.WorkerContext):
             _interpqueues.put(resultsid, (res, None), 1, UNBOUND)
 
     @classmethod
-    def _call_pickled(cls, pickled, resultsid, main=False):
+    def _call_xidata(cls, taskdata, fmt, resultsid, needsmain=False):
         with cls._capture_exc(resultsid):
-            if main:
-                try:
-                    fn, args, kwargs = pickle.loads(pickled)
-                except AttributeError as exc:
-                    if not cls._maybe_handle_missing_main_attr(str(exc)):
-                        raise  # re-raise
-                    fn, args, kwargs = pickle.loads(pickled)
-            else:
-                fn, args, kwargs = pickle.loads(pickled)
+            try:
+                (fn, args, kwargs,
+                 ) = cls._get_callspec_from_xidata(taskdata, fmt, needsmain)
+            except Exception:
+                raise ValueError(f'failed to deserialize func or args')
         cls._call(fn, args, kwargs, resultsid)
+
+    @classmethod
+    def _get_callspec_as_xidata(cls, fn, args, kwargs):
+        # For now, first try pickle and fall back to XID.
+        def obj_as_xidata(obj):
+            try:
+                data = pickle.dumps(obj)
+                fmt = 'pickle'
+                needsmain = (b'__main__' in data)
+            except (TypeError, pickle.PicklingError):
+                data = obj
+                fmt = 'xid'
+                needsmain = None
+            return (data, fmt), needsmain
+
+        (data, fmt), needsmain = obj_as_xidata((fn, args, kwargs))
+        if fmt == 'pickle':
+            return data, fmt, needsmain
+        assert fmt == 'xid', (fmt, fn, args, kwargs)
+
+        fn, _needsmain = obj_as_xidata(fn)
+        _, _fmt = fn
+        if _fmt != 'xid':
+            fmt = 'mixed'
+        needsmain = needsmain or _needsmain
+
+        _args = []
+        for arg in args:
+            arg, _needsmain = obj_as_xidata(arg)
+            _, _fmt = arg
+            _args.append(arg)
+            if _fmt != 'xid':
+                fmt = 'mixed'
+            needsmain = needsmain or _needsmain
+        args = tuple(_args)
+
+        _kwargs = []
+        for name, value in kwargs.items():
+            value, _needsmain = obj_as_xidata(value)
+            _, _fmt = value
+            _kwargs.append((name, value))
+            if _fmt != 'xid':
+                fmt = 'mixed'
+            needsmain = needsmain or _needsmain
+        kwargs = tuple(_kwargs)
+
+        return ((fn, args, kwargs), fmt, needsmain)
+
+    @classmethod
+    def _get_callspec_from_xidata(cls, data, fmt, needsmain=False):
+        def obj_from_xidata(data, fmt, needsmain):
+            if fmt == 'pickle':
+                if needsmain:
+                    while True:
+                        try:
+                            return pickle.loads(data)
+                        except AttributeError as exc:
+                            name = cls._maybe_handle_missing_main_attr(str(exc))
+                            if not name:
+                                raise  # re-raise
+                else:
+                    return pickle.loads(data)
+            elif fmt == 'xid':
+                return data
+            else:
+                raise NotImplementedError(fmt)
+
+        if fmt == 'pickle':
+            return obj_from_xidata(data, fmt, needsmain)
+        elif fmt == 'xid':
+            fn, args, kwargs = data
+            kwargs = dict(kwargs)
+            return fn, args, kwargs
+        elif fmt == 'mixed':
+            fn, args, kwargs = data
+            fn = obj_from_xidata(*fn, needsmain)
+            args = tuple(obj_from_xidata(*a, needsmain) for a in args)
+            kwargs = {k: obj_from_xidata(*v, needsmain) for k, v in kwargs}
+            return fn, args, kwargs
+        else:
+            raise NotImplementedError(fmt)
 
     @classmethod
     def _maybe_handle_missing_main_attr(cls, errmsg):
         if not errmsg.endswith("'"):
-            return False
+            return None
         msg, _, name = errmsg[:-1].rpartition(" '")
         if msg != "module '__main__' has no attribute":
-            return False
+            return None
         mod = sys.modules.get('__main__')
         if not mod:
-            return False
+            return None
         mainns = vars(mod)
         if name in mainns:
-            return False
+            return None
         parentns = getattr(mod, cls.PARENT_MAIN_NS, None)
         if not parentns:
-            return False
+            return None
         try:
             value = parentns[name]
         except KeyError:
-            return False
+            return None
         if hasattr(value, '__module__'):
             try:
                 value.__module__ = '__main__'
             except AttributeError:
                 pass
         mainns[name] = value
-        return True
+        return name
 
     def __init__(self, initdata, shared=None, on_init=None):
         self.initdata = initdata
@@ -193,37 +270,11 @@ class WorkerContext(_thread.WorkerContext):
             except _interpreters.InterpreterNotFoundError:
                 pass
 
-    def _maybe_prepare_main(self):
-        if self.mainfile:
-            # XXX Make sure the filename matches?
-            return True
-        if self.mainfile is False:
-            return False
-
-        mod = sys.modules.get('__main__')
-        mainfile = getattr(mod, '__file__', None)
-        if not mainfile:
-            self.mainfile = False
-            return False
-        # Functions defined in the __main__ module won't
-        # automatically be available in the subinterpreter's
-        # __main__, so unpickling will fail.  To work around this,
-        # we must merge it in first.
-        self._exec(f"""if True:
-            import runpy
-            {self.PARENT_MAIN_NS} = runpy.run_path({mainfile!r})
-            """)
-        self.mainfile = mainfile
-        return True
-
     def run(self, task):
-        data = task
-        main = False
-        if b'__main__' in data:
-            main = self._maybe_prepare_main()
-        args = (data, self.resultsid, main)
-        script = f'WorkerContext._call_pickled(*{args})'
-
+        script, shared = self._get_task_script(task)
+        if shared:
+            _interpreters.set___main___attrs(
+                                self.interpid, shared, restrict=True)
         try:
             self._exec(script)
         except ExecutionFailed as exc:
@@ -254,6 +305,44 @@ class WorkerContext(_thread.WorkerContext):
             exc = pickle.loads(excdata)
             raise exc from exc_wrapper
         return pickle.loads(res) if pickled else res
+
+    def _get_task_script(self, task):
+        fn, args, kwargs = task
+        data, fmt, needsmain = self._get_callspec_as_xidata(fn, args, kwargs)
+        if needsmain:
+            needsmain = self._maybe_prepare_main()
+        if fmt == 'pickle':
+            args = (data, fmt, self.resultsid, needsmain)
+            script = f'WorkerContext._call_xidata(*{args})'
+            shared = None
+        else:
+            args = (fmt, self.resultsid, needsmain)
+            script = f'WorkerContext._call_xidata(_taskdata, *{args})'
+            shared = dict(_taskdata=data)
+        return script, shared
+
+    def _maybe_prepare_main(self):
+        if self.mainfile:
+            # XXX Make sure the filename matches?
+            return True
+        if self.mainfile is False:
+            return False
+
+        mod = sys.modules.get('__main__')
+        mainfile = getattr(mod, '__file__', None)
+        if not mainfile:
+            self.mainfile = False
+            return False
+        # Functions defined in the __main__ module won't
+        # automatically be available in the subinterpreter's
+        # __main__, so unpickling will fail.  To work around this,
+        # we must merge it in first.
+        self._exec(f"""if True:
+            import runpy
+            {self.PARENT_MAIN_NS} = runpy.run_path({mainfile!r})
+            """)
+        self.mainfile = mainfile
+        return True
 
 
 class BrokenInterpreterPool(_thread.BrokenThreadPool):
