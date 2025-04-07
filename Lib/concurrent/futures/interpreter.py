@@ -2,6 +2,7 @@
 
 import contextlib
 import pickle
+import sys
 import textwrap
 from . import thread as _thread
 import _interpreters
@@ -41,6 +42,8 @@ UNBOUND = 2  # error; this should not happen.
 
 class WorkerContext(_thread.WorkerContext):
 
+    PARENT_MAIN_NS = '_parent_main_ns'
+
     @classmethod
     def prepare(cls, initializer, initargs, shared):
         def resolve_task(fn, args, kwargs):
@@ -58,9 +61,6 @@ class WorkerContext(_thread.WorkerContext):
                 # of supporting code objects in _interpreters.exec().
                 compile(data, '<string>', 'exec')
             else:
-                # Functions defined in the __main__ module can't be pickled,
-                # so they can't be used here.  In the future, we could possibly
-                # borrow from multiprocessing to work around this.
                 data = pickle.dumps((fn, args, kwargs))
                 kind = 'function'
             return (data, kind)
@@ -106,16 +106,53 @@ class WorkerContext(_thread.WorkerContext):
             _interpqueues.put(resultsid, (res, None), 1, UNBOUND)
 
     @classmethod
-    def _call_pickled(cls, pickled, resultsid):
+    def _call_pickled(cls, pickled, resultsid, main=False):
         with cls._capture_exc(resultsid):
-            fn, args, kwargs = pickle.loads(pickled)
+            if main:
+                try:
+                    fn, args, kwargs = pickle.loads(pickled)
+                except AttributeError as exc:
+                    if not cls._maybe_handle_missing_main_attr(str(exc)):
+                        raise  # re-raise
+                    fn, args, kwargs = pickle.loads(pickled)
+            else:
+                fn, args, kwargs = pickle.loads(pickled)
         cls._call(fn, args, kwargs, resultsid)
+
+    @classmethod
+    def _maybe_handle_missing_main_attr(cls, errmsg):
+        if not errmsg.endswith("'"):
+            return False
+        msg, _, name = errmsg[:-1].rpartition(" '")
+        if msg != "module '__main__' has no attribute":
+            return False
+        mod = sys.modules.get('__main__')
+        if not mod:
+            return False
+        mainns = vars(mod)
+        if name in mainns:
+            return False
+        parentns = getattr(mod, cls.PARENT_MAIN_NS, None)
+        if not parentns:
+            return False
+        try:
+            value = parentns[name]
+        except KeyError:
+            return False
+        if hasattr(value, '__module__'):
+            try:
+                value.__module__ = '__main__'
+            except AttributeError:
+                pass
+        mainns[name] = value
+        return True
 
     def __init__(self, initdata, shared=None):
         self.initdata = initdata
         self.shared = dict(shared) if shared else None
         self.interpid = None
         self.resultsid = None
+        self.mainfile = None
 
     def __del__(self):
         if self.interpid is not None:
@@ -165,6 +202,29 @@ class WorkerContext(_thread.WorkerContext):
             except _interpreters.InterpreterNotFoundError:
                 pass
 
+    def _maybe_prepare_main(self):
+        if self.mainfile:
+            # XXX Make sure the filename matches?
+            return True
+        if self.mainfile is False:
+            return False
+
+        mod = sys.modules.get('__main__')
+        mainfile = getattr(mod, '__file__', None)
+        if not mainfile:
+            self.mainfile = False
+            return False
+        # Functions defined in the __main__ module won't
+        # automatically be available in the subinterpreter's
+        # __main__, so unpickling will fail.  To work around this,
+        # we must merge it in first.
+        self._exec(f"""if True:
+            import runpy
+            {self.PARENT_MAIN_NS} = runpy.run_path({mainfile!r})
+            """)
+        self.mainfile = mainfile
+        return True
+
     def run(self, task):
         data, kind = task
         if kind == 'script':
@@ -174,7 +234,11 @@ with WorkerContext._capture_exc({self.resultsid}):
 {textwrap.indent(data, '    ')}
 WorkerContext._send_script_result({self.resultsid})"""
         elif kind == 'function':
-            script = f'WorkerContext._call_pickled({data!r}, {self.resultsid})'
+            main = False
+            if b'__main__' in data:
+                main = self._maybe_prepare_main()
+            args = (data, self.resultsid, main)
+            script = f'WorkerContext._call_pickled(*{args})'
         else:
             raise NotImplementedError(kind)
 
