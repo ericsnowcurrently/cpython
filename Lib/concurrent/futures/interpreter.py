@@ -47,32 +47,12 @@ class WorkerContext(_thread.WorkerContext):
     @classmethod
     def prepare(cls, initializer, initargs, shared, on_init):
         def resolve_task(fn, args, kwargs):
-            if isinstance(fn, str):
-                # XXX Circle back to this later.
-                raise TypeError('scripts not supported')
-                if args or kwargs:
-                    raise ValueError(f'a script does not take args or kwargs, got {args!r} and {kwargs!r}')
-                data = textwrap.dedent(fn)
-                kind = 'script'
-                # Make sure the script compiles.
-                # Ideally we wouldn't throw away the resulting code
-                # object.  However, there isn't much to be done until
-                # code objects are shareable and/or we do a better job
-                # of supporting code objects in _interpreters.exec().
-                compile(data, '<string>', 'exec')
-            else:
-                #if _interpreters.is_shareable(arg):
-                data = pickle.dumps((fn, args, kwargs))
-                kind = 'function'
-            return (data, kind)
+            #if _interpreters.is_shareable(arg):
+            data = pickle.dumps((fn, args, kwargs))
+            return data
 
         if initializer is not None:
-            try:
-                initdata = resolve_task(initializer, initargs, {})
-            except ValueError:
-                if isinstance(initializer, str) and initargs:
-                    raise ValueError(f'an initializer script does not take args, got {initargs!r}')
-                raise  # re-raise
+            initdata = resolve_task(initializer, initargs, {})
         else:
             initdata = None
         if on_init is not None:
@@ -92,10 +72,6 @@ class WorkerContext(_thread.WorkerContext):
             err = pickle.dumps(exc)
             _interpqueues.put(resultsid, (None, err), 1, UNBOUND)
             raise  # re-raise
-
-    @classmethod
-    def _send_script_result(cls, resultsid):
-        _interpqueues.put(resultsid, (None, None), 0, UNBOUND)
 
     @classmethod
     def _call(cls, func, args, kwargs, resultsid):
@@ -241,21 +217,12 @@ class WorkerContext(_thread.WorkerContext):
         return True
 
     def run(self, task):
-        data, kind = task
-        if kind == 'script':
-            raise NotImplementedError('script kind disabled')
-            script = f"""
-with WorkerContext._capture_exc({self.resultsid}):
-{textwrap.indent(data, '    ')}
-WorkerContext._send_script_result({self.resultsid})"""
-        elif kind == 'function':
-            main = False
-            if b'__main__' in data:
-                main = self._maybe_prepare_main()
-            args = (data, self.resultsid, main)
-            script = f'WorkerContext._call_pickled(*{args})'
-        else:
-            raise NotImplementedError(kind)
+        data = task
+        main = False
+        if b'__main__' in data:
+            main = self._maybe_prepare_main()
+        args = (data, self.resultsid, main)
+        script = f'WorkerContext._call_pickled(*{args})'
 
         try:
             self._exec(script)
