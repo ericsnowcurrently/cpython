@@ -78,9 +78,9 @@ init_heap_exctypes(exceptions_t *state)
 {
     PyObject *exctype;
 
-    /* NotShareableError extends ValueError */
+    /* NotShareableError extends TypeError */
     const char *name = "interpreters.NotShareableError";
-    PyObject *base = PyExc_ValueError;
+    PyObject *base = PyExc_TypeError;
     PyObject *ns = NULL;
     exctype = PyErr_NewException(name, base, ns);
     if (exctype == NULL) {
