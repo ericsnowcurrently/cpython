@@ -1204,8 +1204,32 @@ object_is_shareable(PyObject *self, PyObject *args, PyObject *kwds)
 PyDoc_STRVAR(is_shareable_doc,
 "is_shareable(obj) -> bool\n\
 \n\
-Return True if the object's data may be shared between interpreters and\n\
-False otherwise.");
+Return True if the object's data may be shared between interpreters.\n\
+This only checks if the object's type supports sharing, though it might\n\
+not support sharing all its instances.  To check more strictly,\n\
+use as_shareable() to actually convert the object to its shareble form.");
+
+
+static PyObject *
+object_as_shareable(PyObject *self, PyObject *args, PyObject *kwds)
+{
+    static char *kwlist[] = {"obj", NULL};
+    PyObject *obj;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds,
+                                     "O:as_shareable", kwlist,
+                                     &obj)) {
+        return NULL;
+    }
+
+    PyThreadState *tstate = _PyThreadState_GET();
+    return _PyXIDataWrapper_New(tstate, obj);
+}
+
+PyDoc_STRVAR(as_shareable_doc,
+"as_shareable(obj) -> CrossInterpreterObjectData\n\
+\n\
+Return a wrapper around the cross-interpreter-safe data for the object.\n\
+If the object is not shareable then raise NotShareableError.");
 
 
 static PyObject *
@@ -1473,6 +1497,8 @@ static PyMethodDef module_functions[] = {
 
     {"is_shareable",              _PyCFunction_CAST(object_is_shareable),
      METH_VARARGS | METH_KEYWORDS, is_shareable_doc},
+    {"as_shareable",              _PyCFunction_CAST(object_as_shareable),
+     METH_VARARGS | METH_KEYWORDS, as_shareable_doc},
 
     {"capture_exception",         _PyCFunction_CAST(capture_exception),
      METH_VARARGS | METH_KEYWORDS, capture_exception_doc},
@@ -1506,6 +1532,10 @@ module_exec(PyObject *mod)
     ADD_WHENCE(XI)
     ADD_WHENCE(STDLIB)
 #undef ADD_WHENCE
+
+    if (PyModule_AddType(mod, &_PyXIDataWrapper_Type) < 0) {
+        goto error;
+    }
 
     // exceptions
     if (PyModule_AddType(mod, (PyTypeObject *)PyExc_InterpreterError) < 0) {
