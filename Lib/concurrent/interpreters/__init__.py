@@ -7,7 +7,7 @@ import _interpreters
 # aliases:
 from _interpreters import (
     InterpreterError, InterpreterNotFoundError, NotShareableError,
-    is_shareable,
+    is_shareable, as_shareable, CrossInterpreterObjectData,
 )
 from ._queues import (
     create as create_queue,
@@ -16,7 +16,8 @@ from ._queues import (
 
 
 __all__ = [
-    'get_current', 'get_main', 'create', 'list_all', 'is_shareable',
+    'get_current', 'get_main', 'create', 'list_all',
+    'is_shareable', 'as_shareable', 'CrossInterpreterObjectData',
     'Interpreter',
     'InterpreterError', 'InterpreterNotFoundError', 'ExecutionFailed',
     'NotShareableError',
