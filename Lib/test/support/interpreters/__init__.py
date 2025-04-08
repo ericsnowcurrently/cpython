@@ -7,12 +7,13 @@ import _interpreters
 # aliases:
 from _interpreters import (
     InterpreterError, InterpreterNotFoundError, NotShareableError,
-    is_shareable,
+    is_shareable, as_shareable,
 )
 
 
 __all__ = [
-    'get_current', 'get_main', 'create', 'list_all', 'is_shareable',
+    'get_current', 'get_main', 'create', 'list_all',
+    'is_shareable', 'as_shareable', 'CrossInterpreterObjectData',
     'Interpreter',
     'InterpreterError', 'InterpreterNotFoundError', 'ExecutionFailed',
     'NotShareableError',
