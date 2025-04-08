@@ -191,6 +191,140 @@ _PyXIData_Clear(PyInterpreterState *interp, _PyXIData_t *xidata)
 }
 
 
+/* wrapped data */
+
+static PyObject *
+unwrapper_call(_PyXIData_unwrapper_t *unwrapper, PyObject *obj)
+{
+    return unwrapper->func(unwrapper->data, obj);
+}
+
+static void
+unwrapper_clear(_PyXIData_unwrapper_t *unwrapper)
+{
+    if (unwrapper->free != NULL && unwrapper->data != NULL) {
+        unwrapper->free(unwrapper->data);
+    }
+    *unwrapper = (_PyXIData_unwrapper_t){0};
+}
+
+
+int
+_PyXIData_UnwrapperFromObj(PyThreadState *tstate, PyObject *unwrapobj,
+                           _PyXIData_unwrapper_t *unwrapper)
+{
+    if (!PyCallable_Check(unwrapobj)) {
+        PyErr_Format(PyExc_TypeError,
+                     "expected unwrap obj to be callable, got %R");
+        return -1;
+    }
+    // XXX
+    PyErr_SetString(PyExc_NotImplementedError, "TBD");
+    return -1;
+//    void *unwrap_data = _xi_callable_as_data(unwrapper);
+//    if (unwrap_data == NULL) {
+//        return -1;
+//    }
+//    return _xidata_set_unwrap(tstate, data, NULL, unwrap_data, PyMem_RawFree);
+
+//    PyObject *unwrapped = NULL;
+//    if (wrapped->unwrap.func == NULL) {
+//        PyObject *unwrapobj = _xi_callable_from_data(wrapped->unwrap.data);
+//        if (unwrapobj != NULL) {
+//            unwrapped = PyObject_CallOneArg(unwrapobj, obj);
+//            Py_DECREF(unwrapobj);
+//        }
+//    }
+//    return 0;
+}
+
+
+struct wrapped_data {
+    _PyXIData_unwrapper_t unwrapper;
+    // The rest are the corresponding original _Py_XIData values.
+    void *data;
+    xid_newobjfunc new_object;
+    xid_freefunc free;
+};
+
+static PyObject *
+_new_object_from_wrapped_data(_PyXIData_t *data)
+{
+    struct wrapped_data *wrapped = (struct wrapped_data *)data->data;
+    // First get the wrapped object.
+    _PyXIData_t orig = *data;
+    orig.data = wrapped->data;
+    orig.new_object = wrapped->new_object;
+    orig.free = free;
+    PyObject *obj = _PyXIData_NewObject(&orig);
+    if (obj == NULL) {
+        return NULL;
+    }
+    // Then unwrap it.
+    PyObject *unwrapped = unwrapper_call(&wrapped->unwrapper, obj);
+    Py_DECREF(obj);
+    return unwrapped;
+}
+
+static void
+_free_wrapped_data(void *data)
+{
+    struct wrapped_data *wrapped = (struct wrapped_data *)data;
+    if (wrapped->free != NULL && wrapped->data != NULL) {
+        wrapped->free(wrapped->data);
+    }
+    unwrapper_clear(&wrapped->unwrapper);
+    PyMem_RawFree(data);
+}
+
+// This takes "ownership" of the given unwrapper data.
+int
+_PyXIData_SetUnwrapper(PyThreadState *tstate, _PyXIData_t *data,
+                       _PyXIData_unwrapper_t *unwrapper)
+{
+    assert(data != NULL);
+    struct wrapped_data *wrapped =
+            PyMem_RawMalloc(sizeof(struct wrapped_data));
+    if (wrapped == NULL) {
+        PyErr_NoMemory();
+        return -1;
+    }
+    *wrapped = (struct wrapped_data){
+        .unwrapper = *unwrapper,
+        .data = data->data,
+        .new_object = data->new_object,
+        .free = data->free,
+    };
+    data->data = wrapped;
+    data->new_object = _new_object_from_wrapped_data;
+    data->free = _free_wrapped_data;
+    return 0;
+}
+
+int
+_PyXIData_SetUnwrapFunc(PyThreadState *tstate, _PyXIData_t *data,
+                        xid_unwrapfunc unwrapfunc)
+{
+    _PyXIData_unwrapper_t unwrapper = {unwrapfunc};
+    return _PyXIData_SetUnwrapper(tstate, data, &unwrapper);
+}
+
+int
+_PyXIData_SetUnwrapObj(PyThreadState *tstate, _PyXIData_t *data,
+                       PyObject *unwrapobj)
+{
+    _PyXIData_unwrapper_t unwrapper;
+    if (_PyXIData_UnwrapperFromObj(tstate, unwrapobj, &unwrapper) < 0) {
+        return -1;
+    }
+    if (_PyXIData_SetUnwrapper(tstate, data, &unwrapper) < 0) {
+        unwrapper_clear(&unwrapper);
+        return -1;
+    }
+    return 0;
+}
+
+
 /* getting cross-interpreter data */
 
 static inline void
@@ -209,7 +343,6 @@ _set_xid_lookup_failure(PyThreadState *tstate, PyObject *obj, const char *msg)
                 tstate, "%S does not support cross-interpreter data", obj);
     }
 }
-
 
 int
 _PyObject_CheckXIData(PyThreadState *tstate, PyObject *obj)
@@ -270,11 +403,6 @@ _PyObject_GetXIData(PyThreadState *tstate,
     Py_INCREF(obj);
     xidatafunc getdata = lookup_getdata(&ctx, obj);
     if (getdata == NULL) {
-        if (PyErr_Occurred()) {
-            Py_DECREF(obj);
-            return -1;
-        }
-        // Fall back to obj
         Py_DECREF(obj);
         if (!PyErr_Occurred()) {
             _set_xid_lookup_failure(tstate, obj, NULL);
@@ -721,126 +849,207 @@ _PyXIData_ReleaseAndRawFree(_PyXIData_t *xidata)
 /* XID wrapper objects */
 
 typedef struct {
-    PyObject_HEAD
-    _PyXIData_t *data;
+    PyObject base;
+    // fundamental:
     PyObject *orig;
+    PyObject *unwrapobj;
+    // cache to be transferred:
+    _PyXIData_t *data;
+    _PyXIData_unwrapper_t *unwrapper;
+    // pre-allocated data
     _PyXIData_t _data;
-} _PyXIDataWrapperObject;
+    _PyXIData_unwrapper_t _unwrapper;
+} xidwrapper;
 
-static _PyXIDataWrapperObject *
+static xidwrapper *
 new_xidwrapper(PyObject *obj)
 {
     assert(obj != NULL);
-    _PyXIDataWrapperObject *wrapper =
-            PyObject_GC_New(_PyXIDataWrapperObject, &_PyXIDataWrapper_Type);
+    xidwrapper *wrapper =
+            PyObject_GC_New(xidwrapper, &_PyXIDataWrapper_Type);
     if (wrapper == NULL) {
         PyErr_NoMemory();
         return NULL;
     }
-    wrapper->data = NULL;
-    wrapper->orig = Py_NewRef(obj);
-    wrapper->_data = (_PyXIData_t){0};
+    *wrapper = (xidwrapper){
+        .base = wrapper->base,
+        .orig = Py_NewRef(obj),
+    };
     return wrapper;
 }
 
 static void
-xidwrapper_dealloc(_PyXIDataWrapperObject *wrapper)
+xidwrapper_dealloc(xidwrapper *wrapper)
 {
     PyObject_GC_UnTrack(wrapper);
+    // Clear the wrapped XI data.
     if (wrapper->data != NULL) {
         // "Release" the data and/or the object directly,
         // rather than using _PyXIData_Release().
         assert(_PyXIData_INTERPID(wrapper->data) ==
                 PyInterpreterState_GetID(_PyInterpreterState_GET()));
         _xidata_clear(wrapper->data);
-        wrapper->data = NULL;
     }
-    // Finish!
+    // Clear the other cached data.
+    if (wrapper->unwrapper != NULL) {
+        unwrapper_clear(wrapper->unwrapper);
+    }
+    // Clear the fundamental parts.
+    Py_CLEAR(wrapper->unwrapobj);
     Py_CLEAR(wrapper->orig);
+    // Free it.
     PyObject_GC_Del((PyObject *)wrapper);
 }
 
+/* Populate the _PyXIData_t with data from the wrapper. */
 static int
-_xidwrapper_bind(PyThreadState *tstate, _PyXIDataWrapperObject *wrapper)
+_xidwrapper_apply_unwrapper(PyThreadState *tstate, xidwrapper *wrapper,
+                            _PyXIData_t *data)
+{
+    assert(data != NULL);
+    assert(wrapper->orig != NULL);
+    assert(data->new_object != _new_object_from_wrapped_data);
+    if (wrapper->unwrapper == NULL && wrapper->unwrapobj == NULL) {
+        if (_PyXIData_UnwrapperFromObj(
+                tstate, wrapper->unwrapobj, &wrapper->_unwrapper) < 0) {
+            return -1;
+        }
+        wrapper->unwrapper = &wrapper->_unwrapper;
+    }
+    if (wrapper->unwrapper != NULL) {
+        if ( _PyXIData_SetUnwrapper(tstate, data, wrapper->unwrapper) < 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+/* Populate the _PyXIData_t with data from the wrapper. */
+static int
+_xidwrapper_apply(PyThreadState *tstate, xidwrapper *wrapper,
+                  _PyXIData_t *data)
 {
     PyObject *obj = wrapper->orig;
     if (obj == NULL) {
         PyErr_SetString(PyExc_ValueError, "no orig object");
         return -1;
     }
-    if (wrapper->data != NULL) {
-        PyErr_SetString(PyExc_ValueError, "already bound");
+    if (_PyObject_GetXIData(tstate, obj, data) < 0) {
         return -1;
     }
-    _PyXIData_lookup_context_t ctx;
-    if (_PyXIData_GetLookupContext(tstate->interp, &ctx) < 0) {
+    if (_xidwrapper_apply_unwrapper(tstate, wrapper, data) < 0) {
+        _xidata_clear(data);
         return -1;
     }
-    if (_PyObject_GetXIData(&ctx, obj, &wrapper->_data) < 0) {
+    return 0;
+}
+
+/* Set the wrapped XI data based on the original object and unwrapper. */
+static int
+_xidwrapper_bind(PyThreadState *tstate, xidwrapper *wrapper)
+{
+    assert(wrapper->orig != NULL);
+    assert(wrapper->data == NULL);
+    if (_xidwrapper_apply(tstate, wrapper, &wrapper->_data) < 0) {
         return -1;
     }
     wrapper->data = &wrapper->_data;
     return 0;
 }
 
+// This takes "ownership" of the given unwrapper data.
 static int
-_xidwrapper_transfer(PyThreadState *tstate, _PyXIDataWrapperObject *wrapper,
-                     _PyXIData_t *dest)
+_xidwrapper_set_unwrapper(PyThreadState *tstate, xidwrapper *wrapper,
+                          _PyXIData_unwrapper_t *unwrapper)
 {
-    if (wrapper->data == NULL) {
-        if (_xidwrapper_bind(tstate, wrapper) < 0) {
+    assert(wrapper->orig != NULL);
+    if (wrapper->unwrapper != NULL || wrapper->unwrapobj != NULL) {
+        PyErr_SetString(PyExc_ValueError, "unwrap func already set");
+        return -1;
+    }
+    wrapper->_unwrapper = *unwrapper;
+    wrapper->unwrapper = &wrapper->_unwrapper;
+    if (wrapper->data != NULL) {
+        if (_xidwrapper_apply_unwrapper(tstate, wrapper, wrapper->data) < 0) {
+            wrapper->_unwrapper = (_PyXIData_unwrapper_t){0};
+            wrapper->unwrapper = NULL;
             return -1;
         }
     }
-    *dest = *wrapper->data;
-    wrapper->data = NULL;
-    wrapper->_data = (_PyXIData_t){0};
     return 0;
 }
 
-//static PyObject *
-//xidwrapper_repr(PyObject *self)
-//{
-//    _PyXIDataWrapperObject *wrapper = (_PyXIDataWrapperObject *)self;
-//
-//    const char *obj = "";
-//    const char *sep = "";
-//    if (wrapper->wrapped != NULL) {
-//        obj = PyObject_Repr(obj);
-//        sep = " ";
-//    }
-//    // XXX Otherwise, use wrapper->ref->data->obj?
-//
-//    return PyUnicode_FromFormat("<CrossInterpreterDataWrapper object %s%sat %p>",
-//                                obj, sep, self);
-//}
+/* "Return" the wrapped XI data, applying if necessary. */
+static int
+_xidwrapper_get_xidata(PyThreadState *tstate, xidwrapper *wrapper,
+                       _PyXIData_t *dest)
+{
+    if (wrapper->data != NULL) {
+        assert((wrapper->unwrapper == NULL && wrapper->unwrapobj == NULL)
+                || wrapper->data->new_object == _new_object_from_wrapped_data);
+        // XXX Somehow make a copy instead of resetting?
+        *dest = *wrapper->data;
+        wrapper->data = NULL;
+        wrapper->_data = (_PyXIData_t){0};
+        // Reset the unwrapper too.
+        if (wrapper->unwrapper != NULL) {
+            if (wrapper->unwrapobj != NULL) {
+                wrapper->_unwrapper = (_PyXIData_unwrapper_t){0};
+                wrapper->unwrapper = NULL;
+            }
+            else if (wrapper->unwrapper->free != NULL) {
+                // XXX Clear it forever?
+            }
+        }
+    }
+    else if (_xidwrapper_apply(tstate, wrapper, dest) < 0) {
+        return -1;
+    }
+    return 0;
+}
+
+static PyObject *
+xidwrapper_repr(PyObject *self)
+{
+    const char *typename = Py_TYPE(self)->tp_name;
+    xidwrapper *wrapper = (xidwrapper *)self;
+    PyObject *obj = wrapper->orig;
+    if (obj != NULL) {
+        PyObject *res = PyUnicode_FromFormat("<%s object (wrapping %R) at %p>",
+                                             typename, obj, self);
+        if (res != NULL) {
+            return res;
+        }
+    }
+    return PyUnicode_FromFormat("<%s object at %p>", typename, self);
+}
 
 static int
 xidwrapper_traverse(PyObject *self, visitproc visit, void *arg)
 {
-    _PyXIDataWrapperObject *wrapper = (_PyXIDataWrapperObject *)self;
-    if (wrapper->orig != NULL) {
-        Py_VISIT(wrapper->orig);
-    }
+    xidwrapper *wrapper = (xidwrapper *)self;
+    Py_VISIT(wrapper->unwrapobj);
+    Py_VISIT(wrapper->orig);
     return 0;
 }
 
 static int
 xidwrapper_clear(PyObject *self)
 {
-    _PyXIDataWrapperObject *wrapper = (_PyXIDataWrapperObject *)self;
-    if (wrapper->orig != NULL) {
-        Py_CLEAR(wrapper->orig);
-    }
+    xidwrapper *wrapper = (xidwrapper *)self;
+    Py_CLEAR(wrapper->unwrapobj);
+    Py_CLEAR(wrapper->orig);
     return 0;
 }
 
+/* The impl of the XI data protocol.for _PyXIDataWrapper_Type. */
 static int
-xidwrapper_shared(PyThreadState *tstate, PyObject *obj, _PyXIData_t *data)
+xidwrapper_shared(PyThreadState *tstate, PyObject *wrapperobj,
+                  _PyXIData_t *data)
 {
-    assert(Py_IS_TYPE(obj, &_PyXIDataWrapper_Type));
-    _PyXIDataWrapperObject *wrapper = (_PyXIDataWrapperObject *)obj;
-    if (_xidwrapper_transfer(tstate, wrapper, data) < 0) {
+    assert(Py_IS_TYPE(wrapperobj, &_PyXIDataWrapper_Type));
+    xidwrapper *wrapper = (xidwrapper *)wrapperobj;
+    if (_xidwrapper_get_xidata(tstate, wrapper, data) < 0) {
         return -1;
     }
     return 0;
@@ -861,9 +1070,17 @@ to Python code.\n\
 static PyObject *
 xidwrapper_as_object(PyObject *self)
 {
-    _PyXIDataWrapperObject *wrapper = (_PyXIDataWrapperObject *)self;
+    PyThreadState *tstate = _PyThreadState_GET();
+    xidwrapper *wrapper = (xidwrapper *)self;
     if (wrapper->data == NULL) {
-        PyThreadState *tstate = _PyThreadState_GET();
+        if (wrapper->orig == NULL) {
+            PyErr_SetString(PyExc_ValueError, "no orig object");
+            return NULL;
+        }
+        if (wrapper->data != NULL) {
+            PyErr_SetString(PyExc_ValueError, "already bound");
+            return NULL;
+        }
         if (_xidwrapper_bind(tstate, wrapper) < 0) {
             return NULL;
         }
@@ -872,7 +1089,7 @@ xidwrapper_as_object(PyObject *self)
 }
 
 PyDoc_STRVAR(xidwrapper_as_object___doc__,
-"as_object($self) -> obj\n\
+"as_object($self) -> object\n\
 \n\
 Return an object corresponding to the original shareable object.\n\
 ");
@@ -883,17 +1100,26 @@ static PyMethodDef xidwrapper_methods[] = {
     {NULL,              NULL}           /* sentinel */
 };
 
-//static PyMemberDef xidwrapper_members[] = {
-//#define OFF(FIELD) offsetof(_PyXIDataWrapperObject, FIELD)
-//    {"orig",  _Py_T_OBJECT, OFF(obj), Py_READONLY},
-//#undef OFF
-//    {NULL}      /* Sentinel */
-//};
+static int
+xidwrapper_set_unwrapobj(PyThreadState *tstate, xidwrapper *wrapper,
+                         PyObject *unwrapobj)
+{
+    _PyXIData_unwrapper_t unwrapper;
+    if (_PyXIData_UnwrapperFromObj(tstate, unwrapobj, &unwrapper) < 0) {
+        return -1;
+    }
+    if (_xidwrapper_set_unwrapper(tstate, wrapper, &unwrapper) < 0) {
+        unwrapper_clear(&unwrapper);
+        return -1;
+    }
+    wrapper->unwrapobj = Py_NewRef(unwrapobj);
+    return 0;
+}
 
 static PyObject *
 xidwrapper_get_orig(PyObject *self, void *Py_UNUSED(closure))
 {
-    _PyXIDataWrapperObject *wrapper = (_PyXIDataWrapperObject *)self;
+    xidwrapper *wrapper = (xidwrapper *)self;
     if (wrapper->orig == NULL) {
         PyErr_SetString(PyExc_ValueError, "original object not available");
         return NULL;
@@ -910,14 +1136,13 @@ PyTypeObject _PyXIDataWrapper_Type = {
     PyVarObject_HEAD_INIT(&PyType_Type, 0)
     .tp_name = "CrossInterpreterObjectData",
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
-    .tp_basicsize = sizeof(_PyXIDataWrapperObject),
+    .tp_basicsize = sizeof(xidwrapper),
     .tp_dealloc = (destructor)xidwrapper_dealloc,
-//    .tp_repr = xidwrapper_repr,
+    .tp_repr = xidwrapper_repr,
     .tp_doc = xidwrapper___doc__,
     .tp_traverse = xidwrapper_traverse,
     .tp_clear = xidwrapper_clear,
     .tp_methods = xidwrapper_methods,
-//    .tp_members = xidwrapper_members,
     .tp_getset = xidwrapper_getsets,
 };
 
@@ -942,13 +1167,10 @@ _xidwrapper_register_type(PyInterpreterState *interp)
 {
     /* Register_PyXIDataWrapper_Type as shareable. */
     // This is necessary only as long as we don't have a tp_ slot for it.
-    _PyXIData_lookup_context_t ctx;
-    if (_PyXIData_GetLookupContext(interp, &ctx) < 0) {
-        _PyStaticType_FiniBuiltin(interp, &_PyXIDataWrapper_Type);
-        return -1;
-    }
+    PyThreadState *tstate = _PyThreadState_GET();
+    assert(tstate->interp == interp);
     if (_PyXIData_RegisterClass(
-                &ctx, &_PyXIDataWrapper_Type, xidwrapper_shared) < 0)
+                tstate, &_PyXIDataWrapper_Type, xidwrapper_shared) < 0)
     {
         _PyStaticType_FiniBuiltin(interp, &_PyXIDataWrapper_Type);
         return -1;
@@ -960,7 +1182,7 @@ _xidwrapper_register_type(PyInterpreterState *interp)
 PyObject *
 _PyXIDataWrapper_New(PyThreadState *tstate, PyObject *obj)
 {
-    _PyXIDataWrapperObject *wrapper = new_xidwrapper(obj);
+    xidwrapper *wrapper = new_xidwrapper(obj);
     if (wrapper == NULL) {
         return NULL;
     }
@@ -969,6 +1191,34 @@ _PyXIDataWrapper_New(PyThreadState *tstate, PyObject *obj)
         return NULL;
     }
     return (PyObject *)wrapper;
+}
+
+
+int
+_PyXIDataWrapper_SetUnwrapper(PyThreadState *tstate, PyObject *wrapperobj,
+                              _PyXIData_unwrapper_t *unwrapper)
+{
+    if (!Py_IS_TYPE(wrapperobj, &_PyXIDataWrapper_Type)) {
+        PyErr_Format(PyExc_TypeError,
+                     "expected CrossInterpreterObjectData for wrapper, got %R");
+        return -1;
+    }
+    xidwrapper *wrapper = (xidwrapper *)wrapperobj;
+    // XXX Somehow make a copy instead of stealing?
+    return _xidwrapper_set_unwrapper(tstate, wrapper, unwrapper);
+}
+
+int
+_PyXIDataWrapper_SetUnwrapObj(PyThreadState *tstate, PyObject *wrapperobj,
+                              PyObject *unwrapobj)
+{
+    if (!Py_IS_TYPE(wrapperobj, &_PyXIDataWrapper_Type)) {
+        PyErr_Format(PyExc_TypeError,
+                     "expected CrossInterpreterObjectData for wrapper, got %R");
+        return -1;
+    }
+    xidwrapper *wrapper = (xidwrapper *)wrapperobj;
+    return xidwrapper_set_unwrapobj(tstate, wrapper, unwrapobj);
 }
 
 
