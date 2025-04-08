@@ -1213,16 +1213,30 @@ use as_shareable() to actually convert the object to its shareble form.");
 static PyObject *
 object_as_shareable(PyObject *self, PyObject *args, PyObject *kwds)
 {
-    static char *kwlist[] = {"obj", NULL};
+    static char *kwlist[] = {"obj", "unwrap", NULL};
     PyObject *obj;
+    PyObject *unwrapobj = NULL;
     if (!PyArg_ParseTupleAndKeywords(args, kwds,
-                                     "O:as_shareable", kwlist,
-                                     &obj)) {
+                                     "O|O:as_shareable", kwlist,
+                                     &obj, &unwrapobj)) {
         return NULL;
+    }
+    if (unwrapobj == Py_None) {
+        unwrapobj = NULL;
     }
 
     PyThreadState *tstate = _PyThreadState_GET();
-    return _PyXIDataWrapper_New(tstate, obj);
+    PyObject *wrapper = _PyXIDataWrapper_New(tstate, obj);
+    if (wrapper == NULL) {
+        return NULL;
+    }
+    if (unwrapobj != NULL) {
+        if (_PyXIDataWrapper_SetUnwrapObj(tstate, wrapper, unwrapobj) < 0) {
+            Py_DECREF(wrapper);
+            return NULL;
+        }
+    }
+    return wrapper;
 }
 
 PyDoc_STRVAR(as_shareable_doc,
