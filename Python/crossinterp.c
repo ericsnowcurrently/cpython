@@ -718,6 +718,260 @@ _PyXIData_ReleaseAndRawFree(_PyXIData_t *xidata)
 }
 
 
+/* XID wrapper objects */
+
+typedef struct {
+    PyObject_HEAD
+    _PyXIData_t *data;
+    PyObject *orig;
+    _PyXIData_t _data;
+} _PyXIDataWrapperObject;
+
+static _PyXIDataWrapperObject *
+new_xidwrapper(PyObject *obj)
+{
+    assert(obj != NULL);
+    _PyXIDataWrapperObject *wrapper =
+            PyObject_GC_New(_PyXIDataWrapperObject, &_PyXIDataWrapper_Type);
+    if (wrapper == NULL) {
+        PyErr_NoMemory();
+        return NULL;
+    }
+    wrapper->data = NULL;
+    wrapper->orig = Py_NewRef(obj);
+    wrapper->_data = (_PyXIData_t){0};
+    return wrapper;
+}
+
+static void
+xidwrapper_dealloc(_PyXIDataWrapperObject *wrapper)
+{
+    PyObject_GC_UnTrack(wrapper);
+    if (wrapper->data != NULL) {
+        // "Release" the data and/or the object directly,
+        // rather than using _PyXIData_Release().
+        assert(_PyXIData_INTERPID(wrapper->data) ==
+                PyInterpreterState_GetID(_PyInterpreterState_GET()));
+        _xidata_clear(wrapper->data);
+        wrapper->data = NULL;
+    }
+    // Finish!
+    Py_CLEAR(wrapper->orig);
+    PyObject_GC_Del((PyObject *)wrapper);
+}
+
+static int
+_xidwrapper_bind(PyThreadState *tstate, _PyXIDataWrapperObject *wrapper)
+{
+    PyObject *obj = wrapper->orig;
+    if (obj == NULL) {
+        PyErr_SetString(PyExc_ValueError, "no orig object");
+        return -1;
+    }
+    if (wrapper->data != NULL) {
+        PyErr_SetString(PyExc_ValueError, "already bound");
+        return -1;
+    }
+    _PyXIData_lookup_context_t ctx;
+    if (_PyXIData_GetLookupContext(tstate->interp, &ctx) < 0) {
+        return -1;
+    }
+    if (_PyObject_GetXIData(&ctx, obj, &wrapper->_data) < 0) {
+        return -1;
+    }
+    wrapper->data = &wrapper->_data;
+    return 0;
+}
+
+static int
+_xidwrapper_transfer(PyThreadState *tstate, _PyXIDataWrapperObject *wrapper,
+                     _PyXIData_t *dest)
+{
+    if (wrapper->data == NULL) {
+        if (_xidwrapper_bind(tstate, wrapper) < 0) {
+            return -1;
+        }
+    }
+    *dest = *wrapper->data;
+    wrapper->data = NULL;
+    wrapper->_data = (_PyXIData_t){0};
+    return 0;
+}
+
+//static PyObject *
+//xidwrapper_repr(PyObject *self)
+//{
+//    _PyXIDataWrapperObject *wrapper = (_PyXIDataWrapperObject *)self;
+//
+//    const char *obj = "";
+//    const char *sep = "";
+//    if (wrapper->wrapped != NULL) {
+//        obj = PyObject_Repr(obj);
+//        sep = " ";
+//    }
+//    // XXX Otherwise, use wrapper->ref->data->obj?
+//
+//    return PyUnicode_FromFormat("<CrossInterpreterDataWrapper object %s%sat %p>",
+//                                obj, sep, self);
+//}
+
+static int
+xidwrapper_traverse(PyObject *self, visitproc visit, void *arg)
+{
+    _PyXIDataWrapperObject *wrapper = (_PyXIDataWrapperObject *)self;
+    if (wrapper->orig != NULL) {
+        Py_VISIT(wrapper->orig);
+    }
+    return 0;
+}
+
+static int
+xidwrapper_clear(PyObject *self)
+{
+    _PyXIDataWrapperObject *wrapper = (_PyXIDataWrapperObject *)self;
+    if (wrapper->orig != NULL) {
+        Py_CLEAR(wrapper->orig);
+    }
+    return 0;
+}
+
+static int
+xidwrapper_shared(PyThreadState *tstate, PyObject *obj, _PyXIData_t *data)
+{
+    assert(Py_IS_TYPE(obj, &_PyXIDataWrapper_Type));
+    _PyXIDataWrapperObject *wrapper = (_PyXIDataWrapperObject *)obj;
+    if (_xidwrapper_transfer(tstate, wrapper, data) < 0) {
+        return -1;
+    }
+    return 0;
+}
+
+PyDoc_STRVAR(xidwrapper___doc__,
+"Cross-interpreter data that may be safely shared between interpreters.\n\
+It may be an object itself (e.g. None), an object's underlying data\n\
+(e.g. bytearray), or an efficient copy of an object's data (e.g. tuple).\n\
+\n\
+Normally, cross-interpreter data is hidden away behind other objects\n\
+or APIs.  However, sometimes it can be useful to get an object's\n\
+cross-interpreter data ahead of time.  CrossIntpreterDataWrapper\n\
+objects are the containers in which that data is stored and exposed\n\
+to Python code.\n\
+");
+
+static PyObject *
+xidwrapper_as_object(PyObject *self)
+{
+    _PyXIDataWrapperObject *wrapper = (_PyXIDataWrapperObject *)self;
+    if (wrapper->data == NULL) {
+        PyThreadState *tstate = _PyThreadState_GET();
+        if (_xidwrapper_bind(tstate, wrapper) < 0) {
+            return NULL;
+        }
+    }
+    return _PyXIData_NewObject(wrapper->data);
+}
+
+PyDoc_STRVAR(xidwrapper_as_object___doc__,
+"as_object($self) -> obj\n\
+\n\
+Return an object corresponding to the original shareable object.\n\
+");
+
+static PyMethodDef xidwrapper_methods[] = {
+    {"as_object",                 _PyCFunction_CAST(xidwrapper_as_object),
+     METH_NOARGS, xidwrapper_as_object___doc__},
+    {NULL,              NULL}           /* sentinel */
+};
+
+//static PyMemberDef xidwrapper_members[] = {
+//#define OFF(FIELD) offsetof(_PyXIDataWrapperObject, FIELD)
+//    {"orig",  _Py_T_OBJECT, OFF(obj), Py_READONLY},
+//#undef OFF
+//    {NULL}      /* Sentinel */
+//};
+
+static PyObject *
+xidwrapper_get_orig(PyObject *self, void *Py_UNUSED(closure))
+{
+    _PyXIDataWrapperObject *wrapper = (_PyXIDataWrapperObject *)self;
+    if (wrapper->orig == NULL) {
+        PyErr_SetString(PyExc_ValueError, "original object not available");
+        return NULL;
+    }
+    return Py_NewRef(wrapper->orig);
+}
+
+static PyGetSetDef xidwrapper_getsets[] = {
+    {"orig",         xidwrapper_get_orig, NULL, NULL},
+    {0}
+};
+
+PyTypeObject _PyXIDataWrapper_Type = {
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)
+    .tp_name = "CrossInterpreterObjectData",
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+    .tp_basicsize = sizeof(_PyXIDataWrapperObject),
+    .tp_dealloc = (destructor)xidwrapper_dealloc,
+//    .tp_repr = xidwrapper_repr,
+    .tp_doc = xidwrapper___doc__,
+    .tp_traverse = xidwrapper_traverse,
+    .tp_clear = xidwrapper_clear,
+    .tp_methods = xidwrapper_methods,
+//    .tp_members = xidwrapper_members,
+    .tp_getset = xidwrapper_getsets,
+};
+
+
+static int
+_xidwrapper_init_type(PyInterpreterState *interp)
+{
+    if (_PyStaticType_InitBuiltin(interp, &_PyXIDataWrapper_Type) < 0) {
+        return -1;
+    }
+    return 0;
+}
+
+static void
+_xidwrapper_fini_type(PyInterpreterState *interp)
+{
+    _PyStaticType_FiniBuiltin(interp, &_PyXIDataWrapper_Type);
+}
+
+static int
+_xidwrapper_register_type(PyInterpreterState *interp)
+{
+    /* Register_PyXIDataWrapper_Type as shareable. */
+    // This is necessary only as long as we don't have a tp_ slot for it.
+    _PyXIData_lookup_context_t ctx;
+    if (_PyXIData_GetLookupContext(interp, &ctx) < 0) {
+        _PyStaticType_FiniBuiltin(interp, &_PyXIDataWrapper_Type);
+        return -1;
+    }
+    if (_PyXIData_RegisterClass(
+                &ctx, &_PyXIDataWrapper_Type, xidwrapper_shared) < 0)
+    {
+        _PyStaticType_FiniBuiltin(interp, &_PyXIDataWrapper_Type);
+        return -1;
+    }
+    return 0;
+}
+
+
+PyObject *
+_PyXIDataWrapper_New(PyThreadState *tstate, PyObject *obj)
+{
+    _PyXIDataWrapperObject *wrapper = new_xidwrapper(obj);
+    if (wrapper == NULL) {
+        return NULL;
+    }
+    if (_xidwrapper_bind(tstate, wrapper) < 0) {
+        xidwrapper_dealloc(wrapper);
+        return NULL;
+    }
+    return (PyObject *)wrapper;
+}
+
+
 /*************************/
 /* convenience utilities */
 /*************************/
@@ -2253,6 +2507,11 @@ _PyXI_Init(PyInterpreterState *interp)
                 "failed to initialize interpreter's cross-interpreter state");
     }
 
+    if (_xidwrapper_register_type(interp) < 0) {
+        return _PyStatus_ERR(
+                "failed to register the cross-interpreter wrapper type");
+    }
+
     return _PyStatus_OK();
 }
 
@@ -2287,6 +2546,10 @@ _PyXI_InitTypes(PyInterpreterState *interp)
         return _PyStatus_ERR(
                 "failed to initialize the cross-interpreter exception types");
     }
+    if (_xidwrapper_init_type(interp) < 0) {
+        return _PyStatus_ERR(
+                "failed to initialize the cross-interpreter wrapper type");
+    }
     // We would initialize heap types here too but that leads to ref leaks.
     // Instead, we intialize them in _PyXI_Init().
     return _PyStatus_OK();
@@ -2297,6 +2560,7 @@ _PyXI_FiniTypes(PyInterpreterState *interp)
 {
     // We would finalize heap types here too but that leads to ref leaks.
     // Instead, we finalize them in _PyXI_Fini().
+    _xidwrapper_fini_type(interp);
     fini_static_exctypes(&_PyXI_GET_STATE(interp)->exceptions, interp);
 }
 

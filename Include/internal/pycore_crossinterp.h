@@ -206,6 +206,12 @@ PyAPI_FUNC(int) _PyXIData_ReleaseAndRawFree(_PyXIData_t *);
 #include "pycore_crossinterp_data_registry.h"
 #undef Py_CORE_CROSSINTERP_DATA_REGISTRY_H
 
+/* XID wrapper objects */
+
+PyAPI_DATA(PyTypeObject) _PyXIDataWrapper_Type;
+
+PyAPI_FUNC(PyObject *) _PyXIDataWrapper_New(PyThreadState *, PyObject *);
+
 
 /*****************************/
 /* runtime state & lifecycle */
