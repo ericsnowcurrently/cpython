@@ -200,17 +200,54 @@ PyAPI_FUNC(int) _PyXIData_Release(_PyXIData_t *);
 PyAPI_FUNC(int) _PyXIData_ReleaseAndRawFree(_PyXIData_t *);
 
 
+/* xidata unwrappers */
+
+typedef PyObject *(*xid_unwrapfunc)(void *, PyObject *);
+typedef struct {
+    xid_unwrapfunc func;
+    void *data;
+    xid_freefunc free;
+} _PyXIData_unwrapper_t;
+
+PyAPI_FUNC(int) _PyXIData_UnwrapperFromObj(
+        PyThreadState *,
+        PyObject *,
+        _PyXIData_unwrapper_t *);
+
+PyAPI_FUNC(int) _PyXIData_SetUnwrapper(
+        PyThreadState *,
+        _PyXIData_t *,
+        _PyXIData_unwrapper_t *);
+PyAPI_FUNC(int) _PyXIData_SetUnwrapFunc(
+        PyThreadState *,
+        _PyXIData_t *,
+        xid_unwrapfunc);
+PyAPI_FUNC(int) _PyXIData_SetUnwrapObj(
+        PyThreadState *,
+        _PyXIData_t *,
+        PyObject *);
+
+
 /* cross-interpreter data registry */
 
 #define Py_CORE_CROSSINTERP_DATA_REGISTRY_H
 #include "pycore_crossinterp_data_registry.h"
 #undef Py_CORE_CROSSINTERP_DATA_REGISTRY_H
 
+
 /* XID wrapper objects */
 
 PyAPI_DATA(PyTypeObject) _PyXIDataWrapper_Type;
 
 PyAPI_FUNC(PyObject *) _PyXIDataWrapper_New(PyThreadState *, PyObject *);
+PyAPI_FUNC(int) _PyXIDataWrapper_SetUnwrapper(
+        PyThreadState *,
+        PyObject *,
+        _PyXIData_unwrapper_t *);
+PyAPI_FUNC(int) _PyXIDataWrapper_SetUnwrapObj(
+        PyThreadState *,
+        PyObject *,
+        PyObject *);
 
 
 /*****************************/
