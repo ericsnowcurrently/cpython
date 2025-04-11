@@ -736,6 +736,8 @@ extern "C" {
     INIT_ID(__warningregistry__), \
     INIT_ID(__weaklistoffset__), \
     INIT_ID(__weakref__), \
+    INIT_ID(__xidata__), \
+    INIT_ID(__xidata_wrap__), \
     INIT_ID(__xor__), \
     INIT_ID(_abc_impl), \
     INIT_ID(_abstract_), \

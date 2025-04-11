@@ -210,7 +210,6 @@ register_memoryview_xid(PyObject *mod, PyTypeObject **p_state)
 }
 
 
-
 /* module state *************************************************************/
 
 typedef struct {
@@ -1213,37 +1212,32 @@ use as_shareable() to actually convert the object to its shareble form.");
 static PyObject *
 object_as_shareable(PyObject *self, PyObject *args, PyObject *kwds)
 {
-    static char *kwlist[] = {"obj", "unwrap", NULL};
+    static char *kwlist[] = {"obj", "wrap", NULL};
     PyObject *obj;
-    PyObject *unwrapobj = NULL;
+    PyObject *wrapobj = NULL;
     if (!PyArg_ParseTupleAndKeywords(args, kwds,
-                                     "O|O:as_shareable", kwlist,
-                                     &obj, &unwrapobj)) {
+                                     "O|$O:as_shareable", kwlist,
+                                     &obj, &wrapobj)) {
         return NULL;
     }
-    if (unwrapobj == Py_None) {
-        unwrapobj = NULL;
-    }
-
-    PyThreadState *tstate = _PyThreadState_GET();
-    PyObject *wrapper = _PyXIDataWrapper_New(tstate, obj);
-    if (wrapper == NULL) {
-        return NULL;
-    }
-    if (unwrapobj != NULL) {
-        if (_PyXIDataWrapper_SetUnwrapObj(tstate, wrapper, unwrapobj) < 0) {
-            Py_DECREF(wrapper);
-            return NULL;
-        }
-    }
-    return wrapper;
+    // For now, this is a minimal wrapper around _PyXIDataWrapper_Type.
+    PyObject *wrappertype = (PyObject *)&_PyXIDataWrapper_Type;
+    return PyObject_Call(wrappertype, args, kwds);
 }
 
 PyDoc_STRVAR(as_shareable_doc,
-"as_shareable(obj) -> CrossInterpreterObjectData\n\
+"as_shareable(obj, *, wrap=None) -> CrossInterpreterObjectData\n\
 \n\
 Return a wrapper around the cross-interpreter-safe data for the object.\n\
-If the object is not shareable then raise NotShareableError.");
+\n\
+If wrap is None (or True) then the default behavior applies, which is\n\
+to use the __xidata__ and __xidata_wrap__ special methods if available.\n\
+If wrap is False the the default behavior is skipped.  wrap may also\n\
+be a function or other callable that takes the object and returns\n\
+a tuple of (wrapped obj, unwrap func).\n\
+\n\
+If the object is not shareable, after accounting for the wrap arg,\n\
+then raise NotShareableError.");
 
 
 static PyObject *

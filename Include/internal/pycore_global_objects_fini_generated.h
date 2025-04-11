@@ -738,6 +738,8 @@ _PyStaticObjects_CheckRefcnt(PyInterpreterState *interp) {
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(__warningregistry__));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(__weaklistoffset__));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(__weakref__));
+    _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(__xidata__));
+    _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(__xidata_wrap__));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(__xor__));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(_abc_impl));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(_abstract_));
