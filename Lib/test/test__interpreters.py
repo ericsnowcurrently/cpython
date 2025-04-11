@@ -216,13 +216,13 @@ class ShareableTypeTests(unittest.TestCase):
             value = tuple([0, 1.0, s])
             with self.subTest(repr(value)):
                 # XXX Assert the NotShareableError when it is exported
-                with self.assertRaises(ValueError):
+                with self.assertRaises(TypeError):
                     _testinternalcapi.get_crossinterp_data(value)
             # Check nested as well
             value = tuple([0, 1., (s,)])
             with self.subTest("nested " + repr(value)):
                 # XXX Assert the NotShareableError when it is exported
-                with self.assertRaises(ValueError):
+                with self.assertRaises(TypeError):
                     _testinternalcapi.get_crossinterp_data(value)
 
 

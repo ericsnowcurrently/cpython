@@ -25,14 +25,13 @@ static PyTypeObject _PyExc_InterpreterNotFoundError = {
 };
 PyObject *PyExc_InterpreterNotFoundError = (PyObject *)&_PyExc_InterpreterNotFoundError;
 
-/* NotShareableError extends ValueError */
+/* NotShareableError extends TypeError */
 
 static int
 _init_notshareableerror(exceptions_t *state)
 {
     const char *name = "interpreters.NotShareableError";
-    // XXX Inherit from TypeError.
-    PyObject *base = PyExc_ValueError;
+    PyObject *base = PyExc_TypeError;
     PyObject *ns = NULL;
     PyObject *exctype = PyErr_NewException(name, base, ns);
     if (exctype == NULL) {
@@ -64,7 +63,7 @@ set_notshareableerror(PyThreadState *tstate, const char *msg)
 {
     PyObject *exctype = get_notshareableerror_type(tstate);
     if (exctype == NULL) {
-        exctype = PyExc_ValueError;
+        exctype = PyExc_TypeError;
     }
     _PyErr_SetString(tstate, exctype, msg);
 }
@@ -74,7 +73,7 @@ format_notshareableerror_v(PyThreadState *tstate, const char *format, va_list va
 {
     PyObject *exctype = get_notshareableerror_type(tstate);
     if (exctype == NULL) {
-        exctype = PyExc_ValueError;
+        exctype = PyExc_TypeError;
     }
     _PyErr_FormatV(tstate, exctype, format, vargs);
 }
