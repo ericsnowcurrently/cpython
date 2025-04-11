@@ -229,6 +229,8 @@ struct _Py_global_strings {
         STRUCT_FOR_ID(__warningregistry__)
         STRUCT_FOR_ID(__weaklistoffset__)
         STRUCT_FOR_ID(__weakref__)
+        STRUCT_FOR_ID(__xidata__)
+        STRUCT_FOR_ID(__xidata_wrap__)
         STRUCT_FOR_ID(__xor__)
         STRUCT_FOR_ID(_abc_impl)
         STRUCT_FOR_ID(_abstract_)
