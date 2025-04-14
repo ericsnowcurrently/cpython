@@ -6,7 +6,7 @@
 ...     return g
 ...
 
->>> dump(f.__code__)
+>>> dump(f.__code__, varcounts=True)
 name: f
 argcount: 1
 posonlyargcount: 0
@@ -18,8 +18,34 @@ freevars: ()
 nlocals: 2
 flags: 3
 consts: ('<code object g>',)
+variable counts:
+  total:           2
+  locals:
+    total:         2
+    args:
+      total:       1
+      posonly:     0
+      posorkw:     1
+      kwonly:      0
+      varargs:     False
+      varkwargs:   False
+    pure:          1
+    cells:
+      total:       1
+      args:        1
+      others:      0
+    hidden:
+      total:       0
+      pure:        0
+      cells:       0
+  free (nonlocal): 0
+  unbound:
+    total:         0
+    global:        0
+    attrs:         0
+    unknown:       0
 
->>> dump(f(4).__code__)
+>>> dump(f(4).__code__, varcounts=True)
 name: g
 argcount: 1
 posonlyargcount: 0
@@ -31,6 +57,32 @@ freevars: ('x',)
 nlocals: 1
 flags: 19
 consts: ('None',)
+variable counts:
+  total:           2
+  locals:
+    total:         1
+    args:
+      total:       1
+      posonly:     0
+      posorkw:     1
+      kwonly:      0
+      varargs:     False
+      varkwargs:   False
+    pure:          0
+    cells:
+      total:       0
+      args:        0
+      others:      0
+    hidden:
+      total:       0
+      pure:        0
+      cells:       0
+  free (nonlocal): 1
+  unbound:
+    total:         0
+    global:        0
+    attrs:         0
+    unknown:       0
 
 >>> def h(x, y):
 ...     a = x + y
@@ -39,7 +91,7 @@ consts: ('None',)
 ...     return c
 ...
 
->>> dump(h.__code__)
+>>> dump(h.__code__, varcounts=True)
 name: h
 argcount: 2
 posonlyargcount: 0
@@ -51,13 +103,39 @@ freevars: ()
 nlocals: 5
 flags: 3
 consts: ('None',)
+variable counts:
+  total:           5
+  locals:
+    total:         5
+    args:
+      total:       2
+      posonly:     0
+      posorkw:     2
+      kwonly:      0
+      varargs:     False
+      varkwargs:   False
+    pure:          3
+    cells:
+      total:       0
+      args:        0
+      others:      0
+    hidden:
+      total:       0
+      pure:        0
+      cells:       0
+  free (nonlocal): 0
+  unbound:
+    total:         0
+    global:        0
+    attrs:         0
+    unknown:       0
 
 >>> def attrs(obj):
 ...     print(obj.attr1)
 ...     print(obj.attr2)
 ...     print(obj.attr3)
 
->>> dump(attrs.__code__)
+>>> dump(attrs.__code__, varcounts=True)
 name: attrs
 argcount: 1
 posonlyargcount: 0
@@ -69,6 +147,32 @@ freevars: ()
 nlocals: 1
 flags: 3
 consts: ('None',)
+variable counts:
+  total:           5
+  locals:
+    total:         1
+    args:
+      total:       1
+      posonly:     0
+      posorkw:     1
+      kwonly:      0
+      varargs:     False
+      varkwargs:   False
+    pure:          0
+    cells:
+      total:       0
+      args:        0
+      others:      0
+    hidden:
+      total:       0
+      pure:        0
+      cells:       0
+  free (nonlocal): 0
+  unbound:
+    total:         4
+    global:        1
+    attrs:         3
+    unknown:       0
 
 >>> def optimize_away():
 ...     'doc string'
@@ -93,7 +197,7 @@ consts: ("'doc string'", 'None')
 ...     return a,b,k1
 ...
 
->>> dump(keywordonly_args.__code__)
+>>> dump(keywordonly_args.__code__, varcounts=True)
 name: keywordonly_args
 argcount: 2
 posonlyargcount: 0
@@ -105,12 +209,38 @@ freevars: ()
 nlocals: 3
 flags: 3
 consts: ('None',)
+variable counts:
+  total:           3
+  locals:
+    total:         3
+    args:
+      total:       3
+      posonly:     0
+      posorkw:     2
+      kwonly:      1
+      varargs:     False
+      varkwargs:   False
+    pure:          0
+    cells:
+      total:       0
+      args:        0
+      others:      0
+    hidden:
+      total:       0
+      pure:        0
+      cells:       0
+  free (nonlocal): 0
+  unbound:
+    total:         0
+    global:        0
+    attrs:         0
+    unknown:       0
 
 >>> def posonly_args(a,b,/,c):
 ...     return a,b,c
 ...
 
->>> dump(posonly_args.__code__)
+>>> dump(posonly_args.__code__, varcounts=True)
 name: posonly_args
 argcount: 3
 posonlyargcount: 2
@@ -122,6 +252,32 @@ freevars: ()
 nlocals: 3
 flags: 3
 consts: ('None',)
+variable counts:
+  total:           3
+  locals:
+    total:         3
+    args:
+      total:       3
+      posonly:     2
+      posorkw:     1
+      kwonly:      0
+      varargs:     False
+      varkwargs:   False
+    pure:          0
+    cells:
+      total:       0
+      args:        0
+      others:      0
+    hidden:
+      total:       0
+      pure:        0
+      cells:       0
+  free (nonlocal): 0
+  unbound:
+    total:         0
+    global:        0
+    attrs:         0
+    unknown:       0
 
 >>> def has_docstring(x: str):
 ...     'This is a one-line doc string'
@@ -216,6 +372,7 @@ from test.support import threading_helper, import_helper
 from test.support.bytecode_helper import instructions_with_positions
 from opcode import opmap, opname
 from _testcapi import code_offset_to_line
+from _testinternalcapi import get_code_var_counts
 
 COPY_FREE_VARS = opmap['COPY_FREE_VARS']
 
@@ -229,13 +386,36 @@ def consts(t):
         else:
             yield r
 
-def dump(co):
+def dump(co, *, varcounts=False):
     """Print out a text representation of a code object."""
     for attr in ["name", "argcount", "posonlyargcount",
                  "kwonlyargcount", "names", "varnames",
                  "cellvars", "freevars", "nlocals", "flags"]:
         print("%s: %s" % (attr, getattr(co, "co_" + attr)))
     print("consts:", tuple(consts(co.co_consts)))
+    if varcounts:
+        counts = get_code_var_counts(co)
+        argcounts = counts['locals']['args']
+        argcounts['varargs'] = bool(argcounts['varargs'])
+        argcounts['varkwargs'] = bool(argcounts['varkwargs'])
+        print('variable counts:')
+        def walk_counts(counts, depth=0):
+            for field, value in counts.items():
+                if isinstance(value, dict):
+                    yield field, None, depth
+                    yield from walk_counts(value, depth+1)
+                else:
+                    if field == 'numfree':
+                        field = 'free (nonlocal)'
+                    elif field.startswith('num'):
+                        field = field[3:]
+                    yield field, value, depth
+        for field, value, depth in walk_counts(counts, 1):
+            indent = '  ' * depth
+            if value is None:
+                print(f'{indent}{field}:')
+            else:
+                print(f'{indent + field + ":":18} {value}')
 
 # Needed for test_closure_injection below
 # Defined at global scope to avoid implicitly closing over __class__

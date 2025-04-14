@@ -177,12 +177,14 @@ typedef struct {
  */
 
 // Note that these all fit within a byte, as do combinations.
-// Later, we will use the smaller numbers to differentiate the different
-// kinds of locals (e.g. pos-only arg, varkwargs, local-only).
-#define CO_FAST_HIDDEN  0x10
-#define CO_FAST_LOCAL   0x20
-#define CO_FAST_CELL    0x40
-#define CO_FAST_FREE    0x80
+#define CO_FAST_ARG_POS (0x02)  // pos-only, pos-or-kw, varargs
+#define CO_FAST_ARG_KW  (0x04)  // kw-only, pos-or-kw, varkwargs
+#define CO_FAST_ARG_VAR (0x08)  // varargs, varkwargs
+#define CO_FAST_ARG     (CO_FAST_ARG_POS | CO_FAST_ARG_KW | CO_FAST_ARG_VAR)
+#define CO_FAST_HIDDEN  (0x10)
+#define CO_FAST_LOCAL   (0x20)
+#define CO_FAST_CELL    (0x40)
+#define CO_FAST_FREE    (0x80)
 
 typedef unsigned char _PyLocals_Kind;
 
@@ -560,6 +562,51 @@ extern void _Py_ClearTLBCIndex(_PyThreadStateImpl *tstate);
 // Returns 0 on success or -1 on error.
 extern int _Py_ClearUnusedTLBC(PyInterpreterState *interp);
 #endif
+
+
+typedef struct {
+    int total;
+    struct co_locals_counts {
+        int total;
+        struct {
+            int total;
+            int numposonly;
+            int numposorkw;
+            int numkwonly;
+            int varargs;
+            int varkwargs;
+        } args;
+        int numpure;
+        struct {
+            int total;
+            // numargs does not contribute to locals.total.
+            int numargs;
+            int numothers;
+        } cells;
+        struct {
+            int total;
+            int numpure;
+            int numcells;
+        } hidden;
+    } locals;
+    int numfree;  // nonlocal
+    struct co_unbound_counts {
+        int total;
+        int numglobal;
+        int numattrs;
+        int numunknown;
+    } unbound;
+} _PyCode_var_counts_t;
+
+PyAPI_FUNC(void) _PyCode_GetVarCounts(
+        PyCodeObject *,
+        _PyCode_var_counts_t *);
+PyAPI_FUNC(int) _PyCode_SetUnboundVarCounts(
+        PyCodeObject *,
+        _PyCode_var_counts_t *,
+        PyObject *global,
+        PyObject *attrs);
+
 
 #ifdef __cplusplus
 }
