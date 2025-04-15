@@ -100,7 +100,7 @@ ham_C_nested, *_ = eggs_closure_N(2)
 ham_C_closure, *_ = eggs_closure_C(2)
 
 
-FUNCTIONS = [
+TOP_FUNCTIONS = [
     # shallow
     spam_minimal,
     spam_full,
@@ -112,6 +112,8 @@ FUNCTIONS = [
     spam_NC,
     spam_CN,
     spam_CC,
+]
+NESTED_FUNCTIONS = [
     # inner func
     eggs_nested,
     eggs_closure,
@@ -125,6 +127,13 @@ FUNCTIONS = [
     ham_C_nested,
     ham_C_closure,
 ]
+FUNCTIONS = [
+    *TOP_FUNCTIONS,
+    *NESTED_FUNCTIONS,
+]
+
+
+# XXX set dishonest __file__, __module__, __name__
 
 
 #######################################
@@ -202,6 +211,13 @@ class SpamFull:
     # __str__
     # ...
 
+    def __eq__(self, other):
+        if not isinstance(other, SpamFull):
+            return NotImplemented
+        return (self.a == other.a and
+                self.b == other.b and
+                self.c == other.c)
+
     @property
     def prop(self):
         return True
@@ -221,6 +237,25 @@ def class_eggs_inner():
     return EggsNested
 EggsNested = class_eggs_inner()
 
+
+TOP_CLASSES = {
+    Spam: (),
+    SpamOkay: (),
+    SpamFull: (1, 2, 3),
+    SubSpamFull: (1, 2, 3),
+    SubTuple: ([1, 2, 3],),
+}
+CLASSES_WITHOUT_EQUALITY = [
+    Spam,
+    SpamOkay,
+]
+NESTED_CLASSES = {
+    EggsNested: (),
+}
+CLASSES = {
+    **TOP_CLASSES,
+    **NESTED_CLASSES,
+}
 
 
 #######################################
