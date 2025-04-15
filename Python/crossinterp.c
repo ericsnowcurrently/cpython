@@ -2,11 +2,26 @@
 /* API for managing interactions between isolated interpreters */
 
 #include "Python.h"
+#include "osdefs.h"               // MAXPATHLEN
 #include "pycore_ceval.h"         // _Py_simple_func
 #include "pycore_crossinterp.h"   // _PyXIData_t
 #include "pycore_initconfig.h"    // _PyStatus_OK()
 #include "pycore_namespace.h"     // _PyNamespace_New()
 #include "pycore_typeobject.h"    // _PyStaticType_InitBuiltin()
+
+
+static Py_ssize_t
+_Py_GetMainfile(char *buffer, size_t maxlen)
+{
+    // We don't expect subinterpreters to have the __main__ module's
+    // __name__ set, but proceed just in case.
+    PyThreadState *tstate = _PyThreadState_GET();
+    PyObject *module = _Py_GetMainModule(tstate);
+    if (_Py_CheckMainModule(module) < 0) {
+        return -1;
+    }
+    return _PyModule_GetFilenameUTF8(module, buffer, maxlen);
+}
 
 
 /**************/
@@ -274,6 +289,149 @@ _PyObject_GetXIData(PyThreadState *tstate,
     _PyXIData_INTERPID(xidata) = PyInterpreterState_GetID(interp);
     if (_check_xidata(tstate, xidata) != 0) {
         (void)_PyXIData_Release(xidata);
+        return -1;
+    }
+
+    return 0;
+}
+
+
+/* pickle wrapper */
+
+//struct _pickle_wrapper_data {
+//    const char *mainfile;
+//    size_t len;
+//    char _mainfile[MAXPATHLEN+1];
+//};
+//
+//static struct _pickle_wrapper_data *
+//_new_pickle_wrapper_data(void)
+//{
+//    struct _pickle_wrapper_data *pickled =
+//                PyMem_RawMalloc(sizeof(struct _pickle_wrapper_data));
+//    if (pickled == NULL) {
+//        return NULL;
+//    }
+//    *pickled = (struct _pickle_wrapper_data){{0}};
+//    // Set mainfile if possible.
+//    Py_ssize_t len = _Py_GetMainfile(pickled->_mainfile, MAXPATHLEN);
+//    if (len < 0) {
+//        // For now we ignore any exceptions.
+//        PyErr_Clear();
+//    }
+//    else if (len > 0) {
+//        pickled->mainfile = pickled->_mainfile;
+//        pickled->len = (size_t)len;
+//    }
+//    return pickled;
+//}
+//
+//static void
+//_pickle_wrapper_data_free(struct _pickle_wrapper_data *data)
+//{
+//    PyMem_RawFree(data);
+//}
+//
+//static PyObject *
+//_xidata_unpickle(_PyXIData_t *data)
+//{
+////    if (== 0) {
+////        // It is missing.
+////    }
+//    // XXX
+//    PyErr_SetString(PyExc_NotImplementedError, "TBD");
+//    return NULL;
+//}
+
+
+struct _pickle_context {
+    // __main__.__file__
+    struct {
+        const char *utf8;
+        size_t len;
+        char _utf8[MAXPATHLEN+1];
+    } mainfile;
+};
+
+static int
+_set_pickle_context(PyThreadState *tstate, struct _pickle_context *ctx)
+{
+    // Set mainfile if possible.
+    Py_ssize_t len = _Py_GetMainfile(ctx->mainfile._utf8, MAXPATHLEN);
+    if (len < 0) {
+        // For now we ignore any exceptions.
+        PyErr_Clear();
+    }
+    else if (len > 0) {
+        ctx->mainfile.utf8 = ctx->mainfile._utf8;
+        ctx->mainfile.len = (size_t)len;
+    }
+
+    return 0;
+}
+
+
+struct _shared_pickle_data {
+    _PyBytes_data_t pickled;  // Must be first if we use _PyBytes_FromXIData().
+    struct _pickle_context ctx;
+};
+
+PyObject *
+_PyPickle_LoadFromXIData(_PyXIData_t *xidata)
+{
+    struct _shared_pickle_data *shared =
+                            (struct _shared_pickle_data *)xidata->data;
+    // We avoid copying the pickled data by wrapping it in a memoryview.
+    // The alternative is to get a bytes object using _PyBytes_FromXIData().
+    PyObject *pickled = PyMemoryView_FromMemory(
+                    shared->pickled.bytes, shared->pickled.len, PyBUF_READ);
+    if (pickled == NULL) {
+        return NULL;
+    }
+
+    // Unpickle the object.
+    PyObject *loads = PyImport_ImportModuleAttrString("pickle", "loads");
+    if (loads == NULL) {
+        Py_DECREF(pickled);
+        return NULL;
+    }
+    PyObject *obj = PyObject_CallOneArg(loads, pickled);
+    // XXX Handle failure due to __main__.
+    Py_DECREF(loads);
+    Py_DECREF(pickled);
+    return obj;
+}
+
+int
+_PyPickle_GetXIData(PyThreadState *tstate, PyObject *obj, _PyXIData_t *xidata)
+{
+    // Pickle the object.
+    PyObject *dumps = PyImport_ImportModuleAttrString("pickle", "dumps");
+    if (dumps == NULL) {
+        return -1;
+    }
+    PyObject *bytes = PyObject_CallOneArg(dumps, obj);
+    Py_DECREF(dumps);
+    if (bytes == NULL) {
+        // XXX This chains, right?
+        _set_xid_lookup_failure(tstate, NULL, "object could not be pickled");
+        return -1;
+    }
+
+    // If we had an "unwrapper" mechnanism, we could call
+    // _PyObject_GetXIData() on the bytes object directly and add
+    // a simple unwrapper to call pickle.loads() on the bytes.
+    size_t size = sizeof(struct _shared_pickle_data);
+    struct _shared_pickle_data *shared =
+            (struct _shared_pickle_data *)_PyBytes_GetXIDataWrapped(
+                    tstate, bytes, size, _PyPickle_LoadFromXIData, xidata);
+    Py_DECREF(bytes);
+    if (shared == NULL) {
+        return -1;
+    }
+
+    if (_set_pickle_context(tstate, &shared->ctx) < 0) {
+        _xidata_clear(xidata);
         return -1;
     }
 
