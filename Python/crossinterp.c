@@ -3,6 +3,7 @@
 
 #include "Python.h"
 #include "osdefs.h"               // MAXPATHLEN
+#include "marshal.h"              // PyMarshal_WriteObjectToString()
 #include "pycore_ceval.h"         // _Py_simple_func
 #include "pycore_crossinterp.h"   // _PyXIData_t
 #include "pycore_initconfig.h"    // _PyStatus_OK()
@@ -733,6 +734,48 @@ _PyPickle_GetXIData(PyThreadState *tstate, PyObject *obj, _PyXIData_t *xidata)
         return -1;
     }
 
+    return 0;
+}
+
+
+/* marshal wrapper */
+
+PyObject *
+_PyMarshal_ReadObjectFromXIData(_PyXIData_t *xidata)
+{
+    PyThreadState *tstate = _PyThreadState_GET();
+    _PyBytes_data_t *shared = (_PyBytes_data_t *)xidata->data;
+    PyObject *obj = PyMarshal_ReadObjectFromString(shared->bytes, shared->len);
+    if (obj == NULL) {
+        PyObject *cause = _PyErr_GetRaisedException(tstate);
+        assert(cause != NULL);
+        _set_xid_lookup_failure(
+                    tstate, NULL, "object could not be unmarshalled", cause);
+        Py_DECREF(cause);
+        return NULL;
+    }
+    return obj;
+}
+
+int
+_PyMarshal_GetXIData(PyThreadState *tstate, PyObject *obj, _PyXIData_t *xidata)
+{
+    PyObject *bytes = PyMarshal_WriteObjectToString(obj, Py_MARSHAL_VERSION);
+    if (bytes == NULL) {
+        PyObject *cause = _PyErr_GetRaisedException(tstate);
+        assert(cause != NULL);
+        _set_xid_lookup_failure(
+                    tstate, NULL, "object could not be marshalled", cause);
+        Py_DECREF(cause);
+        return -1;
+    }
+    size_t size = sizeof(_PyBytes_data_t);
+    _PyBytes_data_t *shared = _PyBytes_GetXIDataWrapped(
+            tstate, bytes, size, _PyMarshal_ReadObjectFromXIData, xidata);
+    Py_DECREF(bytes);
+    if (shared == NULL) {
+        return -1;
+    }
     return 0;
 }
 
