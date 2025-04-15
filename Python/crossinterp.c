@@ -213,21 +213,57 @@ unwrapper_clear(_PyXIData_unwrapper_t *unwrapper)
 }
 
 
-static int
-verify_xidata_unwrap_object(PyObject *unwrap)
+static PyObject *
+_unwrap_with_object(PyThreadState *tstate, _PyXIData_t *data, PyObject *wrapped)
 {
-    // XXX
-    PyErr_SetString(PyExc_NotImplementedError, "TBD");
-    return -1;
+    PyObject *func = _PyXIData_NewObject(data);
+    if (func == NULL) {
+        return NULL;
+    }
+    PyObject *unwrapped = PyObject_CallOneArg(func, wrapped);
+    Py_DECREF(func);
+    return unwrapped;
 }
 
 static int
 xidata_unwrapper_from_object(PyThreadState *tstate, PyObject *obj,
-                            _PyXIData_unwrapper_t *res_unwrapper)
+                             _PyXIData_unwrapper_t *res_unwrapper)
 {
-    // XXX
-    PyErr_SetString(PyExc_NotImplementedError, "TBD");
-    return -1;
+    // For now we only support "stateless" functions.
+    if (!PyFunction_Check(obj)) {
+        PyErr_Format(PyExc_TypeError, "expected function, got %R", obj);
+        return -1;
+    }
+    PyCodeObject *co = (PyCodeObject *)PyFunction_GET_CODE(obj);
+   _PyCode_var_counts_t counts = {0};
+    _PyCode_GetVarCounts(co, &counts);
+    if (counts.locals.args.total != 1) {
+        PyErr_Format(PyExc_ValueError,
+                     "expected function with 1 parameter, got %d",
+                     counts.locals.args.total);
+        return -1;
+    }
+    else if (counts.locals.args.numkwonly != 0) {
+        PyErr_SetString(PyExc_ValueError,
+                        "expected function with 1 positional parameter");
+        return -1;
+    }
+
+    _PyXIData_t *data = PyMem_RawMalloc(sizeof(_PyXIData_t));
+    if (data == NULL) {
+        PyErr_NoMemory();
+        return -1;
+    }
+    if (_PyFunction_GetXIDataStateless(tstate, obj, data) < 0) {
+        _xidata_clear(data);
+        return -1;
+    }
+    *res_unwrapper = (_PyXIData_unwrapper_t){
+        .func = (xid_unwrapfunc)_unwrap_with_object,
+        .data = data,
+        .free = (xid_freefunc)_PyXIData_ReleaseAndRawFree,
+    };
+    return 0;
 }
 
 
@@ -405,12 +441,14 @@ _PyXIData_NewObjectNotUnwrapped(_PyXIData_t *data)
 
 static int
 unpack_wrap_result(PyThreadState *tstate, PyObject *resobj,
-                   PyObject **res_wrapped, PyObject **res_unwrap)
+                   PyObject **res_wrapped, PyObject **res_unwrap,
+                   _PyXIData_unwrapper_t **res_unwrapper)
 {
     assert(resobj != NULL);
     if (resobj == Py_None) {
         *res_wrapped = NULL;
         *res_unwrap = NULL;
+        *res_unwrapper = NULL;
         return 0;
     }
 
@@ -444,17 +482,32 @@ unpack_wrap_result(PyThreadState *tstate, PyObject *resobj,
         goto error;
     }
 
+    _PyXIData_unwrapper_t _unwrapper = {0};
+    _PyXIData_unwrapper_t *unwrapper = &_unwrapper;
     if (unwrap == Py_None) {
         Py_CLEAR(unwrap);
+        unwrapper = NULL;
+    }
+    else if (res_unwrapper == NULL || *res_unwrapper == NULL) {
+        unwrapper = NULL;
     }
     else {
-        if (verify_xidata_unwrap_object(unwrap) < 0) {
+        if (xidata_unwrapper_from_object(tstate, unwrap, unwrapper) < 0) {
             goto error;
         }
     }
 
     *res_wrapped = wrapped;
     *res_unwrap = unwrap;
+    if (res_unwrapper != NULL) {
+        if (unwrapper == NULL) {
+            *res_unwrapper = NULL;
+        }
+        else {
+            // The result takes ownership of the unwrapper data.
+            **res_unwrapper = *unwrapper;
+        }
+    }
     return 0;
 
 error:
@@ -492,7 +545,8 @@ try___xidata__(PyThreadState *tstate, PyObject *obj)
 
 static int
 try___xidata_wrap__(PyThreadState *tstate, PyObject *obj,
-                    PyObject **res_wrapped, PyObject **res_unwrap)
+                    PyObject **res_wrapped, PyObject **res_unwrap,
+                    _PyXIData_unwrapper_t **res_unwrapper)
 {
     // Return None if the special method is not there.
     PyObject *meth = _PyObject_LookupSpecial(obj, &_Py_ID(__xidata_wrap__));
@@ -509,7 +563,9 @@ try___xidata_wrap__(PyThreadState *tstate, PyObject *obj,
     if (wrapres == NULL) {
         return -1;
     }
-    if (unpack_wrap_result(tstate, wrapres, res_wrapped, res_unwrap) < 0) {
+    if (unpack_wrap_result(
+                tstate, wrapres, res_wrapped, res_unwrap, res_unwrapper) < 0)
+    {
         const char *msg = "expected __xidata_wrap__() to return a tuple of "
                           "(wrapped obj, unwrap func), got %R";
         _PyXIData_FormatNotShareableError(tstate, msg, wrapres);
@@ -652,12 +708,15 @@ _PyObject_GetXIDataWrapped(PyThreadState *tstate,
         }
         else {
             // XXX apply directly
-            return 0;
+            PyErr_SetString(PyExc_NotImplementedError, "TBD");
+            return -1;
         }
 
         // Fall back to __xidata_wrap__().
         PyObject *unwrap = NULL;
-        if (try___xidata_wrap__(tstate, obj, &wrapped, &unwrap) < 0) {
+        if (try___xidata_wrap__(
+                        tstate, obj, &wrapped, &unwrap, &unwrapper) < 0)
+        {
             goto error;
         }
         if (wrapped == NULL) {
@@ -665,13 +724,6 @@ _PyObject_GetXIDataWrapped(PyThreadState *tstate,
         }
         if (unwrap == NULL) {
             unwrapper = NULL;
-        }
-        else {
-            int res = xidata_unwrapper_from_object(tstate, unwrap, unwrapper);
-            Py_DECREF(unwrap);
-            if (res < 0) {
-                goto error;
-            }
         }
     }
 
@@ -731,7 +783,11 @@ _PyObject_GetXIDataWrappedWithObj(PyThreadState *tstate,
     // Handle the normal case.
     PyObject *wrapped = NULL;
     PyObject *unwrap = NULL;
-    if (unpack_wrap_result(tstate, resobj, &wrapped, &unwrap) < 0) {
+    _PyXIData_unwrapper_t _unwrapper = {0};
+    _PyXIData_unwrapper_t *unwrapper = &_unwrapper;
+    if (unpack_wrap_result(
+                tstate, resobj, &wrapped, &unwrap, &unwrapper) < 0)
+    {
         PyErr_Format(PyExc_ValueError,
                      "wrap func returned unexpected value %R", resobj);
         Py_DECREF(resobj);
@@ -740,17 +796,12 @@ _PyObject_GetXIDataWrappedWithObj(PyThreadState *tstate,
     if (wrapped == NULL) {
         wrapped = Py_NewRef(obj);
     }
-    _PyXIData_unwrapper_t _unwrapper = {0};
-    _PyXIData_unwrapper_t *unwrapper = &_unwrapper;
     if (unwrap == NULL) {
+        assert(unwrapper->func == NULL);
         unwrapper = NULL;
     }
     else {
-        int res = xidata_unwrapper_from_object(tstate, unwrap, unwrapper);
         Py_DECREF(unwrap);
-        if (res < 0) {
-            goto error;
-        }
     }
 
     // Apply the wrap() result.
