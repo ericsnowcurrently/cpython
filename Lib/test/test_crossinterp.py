@@ -347,6 +347,14 @@ booleans, integers, floating-point numbers, complex numbers, strings, bytes, byt
     """
 
 
+class StatelessFuncTests(_GetXIDataTests):
+
+    def _assert_values(self, values):
+        super()._assert_values(values, mode='stateless-func')
+
+    ...
+
+
 class ShareableTypeTests(_GetXIDataTests):
 
     MODE = 'xidata'
