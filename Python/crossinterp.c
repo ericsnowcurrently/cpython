@@ -3,6 +3,7 @@
 
 #include "Python.h"
 #include "osdefs.h"               // MAXPATHLEN
+#include "marshal.h"              // PyMarshal_WriteObjectToString()
 #include "pycore_ceval.h"         // _Py_simple_func
 #include "pycore_crossinterp.h"   // _PyXIData_t
 #include "pycore_initconfig.h"    // _PyStatus_OK()
@@ -435,6 +436,32 @@ _PyPickle_GetXIData(PyThreadState *tstate, PyObject *obj, _PyXIData_t *xidata)
         return -1;
     }
 
+    return 0;
+}
+
+
+/* marshal wrapper */
+
+PyObject *
+_PyMarshal_ReadObjectFromXIData(_PyXIData_t *xidata)
+{
+    _PyBytes_data_t *shared = (_PyBytes_data_t *)xidata->data;
+    return PyMarshal_ReadObjectFromString(shared->bytes, shared->len);
+}
+
+int
+_PyMarshal_GetXIData(PyThreadState *tstate, PyObject *obj, _PyXIData_t *xidata)
+{
+    PyObject *bytes = PyMarshal_WriteObjectToString(obj, Py_MARSHAL_VERSION);
+    if (bytes == NULL) {
+        return -1;
+    }
+    _PyBytes_data_t *shared = _PyBytes_GetXIDataWrapped(
+            tstate, bytes, 0, _PyMarshal_ReadObjectFromXIData, xidata);
+    Py_DECREF(bytes);
+    if (shared == NULL) {
+        return -1;
+    }
     return 0;
 }
 

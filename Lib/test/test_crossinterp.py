@@ -340,6 +340,13 @@ class PickleTests(_GetXIDataTests):
         ...
 
 
+class MarshalTests(_GetXIDataTests):
+
+    """
+booleans, integers, floating-point numbers, complex numbers, strings, bytes, bytearrays, tuples, lists, sets, frozensets, dictionaries, and code objects, where it should be understood that tuples, lists, sets, frozensets and dictionaries are only supported as long as the values contained therein are themselves supported. The singletons None, Ellipsis and StopIteration can also be marshalled and unmarshalled.
+    """
+
+
 class ShareableTypeTests(_GetXIDataTests):
 
     MODE = 'xidata'
