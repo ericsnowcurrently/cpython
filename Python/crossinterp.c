@@ -8,6 +8,7 @@
 #include "pycore_crossinterp.h"   // _PyXIData_t
 #include "pycore_initconfig.h"    // _PyStatus_OK()
 #include "pycore_namespace.h"     // _PyNamespace_New()
+#include "pycore_setobject.h"     // _PySet_NextEntry()
 #include "pycore_typeobject.h"    // _PyStaticType_InitBuiltin()
 
 
@@ -462,6 +463,192 @@ _PyMarshal_GetXIData(PyThreadState *tstate, PyObject *obj, _PyXIData_t *xidata)
     if (shared == NULL) {
         return -1;
     }
+    return 0;
+}
+
+
+/* function wrapper */
+
+static int
+verify_stateless_codeobj(PyThreadState *tstate, PyCodeObject *co,
+                         int *p_okay, PyObject *globalnames)
+{
+    if (co->co_flags & CO_GENERATOR) {
+        _PyErr_SetString(tstate, PyExc_TypeError, "generators not supported");
+        goto failed;
+    }
+    if (co->co_flags & CO_COROUTINE) {
+        _PyErr_SetString(tstate, PyExc_TypeError, "coroutines not supported");
+        goto failed;
+    }
+    if (co->co_flags & CO_ITERABLE_COROUTINE) {
+        _PyErr_SetString(tstate, PyExc_TypeError, "coroutines not supported");
+        goto failed;
+    }
+    if (co->co_flags & CO_ASYNC_GENERATOR) {
+        _PyErr_SetString(tstate, PyExc_TypeError, "generators not supported");
+        goto failed;
+    }
+
+   _PyCode_var_counts_t counts = {0};
+    _PyCode_GetVarCounts(co, &counts);
+    if (_PyCode_SetUnboundVarCounts(co, &counts, globalnames, NULL) < 0) {
+        return -1;
+    }
+
+    // CO_NESTED is okay as long as there's no closure.
+    if (counts.locals.cells.total > 0) {
+        _PyErr_SetString(tstate, PyExc_ValueError, "nesting not supported");
+        goto failed;
+    }
+    if (counts.numfree > 0) {  // There's a closure.
+        _PyErr_SetString(tstate, PyExc_ValueError, "closures not supported");
+        goto failed;
+    }
+    assert(counts.locals.hidden.total == 0);
+
+    // We don't check counts.unbound.numglobal since we can't
+    // distinguish beween globals and builtins here.
+
+    if (p_okay != NULL) {
+        *p_okay = 1;
+    }
+    return 0;
+
+failed:
+    if (p_okay != NULL) {
+        *p_okay = 0;
+    }
+    return -1;
+}
+
+static int
+verify_stateless_funcobj(PyThreadState *tstate, PyObject *func, int *p_okay)
+{
+    assert(!PyErr_Occurred());
+    assert(PyFunction_Check(func));
+
+    PyObject *globalnames = PySet_New(NULL);
+    if (globalnames == NULL) {
+        return -1;
+    }
+
+    // Disallow __defaults__.
+    PyObject *defaults = PyFunction_GET_DEFAULTS(func);
+    if (defaults != NULL && defaults != Py_None && PyDict_Size(defaults) > 0)
+    {
+        _PyErr_SetString(tstate, PyExc_ValueError, "defaults not supported");
+        goto failed;
+    }
+    // Disallow __kwdefaults__.
+    PyObject *kwdefaults = PyFunction_GET_KW_DEFAULTS(func);
+    if (kwdefaults != NULL && kwdefaults != Py_None
+            && PyDict_Size(kwdefaults) > 0)
+    {
+        _PyErr_SetString(tstate, PyExc_ValueError,
+                         "keyword defaults not supported");
+        goto failed;
+    }
+    // Disallow __closure__.
+    PyObject *closure = PyFunction_GET_CLOSURE(func);
+    if (closure != NULL && closure != Py_None && PyTuple_GET_SIZE(closure) > 0)
+    {
+        _PyErr_SetString(tstate, PyExc_ValueError, "closures not supported");
+        goto failed;
+    }
+
+    // Check the code.
+    PyCodeObject *co = (PyCodeObject *)PyFunction_GET_CODE(func);
+    if (verify_stateless_codeobj(tstate, co, p_okay, globalnames) < 0) {
+        goto error;
+    }
+
+    // Disallow globals.
+    PyObject *globals = PyFunction_GET_GLOBALS(func);
+    if (globals == NULL) {
+        _PyErr_SetString(tstate, PyExc_ValueError, "missing globals");
+        goto failed;
+    }
+    if (!PyDict_Check(globals)) {
+        _PyErr_Format(tstate, PyExc_TypeError,
+                      "unsupported globals %R", globals);
+        goto failed;
+    }
+    // This is inspired by inspect.getclosurevars().
+    Py_ssize_t pos = 0;
+    PyObject *name;
+    Py_hash_t hash;
+    while(_PySet_NextEntry(globalnames, &pos, &name, &hash)) {
+        if (PyDict_Contains(globals, name)) {
+            if (PyErr_Occurred()) {
+                goto error;
+            }
+            _PyErr_SetString(tstate, PyExc_ValueError,
+                             "globals not supported");
+            goto failed;
+        }
+    }
+
+    Py_DECREF(globalnames);
+    if (p_okay != NULL) {
+        *p_okay = 1;
+    }
+    return 0;
+
+failed:
+    if (p_okay != NULL) {
+        *p_okay = 0;
+    }
+
+error:
+    Py_DECREF(globalnames);
+    return -1;
+}
+
+
+PyObject *
+_PyFunction_FromXIData(_PyXIData_t *xidata)
+{
+    // For now "stateless" functions are the only ones we must accommodate.
+
+    PyObject *code = _PyMarshal_ReadObjectFromXIData(xidata);
+    if (code == NULL) {
+        return NULL;
+    }
+    // Create a new function.
+    assert(PyCode_Check(code));
+    PyObject *globals = PyDict_New();
+    if (globals == NULL) {
+        Py_DECREF(code);
+        return NULL;
+    }
+    PyObject *func = PyFunction_New(code, globals);
+    Py_DECREF(code);
+    Py_DECREF(globals);
+    return func;
+}
+
+int
+_PyFunction_GetXIDataStateless(PyThreadState *tstate, PyObject *func,
+                               _PyXIData_t *xidata)
+{
+    if (!PyFunction_Check(func)) {
+        PyErr_Format(PyExc_TypeError, "expected function, got %R", func);
+        return -1;
+    }
+    if (verify_stateless_funcobj(tstate, func, NULL) < 0) {
+        return -1;
+    }
+    PyObject *code = PyFunction_GET_CODE(func);
+
+    // Ideally code objects would be immortal and directly shareable.
+    // In the meantime, we use marshal.
+    if (_PyMarshal_GetXIData(tstate, code, xidata) < 0) {
+        return -1;
+    }
+    // Replace _PyMarshal_ReadObjectFromXIData.
+    // (_PyFunction_FromXIData() will call it.)
+    _PyXIData_SET_NEW_OBJECT(xidata, _PyFunction_FromXIData);
     return 0;
 }
 
