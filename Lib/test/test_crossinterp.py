@@ -745,6 +745,37 @@ class CodeTests(_GetXIDataTests):
         ])
 
 
+class StatelessFuncTests(_GetXIDataTests):
+
+    MODE = 'func'
+
+    def test_stateless(self):
+        self.assert_roundtrip_not_equal(defs.STATELESS_FUNCTIONS)
+
+    def test_not_stateless(self):
+        self.assert_not_shareable([
+            *(f for f in defs.STATELESS_FUNCTIONS
+              if f not in defs.STATELESS_FUNCTIONS),
+            *defs.FUNCTION_LIKE,
+        ])
+
+    def test_other_objects(self):
+        self.assert_not_shareable([
+            None,
+            True,
+            False,
+            Ellipsis,
+            NotImplemented,
+            9999,
+            'spam',
+            b'spam',
+            (),
+            [],
+            {},
+            object(),
+        ])
+
+
 class ShareableScriptTests(_GetXIDataTests):
 
     MODE = 'script'
