@@ -143,14 +143,20 @@ _testcapi.err_setstring
     exc: object
     value: str(zeroes=True, accept={robuffer, str, NoneType})
     /
+    *
+    ctx: object = NULL
 [clinic start generated code]*/
 
 static PyObject *
 _testcapi_err_setstring_impl(PyObject *module, PyObject *exc,
-                             const char *value, Py_ssize_t value_length)
-/*[clinic end generated code: output=fba8705e5703dd3f input=e8a95fad66d9004b]*/
+                             const char *value, Py_ssize_t value_length,
+                             PyObject *ctx)
+/*[clinic end generated code: output=f812a3d77a107dca input=ae5f7b7ab153465c]*/
 {
     NULLABLE(exc);
+    if (ctx != NULL) {
+        PyErr_SetRaisedException(ctx);
+    }
     PyErr_SetString(exc, value);
     return NULL;
 }

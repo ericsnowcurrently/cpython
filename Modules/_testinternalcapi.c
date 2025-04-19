@@ -526,6 +526,86 @@ test_bytes_find(PyObject *self, PyObject *Py_UNUSED(args))
     Py_RETURN_NONE;
 }
 
+static PyObject *
+err_setstring_chain(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+    PyObject *exctype;
+    const char *msg;
+    PyObject *ctx = NULL;
+    static char *kwlist[] = {"exctype", "msg", "ctx", NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs,
+                                     "Os|$O:set_exc_from_string", kwlist,
+                                     &exctype, &msg, &ctx))
+    {
+        return NULL;
+    }
+    PyThreadState *tstate = PyThreadState_Get();
+
+    if (!PyExceptionClass_Check(exctype)) {
+        _PyErr_Format(tstate, PyExc_TypeError,
+                      "expected exception type, got %R", exctype);
+        return NULL;
+    }
+    if (ctx != NULL) {
+        if (!PyExceptionInstance_Check(ctx)) {
+            _PyErr_Format(tstate, PyExc_TypeError,
+                          "expected exception for ctx, got %R", ctx);
+            return NULL;
+        }
+        _PyErr_SetRaisedException(tstate, ctx);
+    }
+
+    _PyErr_SetStringChained(tstate, exctype, msg);
+    return NULL;
+}
+
+static PyObject *
+err_format_chain(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+    PyObject *exctype;
+    const char *fmt;
+    PyObject *arg2 = NULL;
+    PyObject *arg3 = NULL;
+    PyObject *arg4 = NULL;
+    PyObject *ctx = NULL;
+    static char *kwlist[] = {"", "", "", "", "", "ctx", NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs,
+                                     "Os|OOO$O:set_exc_from_format", kwlist,
+                                     &exctype, &fmt, &arg2, &arg3, &arg4,
+                                     &ctx))
+    {
+        return NULL;
+    }
+    PyThreadState *tstate = PyThreadState_Get();
+
+    if (!PyExceptionClass_Check(exctype)) {
+        _PyErr_Format(tstate, PyExc_TypeError,
+                      "expected exception type, got %R", exctype);
+        return NULL;
+    }
+    if (ctx != NULL) {
+        if (!PyExceptionInstance_Check(ctx)) {
+            _PyErr_Format(tstate, PyExc_TypeError,
+                          "expected exception for ctx, got %R", ctx);
+            return NULL;
+        }
+        _PyErr_SetRaisedException(tstate, ctx);
+    }
+
+    if (arg4 != NULL) {
+        _PyErr_FormatChained(tstate, exctype, fmt, arg2, arg3, arg4);
+    }
+    else if (arg3 != NULL) {
+        _PyErr_FormatChained(tstate, exctype, fmt, arg2, arg3);
+    }
+    else if (arg2 != NULL) {
+        _PyErr_FormatChained(tstate, exctype, fmt, arg2);
+    }
+    else {
+        _PyErr_FormatChained(tstate, exctype, fmt);
+    }
+    return NULL;
+}
 
 static PyObject *
 normalize_path(PyObject *self, PyObject *filename)
@@ -2012,6 +2092,10 @@ static PyMethodDef module_functions[] = {
     {"reset_path_config", test_reset_path_config, METH_NOARGS},
     {"test_edit_cost", test_edit_cost, METH_NOARGS},
     {"test_bytes_find", test_bytes_find, METH_NOARGS},
+    {"err_setstring_chain", _PyCFunction_CAST(err_setstring_chain),
+     METH_VARARGS | METH_KEYWORDS},
+    {"err_format_chain", _PyCFunction_CAST(err_format_chain),
+     METH_VARARGS | METH_KEYWORDS},
     {"normalize_path", normalize_path, METH_O, NULL},
     {"get_getpath_codeobject", get_getpath_codeobject, METH_NOARGS, NULL},
     {"EncodeLocaleEx", encode_locale_ex, METH_VARARGS},

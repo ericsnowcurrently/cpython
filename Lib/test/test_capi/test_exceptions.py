@@ -15,6 +15,7 @@ from .test_misc import decode_stderr
 
 # Skip this test if the _testcapi module isn't available.
 _testcapi = import_helper.import_module('_testcapi')
+_testinternalcapi = import_helper.import_module('_testinternalcapi')
 
 NULL = None
 
@@ -253,6 +254,108 @@ class Test_ErrSetAndRestore(unittest.TestCase):
         self.assertRaises(SystemError, setstring, list, b'error')
         # CRASHES setstring(ZeroDivisionError, NULL)
         # CRASHES setstring(NULL, b'error')
+
+    def test_set_string_not_chained(self):
+        setstring = _testcapi.err_setstring
+
+        def check_exc(exc, context, *, tb=False):
+            self.assertIs(exc.__context__, context)
+            self.assertIs(exc.__cause__, None)
+            if tb:
+                self.assertIsNot(exc.__traceback__, None)
+            else:
+                self.assertIs(exc.__traceback__, None)
+
+        with self.subTest('unhandled, without ctx'):
+            with self.assertRaises(ModuleNotFoundError) as cm:
+                setstring(ModuleNotFoundError, 'mymod')
+            check_exc(cm.exception, None)
+
+        with self.subTest('unhandled, with ctx'):
+            ctx = TimeoutError('???')
+            check_exc(ctx, None)
+            with self.assertRaises(ModuleNotFoundError) as cm:
+                setstring(ModuleNotFoundError, 'mymod', ctx=ctx)
+            check_exc(cm.exception, None)
+            check_exc(ctx, None)
+
+        with self.subTest('handled, without ctx'):
+            handled = ZeroDivisionError('uh-oh')
+            check_exc(handled, None)
+            try:
+                raise handled
+            except Exception as exc:
+                assert exc is handled
+                with self.assertRaises(ModuleNotFoundError) as cm:
+                    setstring(ModuleNotFoundError, 'mymod')
+            check_exc(cm.exception, handled)
+            check_exc(handled, None, tb=True)
+
+        with self.subTest('handled, with ctx'):
+            ctx = TimeoutError('???')
+            check_exc(ctx, None)
+            handled = ZeroDivisionError('uh-oh')
+            check_exc(handled, None)
+            try:
+                raise handled
+            except Exception as exc:
+                handled = exc
+                with self.assertRaises(ModuleNotFoundError) as cm:
+                    setstring(ModuleNotFoundError, 'mymod', ctx=ctx)
+            check_exc(cm.exception, handled)
+            check_exc(handled, None, tb=True)
+            check_exc(ctx, None)
+
+    def test_set_string_chained(self):
+        setstring = _testinternalcapi.err_setstring_chain
+
+        def check_exc(exc, context, *, tb=False):
+            self.assertIs(exc.__context__, context)
+            self.assertIs(exc.__cause__, None)
+            if tb:
+                self.assertIsNot(exc.__traceback__, None)
+            else:
+                self.assertIs(exc.__traceback__, None)
+
+        with self.subTest('unhandled, without ctx'):
+            with self.assertRaises(ModuleNotFoundError) as cm:
+                setstring(ModuleNotFoundError, 'mymod')
+            check_exc(cm.exception, None)
+
+        with self.subTest('unhandled, with ctx'):
+            ctx = TimeoutError('???')
+            check_exc(ctx, None)
+            with self.assertRaises(ModuleNotFoundError) as cm:
+                setstring(ModuleNotFoundError, 'mymod', ctx=ctx)
+            check_exc(cm.exception, ctx)
+            check_exc(ctx, None)
+
+        with self.subTest('handled, without ctx'):
+            handled = ZeroDivisionError('uh-oh')
+            check_exc(handled, None)
+            try:
+                raise handled
+            except Exception as exc:
+                assert exc is handled
+                with self.assertRaises(ModuleNotFoundError) as cm:
+                    setstring(ModuleNotFoundError, 'mymod')
+            check_exc(cm.exception, handled)
+            check_exc(handled, None, tb=True)
+
+        with self.subTest('handled, with ctx'):
+            ctx = TimeoutError('???')
+            check_exc(ctx, None)
+            handled = ZeroDivisionError('uh-oh')
+            check_exc(handled, None)
+            try:
+                raise handled
+            except Exception as exc:
+                handled = exc
+                with self.assertRaises(ModuleNotFoundError) as cm:
+                    setstring(ModuleNotFoundError, 'mymod', ctx=ctx)
+            check_exc(cm.exception, ctx)
+            check_exc(ctx, handled)
+            check_exc(handled, None, tb=True)
 
     def test_format(self):
         """Test PyErr_Format()"""

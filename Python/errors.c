@@ -112,6 +112,14 @@ PyErr_SetRaisedException(PyObject *exc)
     _PyErr_SetRaisedException(tstate, exc);
 }
 
+static PyObject *
+peek_raised(PyThreadState *tstate)
+{
+    PyObject *raised = _PyErr_GetRaisedException(tstate);
+    _PyErr_SetRaisedException(tstate, raised);
+    return raised;
+}
+
 _PyErr_StackItem *
 _PyErr_GetTopmostException(PyThreadState *tstate)
 {
@@ -126,41 +134,216 @@ _PyErr_GetTopmostException(PyThreadState *tstate)
     return exc_info;
 }
 
-static PyObject *
-get_normalization_failure_note(PyThreadState *tstate, PyObject *exception, PyObject *value)
+static int
+verify_exctype(PyThreadState *tstate, PyObject *exctype, const char *whence)
 {
+    assert(exctype != NULL);
+    if (exctype == NULL) {
+        _PyErr_Format(tstate, PyExc_SystemError,
+                      "%s: missing exception type",
+                      whence);
+        return -1;
+    }
+    if (!PyExceptionClass_Check(exctype)) {
+        _PyErr_Format(tstate, PyExc_SystemError,
+                      "%s: exception %R is not a BaseException subclass",
+                      whence, exctype);
+        return -1;
+    }
+    return 0;
+}
+
+static PyObject *
+create_normalized_exception(PyThreadState *tstate,
+                            PyObject *exctype, PyObject *value)
+{
+    assert(!_PyErr_Occurred(tstate));
+    PyObject *exc = _PyErr_CreateException(exctype, value);
+    if (exc != NULL) {
+        return exc;
+    }
+
+    // Handle the failure.
+    PyObject *failure = _PyErr_GetRaisedException(tstate);
+    assert(PyExceptionInstance_Check(failure));
+    const char *tpname = ((PyTypeObject*)exctype)->tp_name;
     PyObject *args = PyObject_Repr(value);
     if (args == NULL) {
         _PyErr_Clear(tstate);
-        args = PyUnicode_FromFormat("<unknown>");
+        _Py_DECLARE_STR(anon_unknown, "<unknown>");
+        args = &_Py_STR(anon_unknown);
     }
-    PyObject *note;
-    const char *tpname = ((PyTypeObject*)exception)->tp_name;
-    if (args == NULL) {
-        _PyErr_Clear(tstate);
-        note = PyUnicode_FromFormat("Normalization failed: type=%s", tpname);
+    // We ignore any errors past this point, since they will be
+    // overwritten a the end of the function.
+    PyObject *note = PyUnicode_FromFormat(
+                "Normalization failed: type=%s args=%S", tpname, args);
+    Py_DECREF(args);
+    if (note != NULL) {
+        _PyException_AddNote(failure, note);
+        Py_DECREF(note);
+    }
+    _PyErr_SetRaisedException(tstate, failure);
+    return NULL;
+}
+
+
+static PyObject *
+walk_context_chain(PyObject *exc, PyObject *target, PyObject **p_next)
+{
+    /* Return the last exception in the chain, or the target's parent
+       (if found).  If there's a cycle then return the last one
+       before the cycle.
+
+       This is O(chain length) but context chains are
+       usually very short. Sensitive readers may try
+       to inline the call to PyException_GetContext. */
+    assert(exc != NULL);
+    assert(target == NULL || target != exc);
+    PyObject *o = Py_NewRef(exc);  // "o" means "last".
+    PyObject *ctx = NULL;
+    PyObject *slow_o = Py_NewRef(o);  /* Floyd's cycle detection algo */
+    int slow_update_toggle = 0;
+    while ((ctx = PyException_GetContext(o)) != NULL) {
+        if (ctx == target) {
+            break;
+        }
+        if (ctx == exc) {
+            break;
+        }
+        if (ctx == slow_o) {
+            /* pre-existing cycle - all exceptions on the
+               path were visited and checked.  */
+            break;
+        }
+        Py_DECREF(o);
+        o = ctx;
+        if (slow_update_toggle) {
+            Py_DECREF(slow_o);
+            slow_o = PyException_GetContext(slow_o);
+        }
+        slow_update_toggle = !slow_update_toggle;
+    }
+    Py_XDECREF(slow_o);
+    *p_next = ctx;
+    return o;
+}
+
+static void
+ensure_no_new_context_cycle(PyObject *exc, PyObject *ctx)
+{
+    /* Avoid creating new reference cycles through the context chain. */
+    assert(exc != NULL);
+    assert(ctx != NULL);
+    assert(ctx != exc);
+    assert(_Py_REFCNT(exc) > 0);
+    PyObject *last, *next;
+    if (_Py_REFCNT(ctx) == 1) {
+        /* It is probably a new exception.  Regardless, it cannot be
+         * part of the context's chain. */
+#ifdef Py_DEBUG
+        last = walk_context_chain(exc, ctx, &next);
+        Py_DECREF(last);
+        Py_XDECREF(next);
+        assert(next != ctx);
+#endif
     }
     else {
-        note = PyUnicode_FromFormat("Normalization failed: type=%s args=%S",
-                                    tpname, args);
-        Py_DECREF(args);
+        last = walk_context_chain(exc, ctx, &next);
+        Py_XDECREF(next);
+        if (next == ctx) {
+            /* Break the cycle we would have introduced. */
+            PyException_SetContext(last, NULL);
+        }
+        Py_DECREF(last);
     }
-    return note;
+}
+
+static void
+apply_context(PyObject *exc, PyObject *ctx, int end)
+{
+    /* Attach the context to the end of the given exception's
+     * context chain.  If there's a cycle then skip it.  If this might
+     * introduce a new cycle then fix it. */
+    assert(exc != NULL);
+    assert(ctx != NULL);
+    assert(ctx != exc);
+    assert(_Py_REFCNT(exc) > 0);
+    /* First, find the exception on which we will set the context. */
+    PyObject *target;
+    if (end) {
+        /* Add it to the end of the exception's context chain
+         * (and look for cycles). */
+        PyObject *next = NULL;
+        target = walk_context_chain(exc, ctx, &next);
+        if (next != NULL) {
+            /* If next == ctx then it's already done.  Otherwise it's an
+             * existing cycle, which we don't bother with. */
+            Py_DECREF(target);
+            Py_DECREF(next);
+            return;
+        }
+    }
+    else {
+        /* Set the context directly on the exception,
+         * replacing any existing. */
+        target = Py_NewRef(exc);
+    }
+    /* Next, make sure the exception is not part of the context's chain.
+     * We want to avoid introducing a new cycle. */
+    ensure_no_new_context_cycle(ctx, exc);
+    /* Finally, add the context to the end of the chain. */
+    PyException_SetContext(target, ctx);
+    Py_DECREF(target);
+}
+
+static inline PyObject *
+get_current_context(PyThreadState *tstate)
+{
+    /* This is the exception that is currently being handled, if any. */
+    PyObject *ctx = _PyErr_GetTopmostException(tstate)->exc_value;
+    if (ctx == Py_None) {
+        ctx = NULL;
+    }
+    return Py_XNewRef(ctx);
+}
+
+static void
+apply_current_context(PyThreadState *tstate, PyObject *exc, int end)
+{
+    /* Attach the currently-handling exception, if any, to the end
+     * of the given exception's context chain.
+     *
+     * Note that we do not incorporate the current *unhandled*
+     * exception.  That can be done separately using apply_context()
+     * (before calling apply_current_context()). */
+    PyObject *handling = get_current_context(tstate);
+    if (handling == NULL) {
+        return;
+    }
+    if (exc == handling) {
+        return;
+    }
+    apply_context(exc, handling, end);
+}
+
+static inline void
+set_raised_context(PyThreadState *tstate, PyObject *exc_ctx)
+{
+    PyObject *cur = _PyErr_GetRaisedException(tstate);
+    assert(cur != NULL);
+    PyException_SetContext(cur, exc_ctx);
+    _PyErr_SetRaisedException(tstate, cur);
 }
 
 void
 _PyErr_SetObject(PyThreadState *tstate, PyObject *exception, PyObject *value)
 {
-    PyObject *exc_value;
     PyObject *tb = NULL;
 
-    if (exception != NULL &&
-        !PyExceptionClass_Check(exception)) {
-        _PyErr_Format(tstate, PyExc_SystemError,
-                      "_PyErr_SetObject: "
-                      "exception %R is not a BaseException subclass",
-                      exception);
-        return;
+    if (exception != NULL) {
+        if (verify_exctype(tstate, exception, "_PyErr_SetObject") < 0) {
+            return;
+        }
     }
     /* Normalize the exception */
     int is_subclass = 0;
@@ -176,64 +359,23 @@ _PyErr_SetObject(PyThreadState *tstate, PyObject *exception, PyObject *value)
 
         /* Issue #23571: functions must not be called with an
             exception set */
+        // XXX This disables implicit chaining!
         _PyErr_Clear(tstate);
 
-        PyObject *fixed_value = _PyErr_CreateException(exception, value);
+        PyObject *fixed_value =
+                create_normalized_exception(tstate, exception, value);
         if (fixed_value == NULL) {
-            PyObject *exc = _PyErr_GetRaisedException(tstate);
-            assert(PyExceptionInstance_Check(exc));
-
-            PyObject *note = get_normalization_failure_note(tstate, exception, value);
             Py_XDECREF(value);
-            if (note != NULL) {
-                /* ignore errors in _PyException_AddNote - they will be overwritten below */
-                _PyException_AddNote(exc, note);
-                Py_DECREF(note);
-            }
-            _PyErr_SetRaisedException(tstate, exc);
             return;
         }
         Py_XSETREF(value, fixed_value);
     }
 
-    exc_value = _PyErr_GetTopmostException(tstate)->exc_value;
-    if (exc_value != NULL && exc_value != Py_None) {
-        /* Implicit exception chaining */
-        Py_INCREF(exc_value);
-        /* Avoid creating new reference cycles through the
-           context chain, while taking care not to hang on
-           pre-existing ones.
-           This is O(chain length) but context chains are
-           usually very short. Sensitive readers may try
-           to inline the call to PyException_GetContext. */
-        if (exc_value != value) {
-            PyObject *o = exc_value, *context;
-            PyObject *slow_o = o;  /* Floyd's cycle detection algo */
-            int slow_update_toggle = 0;
-            while ((context = PyException_GetContext(o))) {
-                Py_DECREF(context);
-                if (context == value) {
-                    PyException_SetContext(o, NULL);
-                    break;
-                }
-                o = context;
-                if (o == slow_o) {
-                    /* pre-existing cycle - all exceptions on the
-                       path were visited and checked.  */
-                    break;
-                }
-                if (slow_update_toggle) {
-                    slow_o = PyException_GetContext(slow_o);
-                    Py_DECREF(slow_o);
-                }
-                slow_update_toggle = !slow_update_toggle;
-            }
-            PyException_SetContext(value, exc_value);
-        }
-        else {
-            Py_DECREF(exc_value);
-        }
-    }
+    /* Implicit exception chaining */
+    // Note that we replace any existing context,
+    // rather than adding to the end of the chain.
+    apply_current_context(tstate, value, 0);
+
     assert(value != NULL);
     if (PyExceptionInstance_Check(value))
         tb = PyException_GetTraceback(value);
@@ -279,15 +421,63 @@ PyErr_SetNone(PyObject *exception)
 }
 
 
+static PyObject *
+exception_from_string(PyThreadState *tstate, PyObject *exctype,
+                      const char *string, const char *whence)
+{
+    assert(!_PyErr_Occurred(tstate));
+    if (verify_exctype(tstate, exctype, whence) < 0) {
+        return NULL;
+    }
+    PyObject *obj = PyUnicode_FromString(string);
+    if (obj == NULL) {
+        return NULL;
+    }
+    PyObject *exc = create_normalized_exception(tstate, exctype, obj);
+    assert(exc == NULL || _Py_REFCNT(exc) == 1);
+    Py_DECREF(obj);
+    return exc;
+}
+
 void
-_PyErr_SetString(PyThreadState *tstate, PyObject *exception,
+_PyErr_SetString(PyThreadState *tstate, PyObject *exctype,
                  const char *string)
 {
-    PyObject *value = PyUnicode_FromString(string);
-    if (value != NULL) {
-        _PyErr_SetObject(tstate, exception, value);
-        Py_DECREF(value);
+    PyObject *unhandled = _PyErr_GetRaisedException(tstate);
+    PyObject *exc = exception_from_string(
+                    tstate, exctype, string, "_PyErr_SetString");
+    if (exc == NULL) {
+        PyObject *raised = peek_raised(tstate);
+        assert(raised != NULL);
+        apply_context(raised, unhandled, 1);
+        return;
     }
+    // The current unhandled exception (exc_unhandled) is discarded.
+    apply_current_context(tstate, exc, 0);
+    _PyErr_SetRaisedException(tstate, exc);
+}
+
+void
+_PyErr_SetStringChained(PyThreadState *tstate, PyObject *exctype,
+                        const char *string)
+{
+    PyObject *unhandled = _PyErr_GetRaisedException(tstate);
+    PyObject *exc = exception_from_string(
+                    tstate, exctype, string, "_PyErr_SetStringChained");
+    assert(_Py_REFCNT(exc) == 1);
+    if (exc == NULL) {
+        PyObject *raised = peek_raised(tstate);
+        assert(raised != NULL);
+        apply_context(raised, unhandled, 1);
+        return;
+    }
+    // The current unhandled exception is preserved.
+    // (Does its traceback need to be set right now?  We are effectively
+    // doing manually (and efficiently) what would normally be done
+    // in the eval loop.)
+    apply_current_context(tstate, unhandled, 1);
+    PyException_SetContext(exc, unhandled);
+    _PyErr_SetRaisedException(tstate, exc);
 }
 
 void
@@ -688,11 +878,25 @@ _PyErr_ChainExceptions(PyObject *typ, PyObject *val, PyObject *tb)
     }
 }
 
-/* Like PyErr_SetRaisedException(), but if an exception is already set,
+/* Like _PyErr_SetRaisedException(), but if an exception is already set,
    set the context associated with it.
 
    The caller is responsible for ensuring that this call won't create
    any cycles in the exception context chain. */
+void
+_PyErr_ChainExceptions1Tstate(PyThreadState *tstate, PyObject *exc)
+{
+    if (exc == NULL) {
+        return;
+    }
+    if (_PyErr_Occurred(tstate)) {
+        set_raised_context(tstate, exc);
+    }
+    else {
+        _PyErr_SetRaisedException(tstate, exc);
+    }
+}
+
 void
 _PyErr_ChainExceptions1(PyObject *exc)
 {
@@ -700,14 +904,7 @@ _PyErr_ChainExceptions1(PyObject *exc)
         return;
     }
     PyThreadState *tstate = _PyThreadState_GET();
-    if (_PyErr_Occurred(tstate)) {
-        PyObject *exc2 = _PyErr_GetRaisedException(tstate);
-        PyException_SetContext(exc2, exc);
-        _PyErr_SetRaisedException(tstate, exc2);
-    }
-    else {
-        _PyErr_SetRaisedException(tstate, exc);
-    }
+    _PyErr_ChainExceptions1Tstate(tstate, exc);
 }
 
 /* If the current thread is handling an exception (exc_info is ), set this
@@ -1190,22 +1387,66 @@ PyErr_BadInternalCall(void)
 #define PyErr_BadInternalCall() _PyErr_BadInternalCall(__FILE__, __LINE__)
 
 
+static PyObject *
+exception_from_format_v(PyThreadState *tstate, PyObject *exctype,
+                   const char *format, va_list vargs, const char *whence)
+{
+    assert(!_PyErr_Occurred(tstate));
+    if (verify_exctype(tstate, exctype, whence) < 0) {
+        return NULL;
+    }
+    PyObject *value = PyUnicode_FromFormatV(format, vargs);
+    if (value == NULL) {
+        return NULL;
+    }
+    PyObject *exc = create_normalized_exception(tstate, exctype, value);
+    assert(exc == NULL || _Py_REFCNT(exc) == 1);
+    Py_DECREF(value);
+    return exc;
+}
+
 PyObject *
-_PyErr_FormatV(PyThreadState *tstate, PyObject *exception,
+_PyErr_FormatV(PyThreadState *tstate, PyObject *exctype,
                const char *format, va_list vargs)
 {
-    PyObject* string;
-
     /* Issue #23571: PyUnicode_FromFormatV() must not be called with an
        exception set, it calls arbitrary Python code like PyObject_Repr() */
-    _PyErr_Clear(tstate);
-
-    string = PyUnicode_FromFormatV(format, vargs);
-    if (string != NULL) {
-        _PyErr_SetObject(tstate, exception, string);
-        Py_DECREF(string);
+    PyObject *unhandled = _PyErr_GetRaisedException(tstate);
+    PyObject *exc = exception_from_format_v(
+                tstate, exctype, format, vargs, "_PyErr_FormatV");
+    if (exc == NULL) {
+        PyObject *raised = peek_raised(tstate);
+        assert(raised != NULL);
+        apply_context(raised, unhandled, 1);
+        return NULL;
     }
+    // The current unhandled exception (exc_unhandled) is discarded.
+    apply_current_context(tstate, exc, 0);
+    _PyErr_SetRaisedException(tstate, exc);
     return NULL;
+}
+
+void
+_PyErr_FormatVChained(PyThreadState *tstate, PyObject *exctype,
+                      const char *format, va_list vargs)
+{
+    PyObject *unhandled = _PyErr_GetRaisedException(tstate);
+    PyObject* exc = exception_from_format_v(
+                tstate, exctype, format, vargs, "_PyErr_FormatVChained");
+    assert(_Py_REFCNT(exc) == 1);
+    if (exc == NULL) {
+        PyObject *raised = peek_raised(tstate);
+        assert(raised != NULL);
+        apply_context(raised, unhandled, 1);
+        return;
+    }
+    // The current unhandled exception is preserved.
+    // (Does its traceback need to be set right now?  We are effectively
+    // doing manually (and efficiently) what would normally be done
+    // in the eval loop.)
+    apply_current_context(tstate, unhandled, 1);
+    PyException_SetContext(exc, unhandled);
+    _PyErr_SetRaisedException(tstate, exc);
 }
 
 
@@ -1226,6 +1467,16 @@ _PyErr_Format(PyThreadState *tstate, PyObject *exception,
     _PyErr_FormatV(tstate, exception, format, vargs);
     va_end(vargs);
     return NULL;
+}
+
+void
+_PyErr_FormatChained(PyThreadState *tstate, PyObject *exception,
+                     const char *format, ...)
+{
+    va_list vargs;
+    va_start(vargs, format);
+    _PyErr_FormatVChained(tstate, exception, format, vargs);
+    va_end(vargs);
 }
 
 

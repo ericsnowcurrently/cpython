@@ -219,30 +219,59 @@ exit:
 }
 
 PyDoc_STRVAR(_testcapi_err_setstring__doc__,
-"err_setstring($module, exc, value, /)\n"
+"err_setstring($module, exc, value, /, *, ctx=<unrepresentable>)\n"
 "--\n"
 "\n");
 
 #define _TESTCAPI_ERR_SETSTRING_METHODDEF    \
-    {"err_setstring", _PyCFunction_CAST(_testcapi_err_setstring), METH_FASTCALL, _testcapi_err_setstring__doc__},
+    {"err_setstring", _PyCFunction_CAST(_testcapi_err_setstring), METH_FASTCALL|METH_KEYWORDS, _testcapi_err_setstring__doc__},
 
 static PyObject *
 _testcapi_err_setstring_impl(PyObject *module, PyObject *exc,
-                             const char *value, Py_ssize_t value_length);
+                             const char *value, Py_ssize_t value_length,
+                             PyObject *ctx);
 
 static PyObject *
-_testcapi_err_setstring(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
+_testcapi_err_setstring(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObject *kwnames)
 {
     PyObject *return_value = NULL;
+    #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
+
+    #define NUM_KEYWORDS 1
+    static struct {
+        PyGC_Head _this_is_not_used;
+        PyObject_VAR_HEAD
+        Py_hash_t ob_hash;
+        PyObject *ob_item[NUM_KEYWORDS];
+    } _kwtuple = {
+        .ob_base = PyVarObject_HEAD_INIT(&PyTuple_Type, NUM_KEYWORDS)
+        .ob_hash = -1,
+        .ob_item = { &_Py_ID(ctx), },
+    };
+    #undef NUM_KEYWORDS
+    #define KWTUPLE (&_kwtuple.ob_base.ob_base)
+
+    #else  // !Py_BUILD_CORE
+    #  define KWTUPLE NULL
+    #endif  // !Py_BUILD_CORE
+
+    static const char * const _keywords[] = {"", "", "ctx", NULL};
+    static _PyArg_Parser _parser = {
+        .keywords = _keywords,
+        .format = "Oz#|$O:err_setstring",
+        .kwtuple = KWTUPLE,
+    };
+    #undef KWTUPLE
     PyObject *exc;
     const char *value;
     Py_ssize_t value_length;
+    PyObject *ctx = NULL;
 
-    if (!_PyArg_ParseStack(args, nargs, "Oz#:err_setstring",
-        &exc, &value, &value_length)) {
+    if (!_PyArg_ParseStackAndKeywords(args, nargs, kwnames, &_parser,
+        &exc, &value, &value_length, &ctx)) {
         goto exit;
     }
-    return_value = _testcapi_err_setstring_impl(module, exc, value, value_length);
+    return_value = _testcapi_err_setstring_impl(module, exc, value, value_length, ctx);
 
 exit:
     return return_value;
@@ -459,4 +488,4 @@ _testcapi_unstable_exc_prep_reraise_star(PyObject *module, PyObject *const *args
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=357caea020348789 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=a1a0421555f5b44b input=a9049054013a1b77]*/

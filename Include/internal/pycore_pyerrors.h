@@ -94,13 +94,13 @@ extern void _PyErr_Fetch(
     PyObject **value,
     PyObject **traceback);
 
-extern PyObject* _PyErr_GetRaisedException(PyThreadState *tstate);
+PyAPI_FUNC(PyObject *) _PyErr_GetRaisedException(PyThreadState *tstate);
 
 PyAPI_FUNC(int) _PyErr_ExceptionMatches(
     PyThreadState *tstate,
     PyObject *exc);
 
-extern void _PyErr_SetRaisedException(PyThreadState *tstate, PyObject *exc);
+PyAPI_FUNC(void) _PyErr_SetRaisedException(PyThreadState *, PyObject *);
 
 extern void _PyErr_Restore(
     PyThreadState *tstate,
@@ -130,6 +130,10 @@ PyAPI_FUNC(void) _PyErr_SetString(
     PyThreadState *tstate,
     PyObject *exception,
     const char *string);
+PyAPI_FUNC(void) _PyErr_SetStringChained(
+    PyThreadState *tstate,
+    PyObject *exception,
+    const char *string);
 
 /*
  * Set an exception with the error message decoded from the current locale
@@ -148,8 +152,18 @@ PyAPI_FUNC(PyObject*) _PyErr_Format(
     PyObject *exception,
     const char *format,
     ...);
+PyAPI_FUNC(void) _PyErr_FormatChained(
+    PyThreadState *tstate,
+    PyObject *exception,
+    const char *format,
+    ...);
 
 PyAPI_FUNC(PyObject*) _PyErr_FormatV(
+    PyThreadState *tstate,
+    PyObject *exception,
+    const char *format,
+    va_list vargs);
+PyAPI_FUNC(void) _PyErr_FormatVChained(
     PyThreadState *tstate,
     PyObject *exception,
     const char *format,
@@ -191,6 +205,8 @@ PyAPI_FUNC(void) _PyErr_FormatNote(const char *format, ...);
 /* Context manipulation (PEP 3134) */
 
 Py_DEPRECATED(3.12) extern void _PyErr_ChainExceptions(PyObject *, PyObject *, PyObject *);
+
+extern void _PyErr_ChainExceptions1Tstate(PyThreadState *, PyObject *);
 
 // implementation detail for the codeop module.
 // Exported for test.test_peg_generator.test_c_parser
