@@ -6,8 +6,10 @@
 #include "marshal.h"              // PyMarshal_WriteObjectToString()
 #include "pycore_ceval.h"         // _Py_simple_func
 #include "pycore_crossinterp.h"   // _PyXIData_t
+#include "pycore_function.h"      // _PyFunction_VerifyStateless()
 #include "pycore_initconfig.h"    // _PyStatus_OK()
 #include "pycore_namespace.h"     // _PyNamespace_New()
+#include "pycore_pythonrun.h"     // _Py_SourceAsString()
 #include "pycore_typeobject.h"    // _PyStaticType_InitBuiltin()
 
 
@@ -777,6 +779,93 @@ _PyMarshal_GetXIData(PyThreadState *tstate, PyObject *obj, _PyXIData_t *xidata)
         return -1;
     }
     return 0;
+}
+
+
+/* script wrapper */
+
+int
+_PyCode_GetScriptXIData(PyThreadState *tstate,
+                        PyObject *obj, _PyXIData_t *xidata)
+{
+    // Get the corresponding code object.
+#define VERIFY_SCRIPT(code) \
+    do { \
+        PyCodeObject *co = (PyCodeObject *)code; \
+        if (co->co_argcount > 0 \
+            || co->co_posonlyargcount > 0 \
+            || co->co_kwonlyargcount > 0 \
+            || co->co_flags & (CO_VARARGS | CO_VARKEYWORDS)) \
+        { \
+            _PyErr_SetString(tstate, PyExc_ValueError, \
+                             "code with args not supported"); \
+            goto error; \
+        } \
+        if (_PyCode_Returns(co)) { \
+            _PyErr_SetString(tstate, PyExc_ValueError, \
+                             "code that returns a value is not a script"); \
+            goto error; \
+        } \
+    } while (0)
+
+    PyObject *code;
+    if (PyCode_Check(obj)) {
+        code = obj;
+        Py_INCREF(code);
+        if (_PyCode_VerifyStateless(tstate, (PyCodeObject *)code, NULL) < 0) {
+            goto error;
+        }
+        VERIFY_SCRIPT(code);
+    }
+    else if (PyFunction_Check(obj)) {
+        code = PyFunction_GET_CODE(obj);
+        assert(code != NULL);
+        Py_INCREF(code);
+        if (_PyFunction_VerifyStateless(tstate, obj) < 0) {
+            goto error;
+        }
+        VERIFY_SCRIPT(code);
+    }
+    else {
+        const char *filename = "<script>";
+        PyCompilerFlags cf = _PyCompilerFlags_INIT;
+        cf.cf_flags = PyCF_SOURCE_IS_UTF8;
+        PyObject *ref = NULL;
+        const char *script =
+                _Py_SourceAsString(obj, "???", "???", &cf, &ref);
+        if (script == NULL) {
+            if (!PyBytes_Check(obj) && !PyUnicode_Check(obj)
+                && !PyByteArray_Check(obj) && !PyObject_CheckBuffer(obj))
+            {
+                // We discard the raised exception.
+                _PyErr_Format(tstate, PyExc_TypeError, "unsupported script %R", obj);
+            }
+            goto error;
+        }
+        code = Py_CompileStringExFlags(script, filename, Py_file_input, &cf, 0);
+        Py_XDECREF(ref);
+        if (code == NULL) {
+            goto error;
+        }
+    }
+#undef VERIFY_SCRIPT
+
+    // Convert the code object.
+    int res = _PyCode_GetXIData(tstate, code, xidata);
+    Py_DECREF(code);
+    if (res < 0) {
+        return -1;
+    }
+    return 0;
+
+error:
+    Py_XDECREF(code);
+    PyObject *cause = _PyErr_GetRaisedException(tstate);
+    assert(cause != NULL);
+    _set_xid_lookup_failure(
+                tstate, NULL, "object not a valid script", cause);
+    Py_DECREF(cause);
+    return -1;
 }
 
 
