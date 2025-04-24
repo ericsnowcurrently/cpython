@@ -602,10 +602,21 @@ PyAPI_FUNC(void) _PyCode_GetVarCounts(
         PyCodeObject *,
         _PyCode_var_counts_t *);
 PyAPI_FUNC(int) _PyCode_SetUnboundVarCounts(
+        PyThreadState *,
         PyCodeObject *,
         _PyCode_var_counts_t *,
         PyObject *global,
         PyObject *attrs);
+
+
+PyAPI_FUNC(const char *) _PyCode_CheckStatelessTypes(PyCodeObject *);
+PyAPI_FUNC(const char *) _PyCode_CheckStatelessValues(
+        PyCodeObject *,
+        _PyCode_var_counts_t *);
+PyAPI_FUNC(int) _PyCode_VerifyStateless(
+        PyThreadState *,
+        PyCodeObject *,
+        PyObject *globalnames);
 
 
 #ifdef __cplusplus

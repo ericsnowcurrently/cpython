@@ -969,9 +969,10 @@ get_code_var_counts(PyObject *self, PyObject *_args, PyObject *_kwargs)
     }
     PyCodeObject *code = (PyCodeObject *)codearg;
 
+    PyThreadState *tstate = _PyThreadState_GET();
     _PyCode_var_counts_t counts = {0};
     _PyCode_GetVarCounts(code, &counts);
-    if (_PyCode_SetUnboundVarCounts(code, &counts, NULL, NULL) < 0) {
+    if (_PyCode_SetUnboundVarCounts(tstate, code, &counts, NULL, NULL) < 0) {
         return NULL;
     }
 

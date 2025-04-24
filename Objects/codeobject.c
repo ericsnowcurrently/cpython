@@ -1847,7 +1847,8 @@ _PyCode_GetVarCounts(PyCodeObject *co, _PyCode_var_counts_t *counts)
 }
 
 int
-_PyCode_SetUnboundVarCounts(PyCodeObject *co, _PyCode_var_counts_t *counts,
+_PyCode_SetUnboundVarCounts(PyThreadState *tstate,
+                            PyCodeObject *co, _PyCode_var_counts_t *counts,
                             PyObject *globalarg, PyObject *attrsarg)
 {
     int res = -1;
@@ -1857,8 +1858,8 @@ _PyCode_SetUnboundVarCounts(PyCodeObject *co, _PyCode_var_counts_t *counts,
     PyObject *attrs_owned = NULL;
     if (globalarg != NULL) {
         if (!PySet_Check(globalarg)) {
-            PyErr_Format(PyExc_TypeError,
-                         "expected a set for \"global\", got %R", global);
+            _PyErr_Format(tstate, PyExc_TypeError,
+                          "expected a set for \"global\", got %R", global);
             goto finally;
         }
         global = globalarg;
@@ -1902,6 +1903,80 @@ finally:
     Py_XDECREF(global_owned);
     Py_XDECREF(attrs_owned);
     return res;
+}
+
+
+const char *
+_PyCode_CheckStatelessTypes(PyCodeObject *co)
+{
+    if (co->co_flags & CO_GENERATOR) {
+        return "generators not supported";
+    }
+    if (co->co_flags & CO_COROUTINE) {
+        return "coroutines not supported";
+    }
+    if (co->co_flags & CO_ITERABLE_COROUTINE) {
+        return "coroutines not supported";
+    }
+    if (co->co_flags & CO_ASYNC_GENERATOR) {
+        return "generators not supported";
+    }
+    // CO_NESTED is okay as long as there's no closure.
+    return NULL;
+
+}
+
+const char *
+_PyCode_CheckStatelessValues(PyCodeObject *co, _PyCode_var_counts_t *counts)
+{
+    if (counts->locals.cells.total > 0) {
+        return "nesting not supported";
+    }
+    if (counts->numfree > 0) {  // There's a closure.
+        return "closures not supported";
+    }
+    assert(counts->locals.hidden.total == 0);
+
+    // We don't check counts.unbound.numglobal since we can't
+    // distinguish beween globals and builtins here.
+
+    // Check other factors.
+    // We may consider relaxing these if it becomes a problem.
+    if (_PyCode_HAS_EXECUTORS(co) || _PyCode_HAS_INSTRUMENTATION(co)) {
+        return "only basic code objects are supported";
+    }
+    if (co->_co_monitoring != NULL) {
+        return "only basic code objects are supported";
+    }
+    if (co->co_extra != NULL) {
+        return "only basic code objects are supported";
+    }
+
+    return NULL;
+}
+
+int
+_PyCode_VerifyStateless(PyThreadState *tstate,
+                        PyCodeObject *co, PyObject *globalnames)
+{
+    const char *errmsg = _PyCode_CheckStatelessTypes(co);
+    if (errmsg != NULL) {
+        _PyErr_SetString(tstate, PyExc_TypeError, errmsg);
+        return -1;
+    }
+   _PyCode_var_counts_t counts = {0};
+    _PyCode_GetVarCounts(co, &counts);
+    if (_PyCode_SetUnboundVarCounts(
+                            tstate, co, &counts, globalnames, NULL) < 0)
+    {
+        return -1;
+    }
+    errmsg = _PyCode_CheckStatelessValues(co, &counts);
+    if (errmsg != NULL) {
+        _PyErr_SetString(tstate, PyExc_ValueError, errmsg);
+        return -1;
+    }
+    return 0;
 }
 
 
