@@ -1,12 +1,14 @@
 /* Function object implementation */
 
 #include "Python.h"
+#include "pycore_code.h"          // _PyCode_var_counts_t
 #include "pycore_dict.h"          // _Py_INCREF_DICT()
 #include "pycore_function.h"      // _PyFunction_Vectorcall
 #include "pycore_long.h"          // _PyLong_GetOne()
 #include "pycore_modsupport.h"    // _PyArg_NoKeywords()
 #include "pycore_object.h"        // _PyObject_GC_UNTRACK()
 #include "pycore_pyerrors.h"      // _PyErr_Occurred()
+#include "pycore_setobject.h"     // _PySet_NextEntry()
 #include "pycore_stats.h"
 
 
@@ -1238,6 +1240,130 @@ PyTypeObject PyFunction_Type = {
     0,                                          /* tp_alloc */
     func_new,                                   /* tp_new */
 };
+
+
+const char *
+_PyFunction_CheckStatelessTypes(PyObject *func, PyObject **p_subject)
+{
+    const char *errmsg = NULL;
+    PyObject *subject = NULL;
+    // Check the globals.
+    PyObject *globals = PyFunction_GET_GLOBALS(func);
+    if (globals != NULL && !PyDict_Check(globals)) {
+        errmsg = "unsupported globals";
+        subject = globals;
+        goto failed;
+    }
+    // Check the code.
+    PyCodeObject *co = (PyCodeObject *)PyFunction_GET_CODE(func);
+    errmsg = _PyCode_CheckStatelessTypes(co);
+    if (errmsg != NULL) {
+        goto failed;
+    }
+    return NULL;
+
+failed:
+    if (p_subject != NULL) {
+        *p_subject = subject;
+    }
+    assert(errmsg != NULL);
+    return errmsg;
+}
+
+const char *
+_PyFunction_CheckStatelessValues(PyObject *func,
+                                 _PyCode_var_counts_t *counts,
+                                 PyObject *globalnames)
+{
+    // Disallow __defaults__.
+    PyObject *defaults = PyFunction_GET_DEFAULTS(func);
+    if (defaults != NULL && defaults != Py_None && PyDict_Size(defaults) > 0)
+    {
+        return "defaults not supported";
+    }
+    // Disallow __kwdefaults__.
+    PyObject *kwdefaults = PyFunction_GET_KW_DEFAULTS(func);
+    if (kwdefaults != NULL && kwdefaults != Py_None
+            && PyDict_Size(kwdefaults) > 0)
+    {
+        return "keyword defaults not supported";
+    }
+    // Disallow __closure__.
+    PyObject *closure = PyFunction_GET_CLOSURE(func);
+    if (closure != NULL && closure != Py_None && PyTuple_GET_SIZE(closure) > 0)
+    {
+        return "closures not supported";
+    }
+    // Check the code.
+    PyCodeObject *co = (PyCodeObject *)PyFunction_GET_CODE(func);
+    const char *errmsg = _PyCode_CheckStatelessValues(co, counts);
+    if (errmsg != NULL) {
+        return errmsg;
+    }
+    // Disallow globals.
+    PyObject *globals = PyFunction_GET_GLOBALS(func);
+    if (globals == NULL) {
+        return "missing globals";
+    }
+    assert(PyDict_Check(globals));
+    // This is inspired by inspect.getclosurevars().
+    Py_ssize_t pos = 0;
+    PyObject *name;
+    Py_hash_t hash;
+    while(_PySet_NextEntry(globalnames, &pos, &name, &hash)) {
+        if (PyDict_Contains(globals, name)) {
+            assert(!PyErr_Occurred());
+            if (PyErr_Occurred()) {
+                PyErr_Print();
+                break;
+            }
+            return "globals not supported";
+        }
+    }
+    return NULL;
+}
+
+int
+_PyFunction_VerifyStateless(PyThreadState *tstate, PyObject *func)
+{
+    assert(!PyErr_Occurred());
+    assert(PyFunction_Check(func));
+
+    PyObject *subject = NULL;
+    const char *errmsg = _PyFunction_CheckStatelessTypes(func, &subject);
+    if (errmsg != NULL) {
+        if (subject == NULL) {
+            _PyErr_SetString(tstate, PyExc_TypeError, errmsg);
+        }
+        else {
+            _PyErr_Format(tstate, PyExc_TypeError, errmsg, subject);
+        }
+        return -1;
+    }
+
+    PyObject *globalnames = PySet_New(NULL);
+    if (globalnames == NULL) {
+        return -1;
+    }
+   _PyCode_var_counts_t counts = {0};
+    PyCodeObject *co = (PyCodeObject *)PyFunction_GET_CODE(func);
+    _PyCode_GetVarCounts(co, &counts);
+    if (_PyCode_SetUnboundVarCounts(
+                            tstate, co, &counts, globalnames, NULL) < 0)
+    {
+        Py_DECREF(globalnames);
+        return -1;
+    }
+
+    errmsg = _PyFunction_CheckStatelessValues(func, &counts, globalnames);
+    Py_DECREF(globalnames);
+    if (errmsg != NULL) {
+        _PyErr_SetString(tstate, PyExc_ValueError, errmsg);
+        return -1;
+    }
+
+    return 0;
+}
 
 
 static int
