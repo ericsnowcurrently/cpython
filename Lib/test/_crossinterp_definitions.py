@@ -17,6 +17,25 @@ def spam_minimal():
     return
 
 
+def spam_stateless(a, b, /, c, d, *args, e, f, **kwargs):
+    if args.__len__() > 2:
+        return None
+    return a, b, c, d, e, f, args, kwargs
+
+
+def spam_annotated(a: int, b: str, c: object) -> tuple:
+    return a, b, c
+
+
+# Note that this is not "stateless".
+def spam_with_globals(a, b):
+    return spam_minimal
+
+
+def spam_with_builtins(a, b):
+    return min(a, b)
+
+
 def spam_full(a, b, /, c, d:int=1, *args, e, f:object=None, **kwargs) -> tuple:
     # arg defaults, kwarg defaults
     # annotations
@@ -103,6 +122,11 @@ ham_C_closure, *_ = eggs_closure_C(2)
 TOP_FUNCTIONS = [
     # shallow
     spam_minimal,
+    spam_minimal,
+    spam_stateless,
+    spam_annotated,
+    spam_with_globals,
+    spam_with_builtins,
     spam_full,
     spam,
     # outer func
@@ -126,6 +150,12 @@ NESTED_FUNCTIONS = [
     ham_closure,
     ham_C_nested,
     ham_C_closure,
+]
+STATELESS_FUNCTIONS = [
+    spam_minimal,
+    spam_stateless,
+    spam_annotated,
+    spam_with_builtins,
 ]
 FUNCTIONS = [
     *TOP_FUNCTIONS,
