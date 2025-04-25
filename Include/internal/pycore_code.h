@@ -618,6 +618,8 @@ PyAPI_FUNC(int) _PyCode_VerifyStateless(
         PyCodeObject *,
         PyObject *globalnames);
 
+PyAPI_FUNC(int) _PyCode_Returns(PyCodeObject *);
+
 
 #ifdef __cplusplus
 }
