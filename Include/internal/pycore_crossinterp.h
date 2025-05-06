@@ -228,6 +228,13 @@ PyAPI_FUNC(int) _PyFunction_GetXIData(
         PyObject *,
         _PyXIData_t *);
 
+// _PyObject_GetXIData() for exceptions
+PyAPI_FUNC(PyObject *) _PyException_FromXIData(_PyXIData_t *);
+PyAPI_FUNC(int) _PyException_GetXIData(
+        PyThreadState *,
+        PyObject *,
+        _PyXIData_t *);
+
 
 /* using cross-interpreter data */
 

@@ -197,7 +197,7 @@ USER_INSTANCES = [
     *USER_NESTED_INSTANCES,
 ]
 USER_EXCEPTIONS = [
-    defs.MimimalError('error!'),
+    defs.MinimalError('error!'),
 ]
 
 # shareable objects
@@ -751,7 +751,7 @@ class PickleTests(_GetXIDataTests):
 
     def test_user_exception_normal(self):
         self.assert_roundtrip_not_equal([
-            defs.MimimalError('error!'),
+            defs.MinimalError('error!'),
         ])
         self.assert_roundtrip_equal_not_identical([
             defs.RichError('error!', 42),
@@ -962,7 +962,7 @@ class MarshalTests(_GetXIDataTests):
 
     def test_user_exception(self):
         self.assert_not_shareable([
-            defs.MimimalError('error!'),
+            defs.MinimalError('error!'),
             defs.RichError('error!', 42),
         ])
 
@@ -1032,6 +1032,138 @@ class ShareableFuncTests(_GetXIDataTests):
             {},
             object(),
         ])
+
+
+class ShareableExceptionTests(_GetXIDataTests):
+
+    MODE = 'exception'
+
+    def assert_exc_args_equal(self, exc1, exc2):
+        args1 = exc1.args
+        args2 = exc2.args
+        if isinstance(exc1, ExceptionGroup):
+            self.assertIs(type(args1), type(args2))
+            self.assertEqual(len(args1), 2)
+            self.assertEqual(len(args1), len(args2))
+            self.assertEqual(args1[0], args2[0])
+            group1 = args1[1]
+            group2 = args2[1]
+            self.assertEqual(len(group1), len(group2))
+            for grouped1, grouped2 in zip(group1, group2):
+                # Currently the "extra" attrs are not preserved
+                # (via __reduce__).
+                self.assertIs(type(exc1), type(exc2))
+                #self.assert_exc_equal(grouped1, grouped2)
+        else:
+            self.assertEqual(args1, args2)
+
+    def assert_exc_equal(self, exc1, exc2):
+        self.assertIs(type(exc1), type(exc2))
+
+        if type(exc1).__eq__ is not object.__eq__:
+            self.assertEqual(exc1, exc2)
+
+        self.assert_exc_args_equal(exc1, exc2)
+        # XXX For now we do not preserve tracebacks.
+        if exc1.__traceback__ is not None:
+            self.assertEqual(exc1.__traceback__, exc2.__traceback__)
+        self.assertEqual(
+            getattr(exc1, '__notes__', None),
+            getattr(exc2, '__notes__', None),
+        )
+        # We assume there are no cycles.
+        if exc1.__cause__ is None:
+            self.assertIs(exc1.__cause__, exc2.__cause__)
+        else:
+            self.assert_exc_equal(exc1.__cause__, exc2.__cause__)
+        if exc1.__context__ is None:
+            self.assertIs(exc1.__context__, exc2.__context__)
+        else:
+            self.assert_exc_equal(exc1.__context__, exc2.__context__)
+
+    def assert_roundtrip_exc_equal(self, exceptions):
+        mode = self._resolve_mode(None)
+        for exc in exceptions:
+            with self.subTest(repr(exc)):
+                got = self._get_roundtrip(exc, mode)
+                self.assertIsNot(got, exc)
+                self.assertIs(type(got), type(exc))
+                self.assert_exc_equal(got, exc)
+
+    def test_builtin(self):
+        self.assert_roundtrip_exc_equal(BUILTIN_EXCEPTIONS)
+
+    def test_user(self):
+        self.assert_roundtrip_exc_equal([
+            defs.RichError('spam'),
+            defs.MinimalError('spam'),
+        ])
+
+    def test_non_exception(self):
+        self.assert_not_shareable([
+            None,
+            True,
+            False,
+            Ellipsis,
+            NotImplemented,
+            9999,
+            'spam',
+            b'spam',
+            (),
+            [],
+            {},
+            object(),
+            defs.spam_minimal,
+            defs.Spam,
+        ])
+
+    def test_full_extras(self):
+        exc = Exception('uh-oh!')
+        try:
+            raise exc
+        except Exception as exc:
+            caught = exc
+        caught.__notes__ = '???'
+
+        try:
+            raise Exception('cause')
+        except Exception as exc:
+            cause = exc
+        caught.__cause__ = cause
+
+        try:
+            raise Exception('context')
+        except Exception as exc:
+            context = exc
+        caught.__context__= context
+        caught.__suppress_context__= True
+        self.assert_roundtrip_exc_equal([caught])
+
+        caught.__suppress_context__= False
+        self.assert_roundtrip_exc_equal([caught])
+
+    def test_traceback(self):
+        exc = Exception('uh-oh!')
+        try:
+            raise exc
+        except Exception as exc:
+            caught = exc
+        self.assert_roundtrip_exc_equal([caught])
+
+    def test_cause(self):
+        exc = Exception('uh-oh!')
+        exc.__cause__ = Exception('-cause-')
+        self.assert_roundtrip_exc_equal([exc])
+
+    def test_context(self):
+        exc = Exception('uh-oh!')
+        exc.__context__ = Exception('-context-')
+        self.assert_roundtrip_exc_equal([exc])
+
+    def test_notes(self):
+        exc = Exception('uh-oh!')
+        exc.__notes__ = '???'
+        self.assert_roundtrip_exc_equal([exc])
 
 
 class PureShareableScriptTests(_GetXIDataTests):
@@ -1355,7 +1487,7 @@ class ShareableTypeTests(_GetXIDataTests):
 
     def test_exception(self):
         self.assert_not_shareable([
-            defs.MimimalError('error!'),
+            defs.MinimalError('error!'),
         ])
 
     def test_builtin_exception(self):

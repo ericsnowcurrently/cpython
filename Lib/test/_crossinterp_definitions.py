@@ -100,7 +100,7 @@ CLASSES = {
 #######################################
 # exceptions
 
-class MimimalError(Exception):
+class MinimalError(Exception):
     pass
 
 

@@ -738,6 +738,185 @@ _PyFunction_GetXIData(PyThreadState *tstate, PyObject *func,
     return 0;
 }
 
+// traceback
+
+static PyObject *
+_PyTraceback_FromXIData(_PyXIData_t *xidata)
+{
+    PyErr_SetString(PyExc_NotImplementedError, "???");
+    return NULL;
+}
+
+static int
+_PyTraceback_GetXIData(PyThreadState *tstate, PyObject *tbobj,
+                       _PyXIData_t *xidata)
+{
+    if (!PyTraceBack_Check(tbobj)) {
+        const char *msg = "expected a traceback, got %R";
+        format_notshareableerror(tstate, NULL, 0, msg, tbobj);
+        return -1;
+    }
+    // For now we ignore the traceback.  It's a pain to rebuild one
+    // without a frame object.
+    return 0;
+}
+
+// exception
+
+#define _PyXIData_IS_ZERO(XIDATA) \
+    (_PyXIData_DATA(XIDATA) == NULL && _PyXIData_OBJ(XIDATA) == NULL)
+
+struct _shared_exception_data {
+    _PyXIData_t pickled;
+    _PyXIData_t notes;
+    _PyXIData_t traceback;
+    _PyXIData_t cause;
+    _PyXIData_t context;
+    char suppress_context;
+};
+
+static void
+_exception_shared_free(void* data)
+{
+    struct _shared_exception_data *shared =
+                (struct _shared_exception_data *)data;
+#define RELEASE(FIELD) \
+    if (!_PyXIData_IS_ZERO(&shared->FIELD)) { \
+        _PyXIData_Release(&shared->FIELD); \
+    }
+    RELEASE(pickled);
+    RELEASE(notes);
+    RELEASE(traceback);
+    RELEASE(cause);
+    RELEASE(context);
+#undef RELEASE
+    PyMem_RawFree(data);
+}
+
+PyObject *
+_PyException_FromXIData(_PyXIData_t *xidata)
+{
+    struct _shared_exception_data *shared =
+            (struct _shared_exception_data *)xidata->data;
+
+    PyObject *excobj = _PyPickle_LoadFromXIData(&shared->pickled);
+    if (excobj == NULL) {
+        return NULL;
+    }
+    PyBaseExceptionObject *exc = (PyBaseExceptionObject *)excobj;
+    assert(exc->notes == NULL);
+    assert(exc->traceback == NULL);
+    assert(exc->cause == NULL);
+    assert(exc->context == NULL);
+
+    if (!_PyXIData_IS_ZERO(&shared->notes)) {
+        PyObject *notes = _PyPickle_LoadFromXIData(&shared->notes);
+        if (notes == NULL) {
+            goto error;
+        }
+        exc->notes = notes;
+    }
+
+    if (!_PyXIData_IS_ZERO(&shared->traceback)) {
+        PyObject *tb = _PyTraceback_FromXIData(&shared->traceback);
+        if (tb == NULL) {
+            goto error;
+        }
+        if (PyException_SetTraceback(excobj, tb) < 0) {
+            goto error;
+        }
+    }
+
+    if (!_PyXIData_IS_ZERO(&shared->cause)) {
+        PyObject *cause = _PyException_FromXIData(&shared->cause);
+        if (cause == NULL) {
+            goto error;
+        }
+        PyException_SetCause(excobj, cause);
+    }
+
+    if (!_PyXIData_IS_ZERO(&shared->context)) {
+        PyObject *context = _PyException_FromXIData(&shared->context);
+        if (context == NULL) {
+            goto error;
+        }
+        PyException_SetContext(excobj, context);
+    }
+    exc->suppress_context = shared->suppress_context;
+
+    return excobj;
+
+error:
+    Py_DECREF(excobj);
+    return NULL;
+}
+
+int
+_PyException_GetXIData(PyThreadState *tstate, PyObject *excobj,
+                       _PyXIData_t *xidata)
+{
+    if (!PyExceptionInstance_Check(excobj)) {
+        const char *msg = "expected an exception, got %R";
+        format_notshareableerror(tstate, NULL, 0, msg, excobj);
+        return -1;
+    }
+    PyBaseExceptionObject *exc = (PyBaseExceptionObject *)excobj;
+
+    // Initialize the exception's cross-interpreter data.
+    size_t size = sizeof(struct _shared_exception_data);
+    if (_PyXIData_InitWithSize(
+            xidata, tstate->interp, size, excobj, _PyException_FromXIData) < 0)
+    {
+        return -1;
+    }
+    _PyXIData_SET_FREE(xidata, _exception_shared_free);
+    struct _shared_exception_data *shared = (struct _shared_exception_data *)xidata->data;
+
+    // See Include/cpython/pyerrors.h for builtin exception types
+    // with dedicated per-object data.  We handle those of
+    // PyBaseException_Type here.  The others are expected to be handled
+    // via pickle.  Note that most do not or do so only imcompletely.
+
+    if (_PyPickle_GetXIData(tstate, excobj, &shared->pickled) < 0) {
+        goto error;
+    }
+
+    if (exc->notes != NULL && exc->notes != Py_None) {
+        if (_PyPickle_GetXIData(tstate, exc->notes, &shared->notes) < 0) {
+            goto error;
+       }
+    }
+
+    PyObject *tb = PyException_GetTraceback(excobj);
+    if (tb != NULL && tb != Py_None) {
+        if (_PyTraceback_GetXIData(tstate, tb, &shared->traceback) < 0) {
+            goto error;
+        }
+    }
+
+    PyObject *cause = PyException_GetCause(excobj);
+    if (cause != NULL && cause != Py_None) {
+        if (_PyException_GetXIData(tstate, cause, &shared->cause) < 0) {
+            goto error;
+        }
+    }
+
+    PyObject *context = PyException_GetContext(excobj);
+    if (context != NULL && context != Py_None) {
+        if (_PyException_GetXIData(tstate, context, &shared->context) < 0) {
+            goto error;
+        }
+    }
+    shared->suppress_context = exc->suppress_context;
+
+    return 0;
+
+error:
+    _exception_shared_free(shared);
+    _PyXIData_DATA(xidata) = NULL;
+    return -1;
+}
+
 
 // registration
 
@@ -785,7 +964,8 @@ _register_builtins_for_crossinterpreter_data(dlregistry_t *xidregistry)
         Py_FatalError("could not register tuple for cross-interpreter sharing");
     }
 
-    // For now, we do not register PyCode_Type or PyFunction_Type.
+    // For now, we do not register PyCode_Type, PyFunction_Type,
+    // or PyBaseException_Type.
 #undef REGISTER
 #undef REGISTER_FALLBACK
 }
