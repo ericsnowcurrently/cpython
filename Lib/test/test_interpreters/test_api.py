@@ -1544,6 +1544,14 @@ class TestInterpreterCall(TestBase):
             with self.assertRaises(interpreters.NotShareableError):
                 interp.call(func, op, 'eggs!')
 
+    def test_call_exec(self):
+        interp = interpreters.create()
+
+        res = interp.call(exec, dedent("""
+            ...
+            """))
+        self.asssertIs(res, None)
+
     def test_call_in_thread(self):
         interp = interpreters.create()
 
