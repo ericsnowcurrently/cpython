@@ -1356,6 +1356,136 @@ class TestInterpreterCall(TestBase):
                 with self.assertRaises(interpreters.NotShareableError):
                     interp.call(defs.spam_returns_arg, arg)
 
+    def test_func_in___main___uses_globals(self):
+        text = dedent("""
+            count = 0
+
+            def inc(x=1):
+                global count
+                count += x
+
+            def get_count():
+                return count
+
+            if __name__ == "__main__":
+                counts = []
+                combined = [count, counts]
+
+                from test.support import interpreters
+                interp = interpreters.create()
+
+                val = interp.call(get_count)
+                counts.append(val)
+
+                interp.call(inc)
+                val = interp.call(get_count)
+                counts.append(val)
+
+                interp.call(inc, 3)
+                val = interp.call(get_count)
+                counts.append(val)
+
+                combined.append(count)
+                print(combined)
+           """)
+        with os_helper.temp_dir() as tempdir:
+            filename = script_helper.make_script(tempdir, 'my-script', text)
+            res = script_helper.assert_python_ok(filename)
+        stdout = res.out.decode('utf-8').strip()
+        before, counts, after = eval(stdout)
+        self.assertEqual(before, 0)
+        self.assertEqual(after, 0)
+        self.assertEqual(counts, [0, 1, 3])
+
+    def test_func_in___main___hidden(self):
+        text = dedent("""
+            def spam():
+                import __main__
+                ns = __main__.__dict__
+                func = ns.get('spam')
+                main = [
+                    id(ns),
+                    ns.get('__name__'),
+                    ns.get('__file__'),
+                    id(func),
+                    repr(func),
+                ]
+
+                # For now we have to have a LOAD_GLOBAL in the function
+                # in order for globals() to actually return spam.__globals__.
+                # We will fix this later.
+                spam
+
+                ns = globals()
+                func = ns.get('spam')
+                assert func.__globals__ is ns
+                unpickled = [
+                    id(ns),
+                    ns.get('__name__'),
+                    ns.get('__file__'),
+                    id(func),
+                    repr(func),
+                ]
+                return main, unpickled
+
+            if __name__ == "__main__":
+                from test.support import interpreters
+                interp = interpreters.create()
+
+                print([
+                    spam(),
+                    interp.call(spam),
+                ])
+           """)
+        with os_helper.temp_dir() as tempdir:
+            filename = script_helper.make_script(tempdir, 'my-script', text)
+            res = script_helper.assert_python_ok(filename)
+        stdout = res.out.decode('utf-8').strip()
+        local, remote = eval(stdout)
+
+        # In the main interpreter.
+        main, unpickled = local
+        nsids, names, filenames, funcids, funcs = zip(main, unpickled)
+        func, _ = funcs
+        self.assertEqual(main, [
+            nsids[0],
+            '__main__',
+            filename,
+            funcids[0],
+            func,
+        ])
+        self.assertIsNot(func, None)
+        self.assertRegex(func, '^<function spam at 0x.*>$')
+        self.assertEqual(*nsids)
+        self.assertEqual(*names)
+        self.assertEqual(*filenames)
+        self.assertEqual(*funcids)
+        self.assertEqual(*funcs)
+
+        # In the subinterpreter.
+        main, unpickled = remote
+        nsids, _, _, funcids, funcs = zip(main, unpickled)
+        self.assertEqual(main, [
+            nsids[0],
+            '__main__',
+            None,
+            funcids[0],
+            #funcs[0],
+            None,
+        ])
+        _, func = funcs
+        self.assertEqual(unpickled, [
+            nsids[1],
+            '<fake __main__>',
+            filename,
+            funcids[1],
+            func,
+        ])
+        self.assertIsNot(func, None)
+        self.assertRegex(func, '^<function spam at 0x.*>$')
+        self.assertNotEqual(*nsids)
+        self.assertNotEqual(*funcids)
+
     def test_raises(self):
         interp = interpreters.create()
         with self.assertRaises(ExecutionFailed):
