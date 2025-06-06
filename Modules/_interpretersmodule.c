@@ -596,7 +596,7 @@ _make_call(struct interp_call *call,
     *p_errcode = _PyXI_ERR_NO_ERROR;
 
     // Make the call.
-    PyObject *resobj = PyObject_Call(func, args, kwargs);
+    PyObject *resobj = _PyObject_Call(tstate, func, args, kwargs);
     Py_DECREF(func);
     Py_XDECREF(args);
     Py_XDECREF(kwargs);
