@@ -1356,6 +1356,127 @@ class TestInterpreterCall(TestBase):
                 with self.assertRaises(interpreters.NotShareableError):
                     interp.call(defs.spam_returns_arg, arg)
 
+    def test_func_in___main___uses_globals(self):
+        text = dedent("""
+            count = 0
+
+            def inc(x=1):
+                global count
+                count += x
+
+            def get_count():
+                return count
+
+            if __name__ == "__main__":
+                counts = []
+                combined = [count, counts]
+
+                from test.support import interpreters
+                interp = interpreters.create()
+
+                val = interp.call(get_count)
+                counts.append(val)
+
+                interp.call(inc)
+                val = interp.call(get_count)
+                counts.append(val)
+
+                interp.call(inc, 3)
+                val = interp.call(get_count)
+                counts.append(val)
+
+                combined.append(count)
+                print(combined)
+           """)
+        with os_helper.temp_dir() as tempdir:
+            filename = script_helper.make_script(tempdir, 'my-script', text)
+            res = script_helper.assert_python_ok(filename)
+        stdout = res.out.decode('utf-8').strip()
+        before, counts, after = eval(stdout)
+        self.assertEqual(before, 0)
+        self.assertEqual(after, 0)
+        self.assertEqual(counts, [0, 1, 4])
+
+    def test_func_in___main___hidden(self):
+        text = dedent("""
+            def spam(*, explicit=False):
+                if explicit:
+                    import __main__
+                    ns = __main__.__dict__
+                else:
+                    # For now we have to have a LOAD_GLOBAL in the function
+                    # in order for globals() to actually return spam.__globals__.
+                    # We will fix this later.
+                    spam
+                    ns = globals()
+
+                func = ns.get('spam')
+                return [
+                    id(ns),
+                    ns.get('__name__'),
+                    ns.get('__file__'),
+                    id(func),
+                    None if func is None else repr(func),
+                ]
+
+            if __name__ == "__main__":
+                from test.support import interpreters
+                interp = interpreters.create()
+
+                print([
+                    [
+                        spam(explicit=True),
+                        spam(),
+                    ],
+                    [
+                        interp.call(spam, explicit=True),
+                        interp.call(spam),
+                    ],
+                ])
+           """)
+        with os_helper.temp_dir() as tempdir:
+            filename = script_helper.make_script(tempdir, 'my-script', text)
+            res = script_helper.assert_python_ok(filename)
+        stdout = res.out.decode('utf-8').strip()
+        local, remote = eval(stdout)
+
+        # In the main interpreter.
+        main, unpickled = local
+        nsid, _, _, funcid, func = main
+        self.assertEqual(main, [
+            nsid,
+            '__main__',
+            filename,
+            funcid,
+            func,
+        ])
+        self.assertIsNot(func, None)
+        self.assertRegex(func, '^<function spam at 0x.*>$')
+        self.assertEqual(unpickled, main)
+
+        # In the subinterpreter.
+        main, unpickled = remote
+        nsid1, _, _, funcid1, _ = main
+        self.assertEqual(main, [
+            nsid1,
+            '__main__',
+            None,
+            funcid1,
+            None,
+        ])
+        nsid2, _, _, funcid2, func = unpickled
+        self.assertEqual(unpickled, [
+            nsid2,
+            '<fake __main__>',
+            filename,
+            funcid2,
+            func,
+        ])
+        self.assertIsNot(func, None)
+        self.assertRegex(func, '^<function spam at 0x.*>$')
+        self.assertNotEqual(nsid2, nsid1)
+        self.assertNotEqual(funcid2, funcid1)
+
     def test_raises(self):
         interp = interpreters.create()
         with self.assertRaises(ExecutionFailed):
