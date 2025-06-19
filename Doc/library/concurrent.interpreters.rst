@@ -35,7 +35,10 @@ Actual concurrency is available separately through
        more details about how interpreters fit into
        Python's execution model
 
-    .. XXX Add references to the upcoming HOWTO docs in the seealso block.
+   :ref:`multiple-interpreters-howto`
+       how to use multiple interpreters
+
+   .. XXX Add a reference to the upcoming concurrency HOWTO doc.
 
    :ref:`isolating-extensions-howto`
        how to update an extension module to support multiple interpreters
