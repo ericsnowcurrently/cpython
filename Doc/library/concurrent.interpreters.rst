@@ -31,6 +31,10 @@ Actual concurrency is available separately through
    :class:`~concurrent.futures.InterpreterPoolExecutor`
       combines threads with interpreters in a familiar interface.
 
+   :ref:`execcomponents`
+       more details about how interpreters fit into
+       Python's execution model
+
     .. XXX Add references to the upcoming HOWTO docs in the seealso block.
 
    :ref:`isolating-extensions-howto`
