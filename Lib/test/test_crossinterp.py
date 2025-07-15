@@ -1,11 +1,15 @@
 import contextlib
 import itertools
+import os
+import os.path
 import sys
+import textwrap
 import types
 import unittest
 import warnings
 
 from test.support import import_helper
+from test.support import os_helper
 
 _testinternalcapi = import_helper.import_module('_testinternalcapi')
 _interpreters = import_helper.import_module('_interpreters')
@@ -740,6 +744,14 @@ class PickleTests(_GetXIDataTests):
         for func in defs.TOP_FUNCTIONS:
             assert not hasattr(mod, func.__name__), (getattr(mod, func.__name__),)
 
+        if fail is None or fail is True or fail is False:
+            check_exc = None
+        elif callable(fail) and not isinstance(fail, type):
+            check_exc = fail
+            fail = True
+        else:
+            raise ValueError(fail)
+
         captured = []
         for func in defs.TOP_FUNCTIONS:
             with self.subTest(func):
@@ -752,12 +764,14 @@ class PickleTests(_GetXIDataTests):
             with self.subTest(func):
                 delattr(mod, func.__name__)
                 if fail:
-                    with self.assertRaises(NotShareableError):
+                    with self.assertRaises(NotShareableError) as cm:
                         _testinternalcapi.restore_crossinterp_data(xid)
-                    continue
-                got = _testinternalcapi.restore_crossinterp_data(xid)
-                self.assertIsNot(got, func)
-                self.assertNotEqual(got, func)
+                    if check_exc is not None:
+                        check_exc(cm.exception)
+                else:
+                    got = _testinternalcapi.restore_crossinterp_data(xid)
+                    self.assertIsNot(got, func)
+                    self.assertNotEqual(got, func)
 
     def assert_func_defs_not_shareable(self, defs):
         self.assert_not_shareable(defs.TOP_FUNCTIONS)
@@ -788,6 +802,36 @@ class PickleTests(_GetXIDataTests):
         assert defs.__file__
         with self.using___main__(filename=defs.__file__) as mod:
             self.assert_func_defs_other_unpickle(defs, mod)
+
+    def test_user_func_not_in___main___unpickle_with_error_in_file(self):
+        script = DEFS_TEXT + textwrap.dedent("""
+
+            raise RuntimeError
+            """)
+        def check_exc(exc):
+            # We will check the chain of exceptions, starting with the wrapper.
+            self.assertIsNone(exc.__context__)
+            exc = exc.__cause__
+            self.assertIsInstance(exc, SystemError)
+            self.assertRegex(str(exc),
+                             r'failed to copy __main__ module using original script')
+            # Next is the exception we raised in our script.
+            self.assertIsNone(exc.__context__)
+            exc = exc.__cause__
+            self.assertIsInstance(exc, RuntimeError)
+            # Finally, we see the AttributeError from pickle.loads().
+            self.assertIsNone(exc.__cause__)
+            exc = exc.__context__
+            self.assertIsInstance(exc, AttributeError)
+            self.assertRegex(str(exc), r"module '__main__' has no attribute '")
+
+        with os_helper.temp_dir() as tmpdir:
+            filename = os.path.join(tmpdir, 'script.py')
+            with open(filename, 'w') as outfile:
+                outfile.write(script)
+            defs, _ = load_defs('__main__')
+            with self.using___main__(filename=filename) as mod:
+                self.assert_func_defs_other_unpickle(defs, mod, fail=check_exc)
 
     def test_user_func_not_in___main___unpickle_without_filename(self):
         defs, _ = load_defs('__main__', filename=None)
