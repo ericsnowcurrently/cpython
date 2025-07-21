@@ -164,7 +164,7 @@ sync_module_capture_failure(PyThreadState *tstate, struct sync_module *data)
     PyObject *exc = _PyErr_GetRaisedException(tstate);
     _PyErr_SetRaisedException(tstate, Py_NewRef(exc));
     if (context != NULL) {
-        PyException_SetContext(exc, context);
+        PyException_SetContext(exc, context);  // steals the ref
     }
     data->cached.failed = exc;
 }
