@@ -311,7 +311,10 @@ DEFS_TEXT = f"""
 del infile, _code_defs_text, _defs_text
 
 
-def load_defs(module=None):
+_DEFAULT = object()
+
+
+def load_defs(modname=None, filename=_DEFAULT):
     """Return a new copy of the test._crossinterp_definitions module.
 
     The module's __name__ matches the "module" arg, which is either
@@ -322,36 +325,42 @@ def load_defs(module=None):
 
     Note that the new module is not added to sys.modules.
     """
-    if module is None:
+    if modname is None:
         modname = DEFS.__name__
-    elif isinstance(module, str):
-        modname = module
-        module = None
     else:
-        modname = module.__name__
+        assert isinstance(modname, str)
+    if filename is _DEFAULT:
+        filename = DEFS.__file__
     # Create the new module and populate it.
     defs = import_helper.create_module(modname)
-    defs.__file__ = DEFS.__file__
+    defs.__file__ = filename
     exec(DEFS_TEXT, defs.__dict__)
-    # Copy the defs into the module arg, if any.
-    if module is not None:
+
+    def apply_defs(mod):
+        # Copy the defs into the given module.
+        assert mod.__name__ == modname, (modname, mod)
         for name, value in defs.__dict__.items():
             if name.startswith('_'):
                 continue
-            assert not hasattr(module, name), (name, getattr(module, name))
-            setattr(module, name, value)
-    return defs
+            assert not hasattr(mod, name), (name, getattr(mod, name))
+            setattr(mod, name, value)
+    return defs, apply_defs
 
 
 @contextlib.contextmanager
-def using___main__():
+def using___main__(filename=_DEFAULT):
     """Make sure __main__ module exists (and clean up after)."""
     modname = '__main__'
     if modname not in sys.modules:
         with import_helper.isolated_modules():
-            yield import_helper.add_module(modname)
+            mod = import_helper.add_module(modname)
+            if filename is not _DEFAULT:
+                mod.__file__ = filename
+            yield mod
     else:
         with import_helper.module_restored(modname) as mod:
+            if filename is not _DEFAULT:
+                mod.__file__ = filename
             yield mod
 
 
@@ -521,6 +530,9 @@ class PickleTests(_GetXIDataTests):
 
     MODE = 'pickle'
 
+    def using___main__(self, *args, **kwargs):
+        return using___main__(*args, **kwargs)
+
     def test_shareable(self):
         with ignore_byteswarning():
             for obj in SHAREABLE:
@@ -645,65 +657,60 @@ class PickleTests(_GetXIDataTests):
         self.assert_class_defs_same(defs)
 
     def test_user_class_in___main__(self):
-        with using___main__() as mod:
-            defs = load_defs(mod)
+        defs, apply_defs = load_defs('__main__')
+        with self.using___main__() as mod:
+            apply_defs(mod)
             self.assert_class_defs_same(defs)
 
     def test_user_class_not_in___main___with_filename(self):
-        with using___main__() as mod:
-            defs = load_defs('__main__')
-            assert defs.__file__
-            mod.__file__ = defs.__file__
+        defs, _ = load_defs('__main__')
+        assert defs.__file__
+        with self.using___main__(filename=defs.__file__) as mod:
             self.assert_class_defs_not_shareable(defs)
 
     def test_user_class_not_in___main___without_filename(self):
-        with using___main__() as mod:
-            defs = load_defs('__main__')
-            defs.__file__ = None
-            mod.__file__ = None
+        defs, _ = load_defs('__main__', filename=None)
+        with self.using___main__(filename=None) as mod:
             self.assert_class_defs_not_shareable(defs)
 
     def test_user_class_not_in___main___unpickle_with_filename(self):
-        with using___main__() as mod:
-            defs = load_defs('__main__')
-            assert defs.__file__
-            mod.__file__ = defs.__file__
+        defs, _ = load_defs('__main__')
+        assert defs.__file__
+        with self.using___main__(filename=defs.__file__) as mod:
             self.assert_class_defs_other_unpickle(defs, mod)
 
     def test_user_class_not_in___main___unpickle_without_filename(self):
-        with using___main__() as mod:
-            defs = load_defs('__main__')
-            defs.__file__ = None
-            mod.__file__ = None
+        defs, _ = load_defs('__main__', filename=None)
+        with self.using___main__(filename=None) as mod:
             self.assert_class_defs_other_unpickle(defs, mod, fail=True)
 
     def test_user_class_in_module(self):
+        defs, apply_defs = load_defs('__spam__')
         with temp_module('__spam__') as mod:
-            defs = load_defs(mod)
+            apply_defs(mod)
             self.assert_class_defs_same(defs)
 
     def test_user_class_not_in_module_with_filename(self):
+        defs, _ = load_defs('__spam__')
+        assert defs.__file__
         with temp_module('__spam__') as mod:
-            defs = load_defs(mod.__name__)
-            assert defs.__file__
             # For now, we only address this case for __main__.
             self.assert_class_defs_not_shareable(defs)
 
     def test_user_class_not_in_module_without_filename(self):
+        defs, _ = load_defs('__spam__', filename=None)
         with temp_module('__spam__') as mod:
-            defs = load_defs(mod.__name__)
-            defs.__file__ = None
             self.assert_class_defs_not_shareable(defs)
 
     def test_user_class_module_missing_then_imported(self):
-        with missing_defs_module('__spam__', prep=True) as modname:
-            defs = load_defs(modname)
+        defs, _ = load_defs('__spam__')
+        with missing_defs_module('__spam__', prep=True):
             # For now, we only address this case for __main__.
             self.assert_class_defs_not_shareable(defs)
 
     def test_user_class_module_missing_not_available(self):
-        with missing_defs_module('__spam__') as modname:
-            defs = load_defs(modname)
+        defs, _ = load_defs('__spam__')
+        with missing_defs_module('__spam__'):
             self.assert_class_defs_not_shareable(defs)
 
     def test_nested_class(self):
@@ -755,65 +762,60 @@ class PickleTests(_GetXIDataTests):
         self.assert_func_defs_same(defs)
 
     def test_user_func_in___main__(self):
-        with using___main__() as mod:
-            defs = load_defs(mod)
+        defs, apply_defs = load_defs('__main__')
+        with self.using___main__() as mod:
+            apply_defs(mod)
             self.assert_func_defs_same(defs)
 
     def test_user_func_not_in___main___with_filename(self):
-        with using___main__() as mod:
-            defs = load_defs('__main__')
-            assert defs.__file__
-            mod.__file__ = defs.__file__
+        defs, _ = load_defs('__main__')
+        assert defs.__file__
+        with self.using___main__(filename=defs.__file__) as mod:
             self.assert_func_defs_not_shareable(defs)
 
     def test_user_func_not_in___main___without_filename(self):
-        with using___main__() as mod:
-            defs = load_defs('__main__')
-            defs.__file__ = None
-            mod.__file__ = None
+        defs, _ = load_defs('__main__', filename=None)
+        with self.using___main__(filename=None) as mod:
             self.assert_func_defs_not_shareable(defs)
 
     def test_user_func_not_in___main___unpickle_with_filename(self):
-        with using___main__() as mod:
-            defs = load_defs('__main__')
-            assert defs.__file__
-            mod.__file__ = defs.__file__
+        defs, _ = load_defs('__main__')
+        assert defs.__file__
+        with self.using___main__(filename=defs.__file__) as mod:
             self.assert_func_defs_other_unpickle(defs, mod)
 
     def test_user_func_not_in___main___unpickle_without_filename(self):
-        with using___main__() as mod:
-            defs = load_defs('__main__')
-            defs.__file__ = None
-            mod.__file__ = None
+        defs, _ = load_defs('__main__', filename=None)
+        with self.using___main__(filename=None) as mod:
             self.assert_func_defs_other_unpickle(defs, mod, fail=True)
 
     def test_user_func_in_module(self):
+        defs, apply_defs = load_defs('__spam__')
         with temp_module('__spam__') as mod:
-            defs = load_defs(mod)
+            apply_defs(mod)
             self.assert_func_defs_same(defs)
 
     def test_user_func_not_in_module_with_filename(self):
+        defs, _ = load_defs('__spam__')
+        assert defs.__file__
         with temp_module('__spam__') as mod:
-            defs = load_defs(mod.__name__)
-            assert defs.__file__
             # For now, we only address this case for __main__.
             self.assert_func_defs_not_shareable(defs)
 
     def test_user_func_not_in_module_without_filename(self):
+        defs, _ = load_defs('__spam__', filename=None)
         with temp_module('__spam__') as mod:
-            defs = load_defs(mod.__name__)
-            defs.__file__ = None
             self.assert_func_defs_not_shareable(defs)
 
     def test_user_func_module_missing_then_imported(self):
-        with missing_defs_module('__spam__', prep=True) as modname:
-            defs = load_defs(modname)
+        defs, _ = load_defs('__spam__')
+        with missing_defs_module('__spam__', prep=True):
             # For now, we only address this case for __main__.
             self.assert_func_defs_not_shareable(defs)
 
     def test_user_func_module_missing_not_available(self):
-        with missing_defs_module('__spam__') as modname:
-            defs = load_defs(modname)
+        defs, _ = load_defs('__spam__')
+        with missing_defs_module('__spam__'):
             self.assert_func_defs_not_shareable(defs)
 
     def test_nested_function(self):
