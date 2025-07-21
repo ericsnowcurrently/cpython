@@ -1,0 +1,3 @@
+Exceptions from unpickling cross-interpreter data are now fully chained and
+include informative messages.  This impacts :mod:`concurrent.interpreters`
+and :class:`InterpreterPoolExecutor`.
