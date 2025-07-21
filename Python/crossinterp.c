@@ -63,6 +63,19 @@ set_exc_with_cause(PyObject *exctype, const char *msg)
     PyErr_SetRaisedException(exc);
 }
 
+static void
+set_current_exc_context(PyObject *ctx)
+{
+    if (ctx == NULL) {
+        return;
+    }
+    PyObject *exc = PyErr_GetRaisedException();
+    assert(PyException_GetContext(exc) == NULL);
+    assert(PyException_GetCause(exc) == NULL);
+    PyException_SetContext(exc, ctx);
+    PyErr_SetRaisedException(exc);
+}
+
 
 static PyObject *
 get_existing_module(PyThreadState *tstate, PyObject *name)
@@ -753,19 +766,23 @@ _PyPickle_Loads(struct _unpickle_context *ctx, PyObject *pickled)
     // for __globals__, not the actual module.
     if (sync_module_restore_failure(tstate, &ctx->main) < 0) {
         // We've replaced "exc" with the cached exception.
+        set_current_exc_context(Py_NewRef(exc));  // steals the ref
         goto finally;
     }
     if (sync_module_normalize(tstate, &ctx->main) < 0) {
         // The failure is either unrecoverable or we would want to retry,
         // so don't bother caching the exception.
+        set_current_exc_context(Py_NewRef(exc));  // steals the ref
         goto finally;
     }
     if (sync_module_ensure_loaded(tstate, &ctx->main) < 0) {
+        set_current_exc_context(Py_NewRef(exc));  // steals the ref
         assert(!sync_module_has_failure(&ctx->main));
         sync_module_capture_failure(tstate, &ctx->main);
         goto finally;
     }
     if (sync_module_apply(tstate, &ctx->main) < 0) {
+        set_current_exc_context(Py_NewRef(exc));  // steals the ref
         sync_module_capture_failure(tstate, &ctx->main);
         goto finally;
     }
@@ -774,16 +791,12 @@ _PyPickle_Loads(struct _unpickle_context *ctx, PyObject *pickled)
     obj = PyObject_CallOneArg(loads, pickled);
     sync_module_unapply(tstate, &ctx->main);
     if (obj == NULL) {
+        set_current_exc_context(Py_NewRef(exc));  // steals the ref
         goto finally;
     }
-    Py_CLEAR(exc);
 
 finally:
-    if (exc != NULL) {
-        // We restore the original exception.
-        // It might make sense to chain it (__context__).
-        _PyErr_SetRaisedException(tstate, exc);
-    }
+    Py_XDECREF(exc);
     Py_DECREF(loads);
     return obj;
 }
