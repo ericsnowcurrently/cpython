@@ -777,12 +777,16 @@ _PyPickle_Loads(struct _unpickle_context *ctx, PyObject *pickled)
     }
     if (sync_module_ensure_loaded(tstate, &ctx->main) < 0) {
         set_current_exc_context(Py_NewRef(exc));  // steals the ref
+        set_exc_with_cause(PyExc_SystemError,
+                "failed to copy __main__ module using original script");
         assert(!sync_module_has_failure(&ctx->main));
         sync_module_capture_failure(tstate, &ctx->main);
         goto finally;
     }
     if (sync_module_apply(tstate, &ctx->main) < 0) {
         set_current_exc_context(Py_NewRef(exc));  // steals the ref
+        set_exc_with_cause(PyExc_SystemError,
+                "failed to switch to cached original __main__ module");
         sync_module_capture_failure(tstate, &ctx->main);
         goto finally;
     }
@@ -792,6 +796,8 @@ _PyPickle_Loads(struct _unpickle_context *ctx, PyObject *pickled)
     sync_module_unapply(tstate, &ctx->main);
     if (obj == NULL) {
         set_current_exc_context(Py_NewRef(exc));  // steals the ref
+        set_exc_with_cause(PyExc_SystemError,
+                "loads() failed with cached original __main__ module");
         goto finally;
     }
 
