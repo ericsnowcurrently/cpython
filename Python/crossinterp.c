@@ -173,13 +173,47 @@ static void
 sync_module_capture_failure(PyThreadState *tstate, struct sync_module *data)
 {
     assert(_PyErr_Occurred(tstate));
-    PyObject *context = data->cached.failed;
     PyObject *exc = _PyErr_GetRaisedException(tstate);
     _PyErr_SetRaisedException(tstate, Py_NewRef(exc));
-    if (context != NULL) {
-        PyException_SetContext(exc, context);  // steals the ref
+
+    // Chain the previously captured exception, if any, onto the current one.
+    PyObject *prev = data->cached.failed;
+    if (prev == exc) {
+        // We don't want to set the exception as its own context.
+        // so there's nothing to do.
+        return;
     }
-    data->cached.failed = exc;
+    if (prev != NULL) {
+        // Check the current cause.
+        PyObject *cause = PyException_GetCause(exc);
+        Py_XDECREF(cause);
+        if (prev == cause) {
+            // It's already set as the cause, so don't introduce a cycle.
+        }
+        else if (cause != NULL) {
+            // The context will be ignored, so don't bother.
+        }
+        else {
+            // Check the current context.
+            PyObject *context = PyException_GetContext(exc);
+            Py_XDECREF(context);
+            if (prev == context) {
+                // It's already set, so don't introduce a cycle.
+            }
+            else if (context != NULL) {
+                // There's another context in place already, so ignore
+                // the previously captured exception as outdated.
+            }
+            else {
+                // We're all clear.
+                Py_INCREF(prev);
+                PyException_SetContext(exc, prev);  // steals the ref
+            }
+        }
+    }
+
+    // Cache the current exception, replacing the previous one.
+    Py_XSETREF(data->cached.failed, exc);
 }
 
 static inline int
