@@ -530,8 +530,13 @@ class PickleTests(_GetXIDataTests):
 
     MODE = 'pickle'
 
+    @contextlib.contextmanager
     def using___main__(self, *args, **kwargs):
-        return using___main__(*args, **kwargs)
+        try:
+            with using___main__(*args, **kwargs) as mod:
+                yield mod
+        finally:
+            _testinternalcapi.clear___main___cached_for_xidata_unpickle()
 
     def test_shareable(self):
         with ignore_byteswarning():

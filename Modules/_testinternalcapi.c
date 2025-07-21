@@ -2069,6 +2069,23 @@ restore_crossinterp_data(PyObject *self, PyObject *args)
 
 
 static PyObject *
+clear___main___cached_for_xidata_unpickle(PyObject *self,
+                                          PyObject *Py_UNUSED(args))
+{
+    PyInterpreterState *interp = PyInterpreterState_Get();
+    PyObject *interpns = PyInterpreterState_GetDict(interp);
+    // This matches the key used in _PyPickle_LoadFromXIData().
+    if (PyDict_DelItemString(interpns, "CACHED_MODULE_NS___main__") < 0) {
+        if (!PyErr_ExceptionMatches(PyExc_KeyError)) {
+            return NULL;
+        }
+        PyErr_Clear();
+    }
+    Py_RETURN_NONE;
+}
+
+
+static PyObject *
 raiseTestError(const char* test_name, const char* msg)
 {
     PyErr_Format(PyExc_AssertionError, "%s: %s", test_name, msg);
@@ -2424,6 +2441,7 @@ static PyMethodDef module_functions[] = {
      METH_VARARGS | METH_KEYWORDS},
     {"restore_crossinterp_data", restore_crossinterp_data,       METH_VARARGS},
     _TESTINTERNALCAPI_TEST_LONG_NUMBITS_METHODDEF
+    {"clear___main___cached_for_xidata_unpickle", clear___main___cached_for_xidata_unpickle, METH_NOARGS},
     {"get_rare_event_counters", get_rare_event_counters, METH_NOARGS},
     {"reset_rare_event_counters", reset_rare_event_counters, METH_NOARGS},
     {"has_inline_values", has_inline_values, METH_O},
