@@ -64,6 +64,61 @@ set_exc_with_cause(PyObject *exctype, const char *msg)
 }
 
 
+static PyObject *
+get_existing_module(PyThreadState *tstate, PyObject *name)
+{
+    // This is like PyImport_GetModule(), but a bit more efficient
+    // and with different validation.
+    PyObject *mod = NULL;
+
+    // Look it up.
+    PyObject *modules = _PyImport_GetModulesRef(tstate->interp);
+    if (modules == NULL) {
+        return NULL;
+    }
+    if (modules == Py_None) {
+        Py_DECREF(modules);
+    }
+    else {
+        int res = PyMapping_GetOptionalItem(modules, name, &mod);
+        Py_DECREF(modules);
+        if (res < 0) {
+            return NULL;
+        }
+    }
+    if (mod == NULL || mod == Py_None) {
+        (void)_PyErr_SetModuleNotFoundError(name);
+        return NULL;
+    }
+
+    // Validate the module.
+    if (!Py_IS_TYPE(mod, &PyModule_Type)) {
+        /* The module has been tampered with. */
+        PyObject *msg = PyUnicode_FromFormat("invalid %S module", name);
+        if (msg != NULL) {
+            (void)PyErr_SetImportError(msg, name, NULL);
+            Py_DECREF(msg);
+        }
+        Py_DECREF(mod);
+        return NULL;
+    }
+    // XXX Make sure the name matches.
+
+    return mod;
+}
+
+#ifndef NDEBUG
+static int
+module_matches(PyObject *name, PyObject *expected)
+{
+    assert(!PyErr_Occurred());
+    PyObject *mod = PyImport_GetModule(name);
+    Py_XDECREF(mod);
+    return mod == expected;
+}
+#endif
+
+
 /****************************/
 /* module duplication utils */
 /****************************/
@@ -75,6 +130,8 @@ struct sync_module_result {
 };
 
 struct sync_module {
+    PyObject *name;
+    PyObject *key;
     const char *filename;
     char _filename[MAXPATHLEN+1];
     struct sync_module_result cached;
@@ -83,14 +140,24 @@ struct sync_module {
 static void
 sync_module_clear(struct sync_module *data)
 {
+    Py_CLEAR(data->name);
+    Py_CLEAR(data->key);
     data->filename = NULL;
     Py_CLEAR(data->cached.module);
     Py_CLEAR(data->cached.loaded);
     Py_CLEAR(data->cached.failed);
 }
 
+#ifndef NDEBUG
+static inline int
+sync_module_has_failure(struct sync_module *data)
+{
+   return data->cached.failed != NULL;
+}
+#endif
+
 static void
-sync_module_capture_exc(PyThreadState *tstate, struct sync_module *data)
+sync_module_capture_failure(PyThreadState *tstate, struct sync_module *data)
 {
     assert(_PyErr_Occurred(tstate));
     PyObject *context = data->cached.failed;
@@ -102,140 +169,159 @@ sync_module_capture_exc(PyThreadState *tstate, struct sync_module *data)
     data->cached.failed = exc;
 }
 
-
-static int
-ensure_isolated_main(PyThreadState *tstate, struct sync_module *main)
+static inline int
+sync_module_restore_failure(PyThreadState *tstate, struct sync_module *data)
 {
-    // Load the module from the original file (or from a cache).
-
-    // First try the local cache.
-    if (main->cached.failed != NULL) {
-        // We'll deal with this in apply_isolated_main().
-        assert(main->cached.module == NULL);
-        assert(main->cached.loaded == NULL);
+    // Check the local cache.
+    if (data->cached.failed == NULL) {
         return 0;
     }
-    else if (main->cached.loaded != NULL) {
-        assert(main->cached.module != NULL);
-        return 0;
-    }
-    assert(main->cached.module == NULL);
-
-    if (main->filename == NULL) {
-        _PyErr_SetString(tstate, PyExc_NotImplementedError, "");
-        return -1;
-    }
-
-    // It wasn't in the local cache so we'll need to populate it.
-    PyObject *mod = _Py_GetMainModule(tstate);
-    if (_Py_CheckMainModule(mod) < 0) {
-        // This is probably unrecoverable, so don't bother caching the error.
-        assert(_PyErr_Occurred(tstate));
-        Py_XDECREF(mod);
-        return -1;
-    }
-    PyObject *loaded = NULL;
-
-    // Try the per-interpreter cache for the loaded module.
-    // XXX Store it in sys.modules?
-    PyObject *interpns = PyInterpreterState_GetDict(tstate->interp);
-    assert(interpns != NULL);
-    PyObject *key = PyUnicode_FromString("CACHED_MODULE_NS___main__");
-    if (key == NULL) {
-        // It's probably unrecoverable, so don't bother caching the error.
-        Py_DECREF(mod);
-        return -1;
-    }
-    else if (PyDict_GetItemRef(interpns, key, &loaded) < 0) {
-        // It's probably unrecoverable, so don't bother caching the error.
-        Py_DECREF(mod);
-        Py_DECREF(key);
-        return -1;
-    }
-    else if (loaded == NULL) {
-        // It wasn't already loaded from file.
-        loaded = PyModule_NewObject(&_Py_ID(__main__));
-        if (loaded == NULL) {
-            goto error;
-        }
-        PyObject *ns = _PyModule_GetDict(loaded);
-
-        // We don't want to trigger "if __name__ == '__main__':",
-        // so we use a bogus module name.
-        PyObject *loaded_ns =
-                    runpy_run_path(main->filename, "<fake __main__>");
-        if (loaded_ns == NULL) {
-            goto error;
-        }
-        int res = PyDict_Update(ns, loaded_ns);
-        Py_DECREF(loaded_ns);
-        if (res < 0) {
-            goto error;
-        }
-
-        // Set the per-interpreter cache entry.
-        if (PyDict_SetItem(interpns, key, loaded) < 0) {
-            goto error;
-        }
-    }
-
-    Py_DECREF(key);
-    main->cached = (struct sync_module_result){
-       .module = mod,
-       .loaded = loaded,
-    };
-    return 0;
-
-error:
-    sync_module_capture_exc(tstate, main);
-    Py_XDECREF(loaded);
-    Py_DECREF(mod);
-    Py_XDECREF(key);
+    // It must have failed previously.  Replace any current exception.
+    assert(data->cached.loaded == NULL);
+    _PyErr_SetRaisedException(tstate, Py_NewRef(data->cached.failed));
     return -1;
 }
 
-#ifndef NDEBUG
 static int
-main_mod_matches(PyObject *expected)
+sync_module_normalize(PyThreadState *tstate, struct sync_module *data)
 {
-    PyObject *mod = PyImport_GetModule(&_Py_ID(__main__));
-    Py_XDECREF(mod);
-    return mod == expected;
-}
-#endif
+    assert(data->name != NULL);
+    assert(data->key != NULL);
+    assert(data->cached.failed == NULL);
 
-static int
-apply_isolated_main(PyThreadState *tstate, struct sync_module *main)
-{
-    assert((main->cached.loaded == NULL) == (main->cached.loaded == NULL));
-    if (main->cached.failed != NULL) {
-        // It must have failed previously.
-        assert(main->cached.loaded == NULL);
-        _PyErr_SetRaisedException(tstate, main->cached.failed);
+    // First try the local cache.
+    if (data->cached.loaded != NULL) {
+        assert(data->cached.module != NULL);
+        return 0;
+    }
+
+    if (data->filename == NULL) {
+        _PyErr_Format(tstate, PyExc_SystemError,
+                      "original %S filename (__file__) not known",
+                      data->name);
         return -1;
     }
-    assert(main->cached.loaded != NULL);
 
-    assert(main_mod_matches(main->cached.module));
-    if (_PyImport_SetModule(&_Py_ID(__main__), main->cached.loaded) < 0) {
-        sync_module_capture_exc(tstate, main);
+    // It wasn't in the local cache, so check the per-interpreter cache.
+    // XXX Store it in sys.modules instead of on the interpreter state?
+    PyObject *interpns = PyInterpreterState_GetDict(tstate->interp);
+    assert(interpns != NULL);
+    PyObject *loaded = NULL;
+    if (PyDict_GetItemRef(interpns, data->key, &loaded) < 0) {
+        return -1;
+    }
+
+    // Whether or not the loaded copy is in the interpreter cache,
+    // we need the existing module.
+    PyObject *mod = data->cached.module;
+    if (mod == NULL) {
+        mod = get_existing_module(tstate, data->name);
+        if (mod == NULL) {
+            assert(_PyErr_Occurred(tstate));
+            Py_XDECREF(loaded);
+            return -1;
+        }
+    }
+
+    data->cached = (struct sync_module_result){
+       .module = mod,  // steals the ref
+       .loaded = loaded,  // steals the ref
+    };
+    return 0;
+}
+
+static int
+sync_module_ensure_loaded(PyThreadState *tstate, struct sync_module *data)
+{
+    if (data->cached.loaded != NULL) {
+        assert(data->cached.module != NULL);
+        return 0;
+    }
+
+    // It wasn't already loaded from the original file, so load it.
+    assert(data->cached.module != NULL);
+    assert(data->name != NULL);
+
+    // Start with an empty module.
+    PyObject *loaded = PyModule_NewObject(data->name);
+    if (loaded == NULL) {
+        return -1;
+    }
+    PyObject *ns = _PyModule_GetDict(loaded);
+
+    // Run the module isolated.
+    PyObject *loaded_ns = NULL;
+    const char *name;
+    if (data->name == &_Py_ID(__main__)) {
+        // We don't want to trigger "if __name__ == '__main__':",
+        // so we use a bogus module name.
+        assert(data->filename != NULL);
+        name = "<fake __main__>";
+    }
+    else {
+        name = PyUnicode_AsUTF8(data->name);
+    }
+    if (data->filename != NULL) {
+        loaded_ns = runpy_run_path(data->filename, name);
+    }
+    else {
+        // XXX runpy_run_module()
+        _PyErr_SetString(tstate, PyExc_NotImplementedError,
+                         "missing filename");
+        Py_DECREF(loaded);
+        return -1;
+    }
+    if (loaded_ns == NULL) {
+        Py_DECREF(loaded);
+        return -1;
+    }
+
+    // Update the new module object.
+    int res = PyDict_Update(ns, loaded_ns);
+    Py_DECREF(loaded_ns);
+    if (res < 0) {
+        Py_DECREF(loaded);
+        return -1;
+    }
+
+    // Set the per-interpreter cache entry.
+    PyObject *interpns = PyInterpreterState_GetDict(tstate->interp);
+    assert(interpns != NULL);
+    if (PyDict_SetItem(interpns, data->key, loaded) < 0) {
+        Py_DECREF(loaded);
+        return -1;
+    }
+
+    data->cached.loaded = loaded;  // steals the ref
+    return 0;
+}
+
+static int
+sync_module_apply(PyThreadState *tstate, struct sync_module *data)
+{
+    assert(data->cached.failed == NULL);
+    assert(data->cached.loaded != NULL);
+    assert(data->cached.module != NULL);
+    assert(module_matches(data->name, data->cached.module));
+    if (_PyImport_SetModule(data->name, data->cached.loaded) < 0) {
         return -1;
     }
     return 0;
 }
 
 static void
-restore_main(PyThreadState *tstate, struct sync_module *main)
+sync_module_unapply(PyThreadState *tstate, struct sync_module *data)
 {
-    assert(main->cached.failed == NULL);
-    assert(main->cached.module != NULL);
-    assert(main->cached.loaded != NULL);
+    assert(data->cached.failed == NULL);
+    assert(data->cached.module != NULL);
+    assert(data->cached.loaded != NULL);
     PyObject *exc = _PyErr_GetRaisedException(tstate);
-    assert(main_mod_matches(main->cached.loaded));
-    int res = _PyImport_SetModule(&_Py_ID(__main__), main->cached.module);
+    assert(module_matches(data->name, data->cached.loaded));
+    int res = _PyImport_SetModule(data->name, data->cached.module);
     assert(res == 0);
     if (res < 0) {
-        PyErr_FormatUnraisable("Exception ignored while restoring __main__");
+        PyErr_FormatUnraisable(
+                "Exception ignored while restoring isolated module");
     }
     _PyErr_SetRaisedException(tstate, exc);
 }
@@ -634,39 +720,59 @@ _PyPickle_Loads(struct _unpickle_context *ctx, PyObject *pickled)
 {
     PyThreadState *tstate = ctx->tstate;
 
-    PyObject *exc = NULL;
     PyObject *loads = PyImport_ImportModuleAttrString("pickle", "loads");
     if (loads == NULL) {
         return NULL;
     }
+    PyObject *exc = NULL;
 
     // Make an initial attempt to unpickle.
     PyObject *obj = PyObject_CallOneArg(loads, pickled);
     if (obj != NULL) {
         goto finally;
     }
-    assert(_PyErr_Occurred(tstate));
+
+    /* Fall back to handling an AttributeError against __main__. */
+
+    // There's nothing to do without an unpickle context.
     if (ctx == NULL) {
         goto finally;
     }
+
+    // Bail out if the exception is not one we will handle.
     exc = _PyErr_GetRaisedException(tstate);
-    if (!check_missing___main___attr(exc)) {
+    int okay = check_missing___main___attr(exc);
+    assert(!_PyErr_Occurred(tstate));
+    if (!okay) {
+        _PyErr_SetRaisedException(tstate, Py_NewRef(exc));
         goto finally;
     }
 
     // Temporarily swap in a fake __main__ loaded from the original
     // file and cached.  Note that functions will use the cached ns
-    // for __globals__, // not the actual module.
-    if (ensure_isolated_main(tstate, &ctx->main) < 0) {
+    // for __globals__, not the actual module.
+    if (sync_module_restore_failure(tstate, &ctx->main) < 0) {
+        // We've replaced "exc" with the cached exception.
         goto finally;
     }
-    if (apply_isolated_main(tstate, &ctx->main) < 0) {
+    if (sync_module_normalize(tstate, &ctx->main) < 0) {
+        // The failure is either unrecoverable or we would want to retry,
+        // so don't bother caching the exception.
+        goto finally;
+    }
+    if (sync_module_ensure_loaded(tstate, &ctx->main) < 0) {
+        assert(!sync_module_has_failure(&ctx->main));
+        sync_module_capture_failure(tstate, &ctx->main);
+        goto finally;
+    }
+    if (sync_module_apply(tstate, &ctx->main) < 0) {
+        sync_module_capture_failure(tstate, &ctx->main);
         goto finally;
     }
 
     // Try to unpickle once more.
     obj = PyObject_CallOneArg(loads, pickled);
-    restore_main(tstate, &ctx->main);
+    sync_module_unapply(tstate, &ctx->main);
     if (obj == NULL) {
         goto finally;
     }
@@ -674,9 +780,6 @@ _PyPickle_Loads(struct _unpickle_context *ctx, PyObject *pickled)
 
 finally:
     if (exc != NULL) {
-        if (_PyErr_Occurred(tstate)) {
-            sync_module_capture_exc(tstate, &ctx->main);
-        }
         // We restore the original exception.
         // It might make sense to chain it (__context__).
         _PyErr_SetRaisedException(tstate, exc);
@@ -738,6 +841,8 @@ _PyPickle_LoadFromXIData(_PyXIData_t *xidata)
     struct _unpickle_context ctx = {
         .tstate = tstate,
         .main = {
+            .name = &_Py_ID(__main__),
+            .key = &_Py_ID(CACHED_MODULE_NS___main__),
             .filename = shared->ctx.mainfile.utf8,
         },
     };

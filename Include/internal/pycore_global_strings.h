@@ -56,6 +56,7 @@ struct _Py_global_strings {
     } literals;
 
     struct {
+        STRUCT_FOR_ID(CACHED_MODULE_NS___main__)
         STRUCT_FOR_ID(CANCELLED)
         STRUCT_FOR_ID(FINISHED)
         STRUCT_FOR_ID(False)

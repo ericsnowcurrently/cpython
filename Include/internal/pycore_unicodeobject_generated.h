@@ -12,6 +12,10 @@ extern "C" {
 static inline void
 _PyUnicode_InitStaticStrings(PyInterpreterState *interp) {
     PyObject *string;
+    string = &_Py_ID(CACHED_MODULE_NS___main__);
+    _PyUnicode_InternStatic(interp, &string);
+    assert(_PyUnicode_CheckConsistency(string, 1));
+    assert(PyUnicode_GET_LENGTH(string) != 1);
     string = &_Py_ID(CANCELLED);
     _PyUnicode_InternStatic(interp, &string);
     assert(_PyUnicode_CheckConsistency(string, 1));

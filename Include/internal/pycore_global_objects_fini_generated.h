@@ -565,6 +565,7 @@ _PyStaticObjects_CheckRefcnt(PyInterpreterState *interp) {
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_STR(str_replace_inf));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_STR(type_params));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_STR(utf_8));
+    _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(CACHED_MODULE_NS___main__));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(CANCELLED));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(FINISHED));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(False));

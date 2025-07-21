@@ -563,6 +563,7 @@ extern "C" {
 }
 
 #define _Py_str_identifiers_INIT { \
+    INIT_ID(CACHED_MODULE_NS___main__), \
     INIT_ID(CANCELLED), \
     INIT_ID(FINISHED), \
     INIT_ID(False), \
