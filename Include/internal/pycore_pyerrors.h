@@ -33,6 +33,10 @@ extern int _PyException_AddNote(
      PyObject *exc,
      PyObject *note);
 
+extern void _PyException_SetContextChain(PyObject *, PyObject *);
+extern PyObject * _PyException_AddContextToChain(PyObject *, PyObject *);
+extern PyObject * _PyException_ApplyContextToChain(PyObject *, PyObject *);
+
 extern int _PyErr_CheckSignals(void);
 
 /* Support for adding program text to SyntaxErrors */

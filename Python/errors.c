@@ -197,41 +197,11 @@ _PyErr_SetObject(PyThreadState *tstate, PyObject *exception, PyObject *value)
 
     exc_value = _PyErr_GetTopmostException(tstate)->exc_value;
     if (exc_value != NULL && exc_value != Py_None) {
-        /* Implicit exception chaining */
+        /* Implicit exception chaining.  This will replace value.__context__
+         * if it is already set.  __cause__ != NULL will hide the context. */
         Py_INCREF(exc_value);
-        /* Avoid creating new reference cycles through the
-           context chain, while taking care not to hang on
-           pre-existing ones.
-           This is O(chain length) but context chains are
-           usually very short. Sensitive readers may try
-           to inline the call to PyException_GetContext. */
-        if (exc_value != value) {
-            PyObject *o = exc_value, *context;
-            PyObject *slow_o = o;  /* Floyd's cycle detection algo */
-            int slow_update_toggle = 0;
-            while ((context = PyException_GetContext(o))) {
-                Py_DECREF(context);
-                if (context == value) {
-                    PyException_SetContext(o, NULL);
-                    break;
-                }
-                o = context;
-                if (o == slow_o) {
-                    /* pre-existing cycle - all exceptions on the
-                       path were visited and checked.  */
-                    break;
-                }
-                if (slow_update_toggle) {
-                    slow_o = PyException_GetContext(slow_o);
-                    Py_DECREF(slow_o);
-                }
-                slow_update_toggle = !slow_update_toggle;
-            }
-            PyException_SetContext(value, exc_value);
-        }
-        else {
-            Py_DECREF(exc_value);
-        }
+        _PyException_SetContextChain(value, exc_value);
+        Py_DECREF(exc_value);
     }
     assert(value != NULL);
     if (PyExceptionInstance_Check(value))

@@ -64,16 +64,66 @@ set_exc_with_cause(PyObject *exctype, const char *msg)
 }
 
 static void
-set_current_exc_context(PyObject *ctx)
+set_exc_chain_context(PyObject *exc, PyObject *newcontext)
 {
-    if (ctx == NULL) {
+    // We avoid introducing any cycles or duplication.
+    if (exc == newcontext) {
+        return;
+    }
+    PyException_SetContext(exc, newcontext);
+    return;
+
+//    Py_INCREF(exc);
+//
+//    // We want to attach it to the last cause in the chain.
+//    while (1) {
+//        PyObject *context = PyException_GetContext(exc);
+//        Py_XDECREF(context);
+//        if (context == newcontext) {
+//            // It's already in the chain.
+//            goto finally;
+//        }
+//
+//        PyObject *cause = PyException_GetCause(exc);
+//        if (cause == NULL) {
+//            break;
+//        }
+//        Py_DECREF(exc);
+//        exc = cause;
+//        PyObject *context = PyException_GetContext(exc);
+//        Py_XDECREF(context);
+//        if (context == newcontext) {
+//            // It's already in the chain.
+//            goto finally;
+//        }
+//        assert(context == NULL);
+//
+//        PyObject *cause = PyException_GetCause(exc);
+//        if (cause == NULL) {
+//            break;
+//        }
+//        Py_DECREF(exc);
+//        exc = cause;
+//    }
+//    if (context == newcontext) {
+//        // It's already in the chain.
+//        return;
+//    }
+//    PyException_SetContext(exc, newcontext);
+//
+//finally:
+//    Py_DECREF(exc);
+}
+
+static void
+set_current_exc_context(PyObject *newcontext)
+{
+    if (newcontext == NULL) {
         return;
     }
     PyObject *exc = PyErr_GetRaisedException();
-    assert(PyException_GetContext(exc) == NULL);
-    assert(PyException_GetCause(exc) == NULL);
-    PyException_SetContext(exc, ctx);
     PyErr_SetRaisedException(exc);
+    set_exc_chain_context(exc, newcontext);
 }
 
 
