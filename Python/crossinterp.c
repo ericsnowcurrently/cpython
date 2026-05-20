@@ -449,33 +449,23 @@ xidata_unwrapper_from_object(PyThreadState *tstate, PyObject *obj,
         PyErr_Format(PyExc_TypeError, "expected function, got %R", obj);
         return -1;
     }
-    PyCodeObject *co = (PyCodeObject *)PyFunction_GET_CODE(obj);
-   _PyCode_var_counts_t counts = {0};
-    _PyCode_GetVarCounts(co, &counts);
-    if (counts.locals.args.total != 1) {
-        PyErr_Format(PyExc_ValueError,
-                     "expected function with 1 parameter, got %d",
-                     counts.locals.args.total);
+    if (_PyFunction_VerifyStateless(tstate, obj) < 0) {
         return -1;
     }
-    else if (counts.locals.args.numkwonly != 0) {
-        PyErr_SetString(PyExc_ValueError,
-                        "expected function with 1 positional parameter");
-        return -1;
-    }
-
-    _PyXIData_t *data = PyMem_RawMalloc(sizeof(_PyXIData_t));
-    if (data == NULL) {
+    PyObject *code = PyFunction_GET_CODE(obj);
+    assert(code != NULL);
+    _PyXIData_t *xidata = PyMem_RawMalloc(sizeof(_PyXIData_t));
+    if (xidata == NULL) {
         PyErr_NoMemory();
         return -1;
     }
-    if (_PyFunction_GetXIDataStateless(tstate, obj, data) < 0) {
-        _xidata_clear(data);
+    if (_PyCode_GetXIData(tstate, code, xidata) < 0) {
+        PyMem_RawFree(xidata);
         return -1;
     }
     *res_unwrapper = (_PyXIData_unwrapper_t){
         .func = (xid_unwrapfunc)_unwrap_with_object,
-        .data = data,
+        .data = xidata,
         .free = (xid_freefunc)_PyXIData_ReleaseAndRawFree,
     };
     return 0;
