@@ -208,6 +208,26 @@ Conversion can be done ahead of time with :func:`as_shareable`.
 :class:`CrossInterpreterObjectData` acts as a wrapper
 around the raw data.
 
+.. XXX Add an entry for __xidata__ in Doc/reference/datamodel.rst?
+   (right before :ref:`python-buffer-protocol`?)
+
+Classes that do not themselves support conversion of their instances
+to raw cross-interpreter data may still control how they are shared
+by implementing :meth:`~object.__xidata__`:
+
+.. method:: object.__xidata__(self)
+
+   Converts the object to one that is sharing-compatible.  Returns
+   ``(wrapped, unwrap)``, where "wrapped" is the object to "share".
+   "unwrap" must be ``None`` or a function that takes "wrapped"
+   and returns the unwrapped object.  That unwrapped object
+   should be equivalent to the original (self).
+
+   For classes that directly support conversion to cross-interpreter
+   data, ``__xidata__()`` returns ``(self, None)``.
+
+   .. versionadded:: 3.16
+
 .. seealso::
 
    .. XXX Add link to C-API
@@ -264,12 +284,8 @@ This module defines the following functions:
    This can be avoided by providing a ``wrap`` function or a fallback
    value.
 
-   "wrap" must be a function that takes the object and returns
-   ``(wrapped, unwrap)``, where "wrapped" is the object to "share".
-   "unwrap" must be ``None`` or a function that takes "wrapped"
-   and returns the unwrapped object.  That unwrapped object
-   should be equivalent to the original object passed
-   to ``as_shareable()``.
+   "wrap" must be the function equivalent of :meth:`~object.__xidata__`,
+   taking the object and returning ``(wrapped, unwrap)``.
 
    "fallback" indicates what to do if the object (or the wrapped object
    when "wrap" is provided) is not sharing-compatible.  If ``True`` then
