@@ -1909,6 +1909,23 @@ class TestIsShareable(TestBase):
                         interpreters.is_shareable(obj))
 
 
+class TestAsShareable(TestBase):
+
+    def test_shareable(self):
+        for obj in SHAREABLE:
+            with self.subTest(obj):
+                wrapper = interpreters.as_shareable(obj)
+                self.assertIsInstance(wrapper,
+                                      interpreters.CrossInterpreterObjectData)
+                # XXX Check wrapper.
+
+    def test_not_shareable(self):
+        for obj in NOT_SHAREABLE:
+            with self.subTest(repr(obj)):
+                with self.assertRaises(interpreters.NotShareableError):
+                     interpreters.as_shareable(obj)
+
+
 class LowLevelTests(TestBase):
 
     # The behaviors in the low-level module are important in as much
