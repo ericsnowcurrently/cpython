@@ -197,6 +197,21 @@ data between interpreters:
 * :class:`memoryview`
 * :class:`Queue`
 
+Both :meth:`Interpreter.prepare_main` and the ``put()`` method of
+:class:`Queue` automatically convert objects to raw data that may then
+be sent safely between interpreters and turned back into objects on
+the other side.  They fall back to pickling if the object isn't
+sharing-compatible.
+
+Compatibility of an object can be checked with :func:`is_shareable`.
+Conversion can be done ahead of time with :func:`as_shareable`.
+:class:`CrossInterpreterObjectData` acts as a wrapper
+around the raw data.
+
+.. seealso::
+
+   .. XXX Add link to C-API
+
 
 Reference
 ---------
@@ -228,6 +243,46 @@ This module defines the following functions:
 
    Initialize a new cross-interpreter queue and return a :class:`Queue`
    object for it.
+
+.. function:: is_shareable(obj)
+
+   Return ``True`` is the object (probably) is compatible with the
+   "sharing" protocol.  This is a trivial check and isn't necessarily
+   deep nor exhaustive.  For example, it returns True for a tuple even
+   if it contains objects that are not shareable.  For a complete
+   result use :func:`as_shareable`.
+
+.. function:: as_shareable(obj, wrap=None, \*, fallback=None)
+
+   Return a :class:`CrossInterpreterObjectData` that wraps the raw
+   shareable data for the object.  This relies on the same protocol
+   as :meth:`Interpreter.prepare_main` and :class:`Queue` and uses
+   the same mechanism.
+
+   If the given object is not itself compatible with sharing then,
+   by default, ``as_shareable()`` will raise :exc:`NotShareableError`.
+   This can be avoided by providing a ``wrap`` function or a fallback
+   value.
+
+   "wrap" must be a function that takes the object and returns
+   ``(wrapped, unwrap)``, where "wrapped" is the object to "share".
+   "unwrap" must be ``None`` or a function that takes "wrapped"
+   and returns the unwrapped object.  That unwrapped object
+   should be equivalent to the original object passed
+   to ``as_shareable()``.
+
+   "fallback" indicates what to do if the object (or the wrapped object
+   when "wrap" is provided) is not sharing-compatible.  If ``True`` then
+   it does what :meth:`Interpreter.prepare_main` and :class:`Queue`
+   do by default: wrap with pickle.
+
+   .. XXX Drop the restriction?
+
+   Note that the returned wrapper object may be passed to a sharing
+   operation, like :meth:`Interpreter.prepare_main` only once, to
+   avoid ...
+
+   .. versionadded:: 3.16
 
 
 Interpreter objects
