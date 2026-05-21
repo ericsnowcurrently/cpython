@@ -18,6 +18,7 @@ _interpreters = import_helper.import_module('_interpreters')
 from concurrent import interpreters
 from test.support import Py_GIL_DISABLED
 from test.support import force_not_colorized
+from test.test_crossinterp import SHAREABLE, NOT_SHAREABLE
 import test._crossinterp_definitions as defs
 from concurrent.interpreters import (
     InterpreterError, InterpreterNotFoundError, ExecutionFailed,
@@ -1877,21 +1878,7 @@ class TestInterpreterCall(TestBase):
 class TestIsShareable(TestBase):
 
     def test_default_shareables(self):
-        shareables = [
-                # singletons
-                None,
-                # builtin objects
-                b'spam',
-                'spam',
-                10,
-                -10,
-                True,
-                False,
-                100.0,
-                (),
-                (1, ('spam', 'eggs'), True),
-                ]
-        for obj in shareables:
+        for obj in SHAREABLE:
             with self.subTest(obj):
                 shareable = interpreters.is_shareable(obj)
                 self.assertTrue(shareable)
@@ -1906,24 +1893,20 @@ class TestIsShareable(TestBase):
         class SubBytes(bytes):
             """A subclass of a shareable type."""
 
-        not_shareables = [
-                # singletons
-                NotImplemented,
-                ...,
-                # builtin types and objects
-                type,
-                object,
-                object(),
-                Exception(),
-                # user-defined types and objects
-                Cheese,
-                Cheese('Wensleydale'),
-                SubBytes(b'spam'),
-                ]
-        for obj in not_shareables:
+        for obj in [
+            *NOT_SHAREABLE,
+            # user-defined types and objects
+            Cheese,
+            Cheese('Wensleydale'),
+            SubBytes(b'spam'),
+        ]:
             with self.subTest(repr(obj)):
-                self.assertFalse(
-                    interpreters.is_shareable(obj))
+                if type(obj) in (int, tuple):
+                    self.assertTrue(
+                        interpreters.is_shareable(obj))
+                else:
+                    self.assertFalse(
+                        interpreters.is_shareable(obj))
 
 
 class LowLevelTests(TestBase):

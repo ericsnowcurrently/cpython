@@ -96,6 +96,12 @@ MODULES = [
 OBJECT = object()
 EXCEPTION = Exception()
 LAMBDA = (lambda: None)
+INT_NATIVE_MAX_POS = sys.maxsize
+INT_NATIVE_MAX_NEG = -sys.maxsize - 1
+INT_NATIVE_OVERFLOW = sys.maxsize + 1
+INT_NATIVE_UNDERFLOW = -sys.maxsize - 2
+INT_EXTRA_LARGE = 2**1000
+SMALL_INTS = range(-1, 258)
 BUILTIN_SIMPLE = [
     OBJECT,
     # singletons
@@ -106,18 +112,18 @@ BUILTIN_SIMPLE = [
     NotImplemented,
     # bytes
     *(i.to_bytes(2, 'little', signed=True)
-      for i in range(-1, 258)),
+      for i in SMALL_INTS),
     # str
     'hello world',
     '你好世界',
     '',
     # int
-    sys.maxsize + 1,
-    sys.maxsize,
-    -sys.maxsize - 1,
-    -sys.maxsize - 2,
-    *range(-1, 258),
-    2**1000,
+    INT_NATIVE_OVERFLOW,
+    INT_NATIVE_MAX_POS,
+    INT_NATIVE_MAX_NEG,
+    INT_NATIVE_UNDERFLOW,
+    *SMALL_INTS,
+    INT_EXTRA_LARGE,
     # float
     0.0,
     1.1,
@@ -212,9 +218,9 @@ _UNSHAREABLE_SIMPLE = [
     Ellipsis,
     NotImplemented,
     OBJECT,
-    sys.maxsize + 1,
-    -sys.maxsize - 2,
-    2**1000,
+    INT_NATIVE_OVERFLOW,
+    INT_NATIVE_UNDERFLOW,
+    INT_EXTRA_LARGE,
 ]
 with ignore_byteswarning():
     _SHAREABLE_SIMPLE = [o for o in BUILTIN_SIMPLE
@@ -871,12 +877,12 @@ class MarshalTests(_GetXIDataTests):
     def test_simple_builtin_objects(self):
         self.assert_roundtrip_equal([
             # int
-            *range(-1, 258),
-            sys.maxsize + 1,
-            sys.maxsize,
-            -sys.maxsize - 1,
-            -sys.maxsize - 2,
-            2**1000,
+            *SMALL_INTS,
+            INT_NATIVE_OVERFLOW,
+            INT_NATIVE_MAX_POS,
+            INT_NATIVE_MAX_NEG,
+            INT_NATIVE_UNDERFLOW,
+            INT_EXTRA_LARGE,
             # complex
             1+2j,
             # float
@@ -887,7 +893,7 @@ class MarshalTests(_GetXIDataTests):
             -0.12345678,
             # bytes
             *(i.to_bytes(2, 'little', signed=True)
-              for i in range(-1, 258)),
+              for i in SMALL_INTS),
             b'hello world',
             # str
             'hello world',
@@ -1290,7 +1296,7 @@ class ShareableTypeTests(_GetXIDataTests):
 
     def test_bytes(self):
         values = (i.to_bytes(2, 'little', signed=True)
-                  for i in range(-1, 258))
+                  for i in SMALL_INTS)
         self.assert_roundtrip_equal(values)
 
     def test_strs(self):
@@ -1301,15 +1307,15 @@ class ShareableTypeTests(_GetXIDataTests):
         ])
 
     def test_int(self):
-        bounds = [sys.maxsize, -sys.maxsize - 1]
-        values = itertools.chain(range(-1, 258), bounds)
+        bounds = [INT_NATIVE_MAX_POS, INT_NATIVE_MAX_NEG]
+        values = itertools.chain(SMALL_INTS, bounds)
         self.assert_roundtrip_equal(values)
 
     def test_non_shareable_int(self):
         ints = [
-            sys.maxsize + 1,
-            -sys.maxsize - 2,
-            2**1000,
+            INT_NATIVE_OVERFLOW,
+            INT_NATIVE_UNDERFLOW,
+            INT_EXTRA_LARGE,
         ]
         self.assert_not_shareable(ints, OverflowError)
 
