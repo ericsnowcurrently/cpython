@@ -172,16 +172,75 @@ a :class:`queue.Queue` implementation, available through
 "Sharing" Objects
 ^^^^^^^^^^^^^^^^^
 
-Any data actually shared between interpreters loses the thread-safety
-provided by the :term:`GIL`.  There are various options for dealing with
-this in extension modules.  However, from Python code the lack of
-thread-safety means objects can't actually be shared, with a few
-exceptions.  Instead, a copy must be created, which means mutable
-objects won't stay in sync.
+"Sharing" between interpreters refers to sending data *represented* by
+objects.  It does not mean multiple interpreters are using the same
+object at the same time (with a very small number of exceptional cases).
 
-By default, most objects are copied with :mod:`pickle` when they are
-passed to another interpreter.  Nearly all of the immutable builtin
-objects are either directly shared or copied efficiently.  For example:
+Actually sharing objects (or other data) between interpreters is tricky.
+Any data actually shared between interpreters loses the consistency
+and thread-safety provided by the isolation of each interpreter,
+particularly the :term:`GIL`.
+
+Thus, sharing *mutable* data requires some coordination or frequent
+synchronization and context switching.  That can quickly make it
+expensive.  Any data tied to one interpreter's lifetime, even immutable
+data, faces similar complexity.
+
+Python objects, with very few exceptions, are always mutable and always
+tied to the interpreter where they were created.  Therefore they can't
+be truly shared without significant extra cost.
+
+Consequently, sharing objects and other data between interpreters must
+be done thoughtfully and carefully, even if only for short communication
+exchanges.  There are several effective approaches to doing so.
+
+Pure Python code doesn't have the capacity to accomplish any of these,
+at least not fully.  Instead, the :mod:`!concurrent.interpreters` module
+and the runtime provide help.
+
+The simplest approach is to make a copy of the original data for use
+in a target interpreter.  This often involves some form of
+serialization.  This *can* be done efficiently, especially by the Python
+runtime and within extension modules, but not always.  Most notably,
+copying means mutable objects won't stay in sync.
+
+When the shared data is especially large, it often makes sense to
+actually share it, such as through the
+:ref:`buffer protocol <python-buffer-protocol>`.  Then the interpreters
+must cooperate on reading and writing, whether through locks or
+assigning partitions or something else.
+
+Regardless of the approach, nearly all "sharing" between interpreters
+involves brief communication exchanges.  The data is almost always
+shared only for the duration of the exchange.
+
+In general, the exchange between interpreters looks like the following:
+
+1. convert an object to raw, cross-interpreter safe data
+2. pass the data to another interpreter
+3. convert the data back into an object
+
+The runtime provides support for those steps.  Pure Python code has
+access to that support through the :mod:`!concurrent.interpreters`
+module.  For example, both :meth:`Interpreter.prepare_main` and
+:class:`Queue.put() <Queue>` implement the exchange.
+:func:`as_shareable` can help with the two conversion steps.
+
+.. _xidata-protocol:
+
+Cross-interpreter Data Protocol
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The runtime support for the two conversion steps is low-level and not
+directly available to pure Python code.  However, there's a standardized
+protocol that fills the gap.
+
+.. XXX Add link to C-API?
+
+At the low level, some builtin types and some types in extension modules
+provide direct support to the Python runtime for the conversion steps.
+In fact, nearly all of the immutable builtin objects are either
+directly shared or copied efficiently.  For example:
 
 * :const:`None`
 * :class:`bool` (:const:`True` and :const:`False`)
@@ -191,46 +250,54 @@ objects are either directly shared or copied efficiently.  For example:
 * :class:`float`
 * :class:`tuple` (of similarly supported objects)
 
-There is a small number of Python types that actually share mutable
-data between interpreters:
+There is a small number of builtin and stdlib types that actually share
+mutable data between interpreters:
 
 * :class:`memoryview`
 * :class:`Queue`
 
-Both :meth:`Interpreter.prepare_main` and the ``put()`` method of
-:class:`Queue` automatically convert objects to raw data that may then
-be sent safely between interpreters and turned back into objects on
-the other side.  They fall back to pickling if the object isn't
-sharing-compatible.
+Most objects do not have that low-level support, including instances
+of all pure Python classes.  Such objects cannot be shared without some
+other mechanism to manage the conversion, such as the default fallback
+of :meth:`Interpreter.prepare_main`.  Aside from such fallbacks, the
+standardized way for code to bridge that gap is with a
+"conversion function".
 
-Compatibility of an object can be checked with :func:`is_shareable`.
-Conversion can be done ahead of time with :func:`as_shareable`.
-:class:`CrossInterpreterObjectData` acts as a wrapper
-around the raw data.
+A conversion function takes an object and returns an object that
+supports low-level conversion.  It also returns a "restore" function
+that turns the converted object back into an equivalent of the original.
+(In some uncommon cases, the restore function may be ``None``, meaning
+the converted object should be used as-is.)
+
+The restore function will be converted to cross-interpreter data and
+back during the exchange, so the function must be stateless.  This
+means it cannot rely on external state nor on internal state.  It may
+rely on arguments and builtins but not on globals or a closure.
+A stateless function is equivalent to its code object.
+
+The the sharing-related functions and methods in
+:mod:`!concurrent.interpreters` all support one conversion function in
+particular: the :meth:`~object.__xidata__` special method.  Classes
+that do not provide a low-level implementation for sharing may still
+control how they are shared by implementing it.
 
 .. XXX Add an entry for __xidata__ in Doc/reference/datamodel.rst?
    (right before :ref:`python-buffer-protocol`?)
 
-Classes that do not themselves support conversion of their instances
-to raw cross-interpreter data may still control how they are shared
-by implementing :meth:`~object.__xidata__`:
-
 .. method:: object.__xidata__(self)
 
    Converts the object to one that is sharing-compatible.  Returns
-   ``(wrapped, unwrap)``, where "wrapped" is the object to "share".
-   "unwrap" must be ``None`` or a function that takes "wrapped"
-   and returns the unwrapped object.  That unwrapped object
-   should be equivalent to the original (self).
+   ``(converted, restore)``, where "converted" is the object to "share".
 
    For classes that directly support conversion to cross-interpreter
    data, ``__xidata__()`` returns ``(self, None)``.
 
    .. versionadded:: 3.16
 
-.. seealso::
-
-   .. XXX Add link to C-API
+Cross-interpreter compatibility of an object's type can be checked with
+:func:`is_shareable`.  Conversion can be done ahead of time with
+:func:`as_shareable`.  :class:`CrossInterpreterObjectData` acts
+as a wrapper around the raw data.
 
 
 Reference
@@ -266,39 +333,87 @@ This module defines the following functions:
 
 .. function:: is_shareable(obj)
 
-   Return ``True`` is the object (probably) is compatible with the
-   "sharing" protocol.  This is a trivial check and isn't necessarily
-   deep nor exhaustive.  For example, it returns True for a tuple even
-   if it contains objects that are not shareable.  For a complete
-   result use :func:`as_shareable`.
+   Return True is the object's type supports the "sharing" protocol.
 
-.. function:: as_shareable(obj, wrap=None, \*, fallback=None)
+   Note that this is a fast, trivial check and does not check the
+   object's value.  While a False result is always correct, a True
+   result could be incorrect if the object's value where factored in.
+
+   This is because some types support cross-interpreter data only for
+   a subset of their instances.  For example, ``is_shareable()``
+   returns True for a tuple even if it contains objects
+   that are not shareable.
+
+   For a complete result, use :func:`as_shareable`.
+
+.. function:: as_shareable(obj, convert=None, \*, fallback=None)
 
    Return a :class:`CrossInterpreterObjectData` that wraps the raw
    shareable data for the object.  This relies on the same protocol
    as :meth:`Interpreter.prepare_main` and :class:`Queue` and uses
-   the same mechanism.
+   the same mechanism.  The main difference is that, by default,
+   this does not use any fallback.
 
    If the given object is not itself compatible with sharing then,
-   by default, ``as_shareable()`` will raise :exc:`NotShareableError`.
-   This can be avoided by providing a ``wrap`` function or a fallback
-   value.
+   by default, ``as_shareable()`` raises :exc:`NotShareableError`.
+   This can be avoided by providing a ``convert`` function
+   or a fallback value.
 
-   "wrap" must be the function equivalent of :meth:`~object.__xidata__`,
-   taking the object and returning ``(wrapped, unwrap)``.
+   "convert" must be a "stateless" function that takes an object
+   and returns ``(converted obj, restore func)``.  See
+   :ref:`xidata-protocol` for more information.
 
-   "fallback" indicates what to do if the object (or the wrapped object
-   when "wrap" is provided) is not sharing-compatible.  If ``True`` then
-   it does what :meth:`Interpreter.prepare_main` and :class:`Queue`
-   do by default: wrap with pickle.
+   "fallback" indicates what to do if the object (or the converted
+   object when "convert" is provided) is not sharing-compatible.
+   If ``True`` then it does what :meth:`Interpreter.prepare_main`
+   and :class:`Queue` do by default: serialize with pickle.
+
+   If "obj" is a :class:`CrossInterpreterObjectData` then it is
+   returned as-is.
+
+   .. versionadded:: 3.16
+
+
+CrossInterpreterData objects
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. class:: CrossInterpreterData
+
+   A wrapper around raw data that may be safely shared between
+   interpreters.
 
    .. XXX Drop the restriction?
 
-   Note that the returned wrapper object may be passed to a sharing
+   Note that the wrapper object may be passed to a sharing
    operation, like :meth:`Interpreter.prepare_main` only once, to
    avoid ...
 
-   .. versionadded:: 3.16
+   .. attribute:: iswrapped
+
+      (read-only)
+
+      Returns ``True`` if the original object was converted to another.
+      If so, :meth:`as_object` and :meth:`as_wrapped_object` will
+      return different objects.
+
+   .. method:: as_object(self)
+
+      Returns an object corresponding to the data, applying any
+      unwrapper as necessary.  This essentially restores the
+      original object.
+
+   .. method:: as_wrapped_object(self)
+
+      Returns (obj, unwrap) if the original object was "wrapped".
+      "obj" is the actual object that was converted to cross-interpreter
+      data, corresponding to the result of wrapping the original object.
+      "unwrap" is the function to get the object corresponding to the
+      original, as described for :func:`as_shareable`.
+
+      Returns (obj, None) if the original object was not wrapped,
+      the same as :meth:`as_object`.
+
+.. versionadded:: 3.16
 
 
 Interpreter objects
