@@ -1790,6 +1790,7 @@ static PyGetSetDef xidwrapper_getsets[] = {
 PyTypeObject _PyXIDataWrapper_Type = {
     PyVarObject_HEAD_INIT(&PyType_Type, 0)
     .tp_name = XIDWRAPPER_CLASSNAME,
+    // Note that Py_TPFLAGS_BASETYPE is not set (for now).
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_DISALLOW_INSTANTIATION,
     .tp_basicsize = sizeof(xidwrapper),
     .tp_dealloc = (destructor)xidwrapper_dealloc,
