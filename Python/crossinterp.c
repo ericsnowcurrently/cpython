@@ -1021,6 +1021,7 @@ error:
 int
 _PyObject_GetXIDataWrappedWithObj(PyThreadState *tstate,
                                   PyObject *obj, PyObject *wrapobj,
+//                                  xidata_fallback_t fallback,
                                   _PyXIData_t *data)
 {
     // XXX Add fallback arg?
@@ -1552,6 +1553,18 @@ _PyXIData_NewObject(_PyXIData_t *xidata)
     return xidata->new_object(xidata);
 }
 
+// XXX Expose this in the C-API?
+static int
+_xidata_is_empty(_PyXIData_t *xidata)
+{
+    if (xidata == NULL) {
+        // This counts as "empty".
+        return -1;
+    }
+    // XXX Check the fields.
+    return 0;
+}
+
 static int
 _call_clear_xidata(void *data)
 {
@@ -1613,172 +1626,55 @@ _PyXIData_ReleaseAndRawFree(_PyXIData_t *xidata)
 
 typedef struct {
     PyObject base;
-    PyObject *orig;
-    int fallback;
-    PyObject *wrapobj;
-    xid_wrapfunc wrapfunc;
     _PyXIData_t *data;
-    _PyXIData_t *used;
-    // pre-allocated
-    _PyXIData_t _data;
+    int owned;
 } xidwrapper;
-
-static int _xidwrapper_bind(PyThreadState *, xidwrapper *);
 
 static xidwrapper *
 _new_xidwrapper(PyThreadState *tstate, PyTypeObject *wrappertype,
-                _PyXIData_t *data, PyObject *obj, int fallback,
-                xid_wrapfunc wrapfunc, PyObject *wrapobj)
+                _PyXIData_t *xidata, int owned)
 {
-    xidwrapper *wrapper = PyObject_GC_New(xidwrapper, wrappertype);
+    if (xidata == NULL) {
+        PyErr_SetString(PyExc_ValueError, "missing cross-interpreter data");
+        return NULL;
+    }
+    if (_check_xidata(tstate, xidata) < 0) {
+        return NULL;
+    }
+    if (_xidata_is_empty(xidata)) {
+        PyErr_SetString(PyExc_ValueError, "empty cross-interpreter data");
+        return NULL;
+    }
+
+    xidwrapper *wrapper = PyObject_New(xidwrapper, wrappertype);
     if (wrapper == NULL) {
         PyErr_NoMemory();
         return NULL;
     }
-    if (obj != NULL) {
-        assert(data == NULL);
-        assert(wrapfunc == NULL || wrapobj == NULL);
-        assert(!fallback || (wrapfunc == NULL && wrapobj == NULL));
-        assert(wrapobj == NULL || PyCallable_Check(wrapobj));
-        *wrapper = (xidwrapper){
-            .base = wrapper->base,
-            .orig = Py_NewRef(obj),
-            .fallback = fallback,
-            .wrapobj = wrapobj,
-            .wrapfunc = wrapfunc,
-        };
-        if (_xidwrapper_bind(tstate, wrapper) < 0) {
-            Py_DECREF(obj);
-            PyObject_GC_UnTrack(wrapper);
-            PyObject_GC_Del((PyObject *)wrapper);
-            return NULL;
-        }
-        assert(wrapper->data != NULL);
-    }
-    else {
-        assert(data != NULL);
-        assert(!fallback);
-        assert(wrapfunc == NULL);
-        assert(wrapobj == NULL);
-        if (_PyXIData_INTERPID(data) !=
-                            PyInterpreterState_GetID(tstate->interp))
-        {
-            PyErr_SetString(PyExc_ValueError, "interpreter mismatch");
-            PyObject_GC_UnTrack(wrapper);
-            PyObject_GC_Del((PyObject *)wrapper);
-            return NULL;
-        }
-        *wrapper = (xidwrapper){
-            .base = wrapper->base,
-            .data = data,
-        };
-    }
+
+    *wrapper = (xidwrapper){
+        .base = wrapper->base,
+        .data = xidata,
+        .owned = owned,
+    };
     return wrapper;
 }
 
 static void
 _xidwrapper_free(xidwrapper *wrapper)
 {
-    PyObject_GC_UnTrack(wrapper);
     // Clear the wrapped XI data.
-    _PyXIData_t *data = wrapper->data;
-    if (data == NULL) {
-        data = wrapper->used;
-    }
-    if (data != NULL) {
+    _PyXIData_t *xidata = wrapper->data;
+    if (xidata != NULL && wrapper->owned) {
         // "Release" the data and/or the object directly,
         // rather than using _PyXIData_Release().
-        assert(_PyXIData_INTERPID(data) ==
+        assert(_PyXIData_INTERPID(xidata) ==
                 PyInterpreterState_GetID(_PyInterpreterState_GET()));
-        _xidata_clear(data);
+        _xidata_clear(xidata);
+        PyMem_RawFree(xidata);
     }
-    // Clear the objects.
-    Py_CLEAR(wrapper->wrapobj);
-    Py_CLEAR(wrapper->orig);
     // Free it.
-    PyObject_GC_Del((PyObject *)wrapper);
-}
-
-static int
-_xidwrapper_handle_used(PyThreadState *tstate, xidwrapper *wrapper)
-{
-    if (wrapper->orig != NULL) {
-        return 0;
-    }
-    // For now, we don't allow re-using the XI data, and we can't
-    // rebuild it without the original object, so we bail out here.
-    // Note that we don't fall back to wrapper->data->obj.
-    // wrapper->orig is the only signal we recognize.
-    assert(wrapper->data != &wrapper->_data);
-    if (wrapper->used == NULL) {
-        wrapper->used = wrapper->data;
-        return 0;
-    }
-    set_notshareableerror(tstate, NULL, 0, "wrapped data already used");
-    return -1;
-}
-
-/* Populate the _PyXIData_t with data from the wrapper. */
-static int
-_xidwrapper_apply(PyThreadState *tstate, xidwrapper *wrapper,
-                  _PyXIData_t *data)
-{
-    PyObject *obj = wrapper->orig;
-    if (obj == NULL) {
-        PyErr_SetString(PyExc_ValueError, "no orig object");
-        return -1;
-    }
-    if (wrapper->wrapfunc != NULL || wrapper->fallback) {
-        return _PyObject_GetXIDataWrapped(
-                                tstate, obj, wrapper->wrapfunc, data);
-    }
-    else if (wrapper->wrapobj != NULL) {
-        return _PyObject_GetXIDataWrappedWithObj(
-                                tstate, obj, wrapper->wrapobj, data);
-    }
-    else {
-        xidata_fallback_t fallback = _PyXIDATA_XIDATA_ONLY;
-        return _PyObject_GetXIData(tstate, obj, fallback, data);
-    }
-}
-
-/* Set the wrapped XI data based on the original object and unwrapper. */
-static int
-_xidwrapper_bind(PyThreadState *tstate, xidwrapper *wrapper)
-{
-    assert(wrapper->orig != NULL);
-    assert(wrapper->data == NULL);
-    if (_xidwrapper_apply(tstate, wrapper, &wrapper->_data) < 0) {
-        return -1;
-    }
-    wrapper->data = &wrapper->_data;
-    return 0;
-}
-
-/* "Return" the wrapped XI data, applying first if necessary. */
-static int
-_xidwrapper_get_xidata(PyThreadState *tstate, xidwrapper *wrapper,
-                       _PyXIData_t *dest)
-{
-    assert(wrapper->data != NULL || wrapper->orig != NULL);
-    if (wrapper->data != NULL) {
-        *dest = *wrapper->data;
-        if (wrapper->orig == NULL) {
-            assert(wrapper->data != &wrapper->_data);
-            assert(wrapper->used == wrapper->data);
-            wrapper->data = NULL;
-        }
-        else {
-            assert(wrapper->data == &wrapper->_data);
-            assert(wrapper->used == NULL);
-            wrapper->data = NULL;
-            wrapper->_data = (_PyXIData_t){0};
-        }
-    }
-    else if (_xidwrapper_apply(tstate, wrapper, dest) < 0) {
-        return -1;
-    }
-    return 0;
+    PyObject_Free((PyObject *)wrapper);
 }
 
 // _PyXIDataWrapper_Type "tp slots"
@@ -1795,75 +1691,10 @@ objects are the containers in which that data is stored and exposed\n\
 to Python code.\n\
 ");
 
-static PyObject *
-xidwrapper_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
-{
-    PyThreadState *tstate = _PyThreadState_GET();
-    static char *kwlist[] = {"obj", "wrap", NULL};
-    PyObject *obj;
-    PyObject *wrapobj = NULL;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds,
-                                     "O|O:__new__", kwlist,
-                                     &obj, &wrapobj)) {
-        return NULL;
-    }
-    if (wrapobj == Py_None || wrapobj == Py_True) {
-        wrapobj = NULL;
-    }
-
-    int fallback = 0;
-    if (wrapobj == NULL) {
-        // By default, we try the special methods.
-        // XXX Otherwise fall back to marshal, pickle?
-        fallback = 1;
-    }
-    else if (wrapobj == Py_False) {
-        wrapobj = NULL;
-    }
-
-    xidwrapper *wrapper = _new_xidwrapper(
-                    tstate, type, NULL, obj, fallback, NULL, wrapobj);
-    return (PyObject *)wrapper;
-}
-
 static void
 xidwrapper_dealloc(xidwrapper *wrapper)
 {
     _xidwrapper_free(wrapper);
-}
-
-static int
-xidwrapper_traverse(PyObject *self, visitproc visit, void *arg)
-{
-    xidwrapper *wrapper = (xidwrapper *)self;
-    Py_VISIT(wrapper->wrapobj);
-    Py_VISIT(wrapper->orig);
-    return 0;
-}
-
-static int
-xidwrapper_clear(PyObject *self)
-{
-    xidwrapper *wrapper = (xidwrapper *)self;
-    Py_CLEAR(wrapper->wrapobj);
-    Py_CLEAR(wrapper->orig);
-    return 0;
-}
-
-static PyObject *
-xidwrapper_repr(PyObject *self)
-{
-    const char *typename = Py_TYPE(self)->tp_name;
-    xidwrapper *wrapper = (xidwrapper *)self;
-    PyObject *obj = wrapper->orig;
-    if (obj != NULL) {
-        PyObject *res = PyUnicode_FromFormat("<%s object (wrapping %R) at %p>",
-                                             typename, obj, self);
-        if (res != NULL) {
-            return res;
-        }
-    }
-    return PyUnicode_FromFormat("<%s object at %p>", typename, self);
 }
 
 /* The impl of the XI data protocol for _PyXIDataWrapper_Type. */
@@ -1873,12 +1704,7 @@ xidwrapper_shared(PyThreadState *tstate, PyObject *wrapperobj,
 {
     assert(Py_IS_TYPE(wrapperobj, &_PyXIDataWrapper_Type));
     xidwrapper *wrapper = (xidwrapper *)wrapperobj;
-    if (_xidwrapper_handle_used(tstate, wrapper) < 0) {
-        return -1;
-    }
-    if (_xidwrapper_get_xidata(tstate, wrapper, data) < 0) {
-        return -1;
-    }
+    *data = *wrapper->data;
     return 0;
 }
 
@@ -1887,125 +1713,89 @@ xidwrapper_shared(PyThreadState *tstate, PyObject *wrapperobj,
 static PyObject *
 xidwrapper___xidata__(PyObject *self)
 {
-    return Py_NewRef(self);
+    return PyTuple_Pack(2, self, Py_None);
 }
 
 static PyObject *
-xidwrapper_as_object(PyObject *self, PyObject *args, PyObject *kwds)
+xidwrapper_as_object(PyObject *self)
 {
-    static char *kwlist[] = {"unwrap", NULL};
-    int unwrap = 1;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds,
-                                     "|p:as_object", kwlist,
-                                     &unwrap)) {
-        return NULL;
-    }
-
-    PyThreadState *tstate = _PyThreadState_GET();
     xidwrapper *wrapper = (xidwrapper *)self;
-
-    // See the note in _xidwrapper_handle_used().
-    if (wrapper->orig == NULL
-            && (wrapper->data != NULL || wrapper->used != NULL))
-    {
-        PyErr_SetString(PyExc_TypeError, "not allowed");
+    assert(wrapper->data != NULL);
+    if (wrapper->data == NULL) {
+        PyErr_SetString(PyExc_ValueError, "missing cross-interpreter data");
         return NULL;
     }
-
-    if (wrapper->data == NULL) {
-        if (wrapper->orig == NULL) {
-            PyErr_SetString(PyExc_ValueError, "no orig object");
-            return NULL;
-        }
-        if (_xidwrapper_bind(tstate, wrapper) < 0) {
-            return NULL;
-        }
-    }
-    return unwrap
-        ? _PyXIData_NewObject(wrapper->data)
-        : _PyXIData_NewObjectNotUnwrapped(wrapper->data);
+    return _PyXIData_NewObject(wrapper->data);
 }
 
 PyDoc_STRVAR(xidwrapper_as_object___doc__,
-"as_object($self, *, unwrap=True) -> object\n\
+"as_object($self) -> object\n\
 \n\
 Return an object corresponding to the original shareable object.\n\
+");
+
+static PyObject *
+xidwrapper_as_wrapped_object(PyObject *self)
+{
+    xidwrapper *wrapper = (xidwrapper *)self;
+    assert(wrapper->data != NULL);
+    if (wrapper->data == NULL) {
+        PyErr_SetString(PyExc_ValueError, "missing cross-interpreter data");
+        return NULL;
+    }
+    return _PyXIData_NewObjectNotUnwrapped(wrapper->data);
+}
+
+PyDoc_STRVAR(xidwrapper_as_wrapped_object___doc__,
+"as_wrapped_object($self) -> object\n\
+\n\
+Return an object corresponding to the original wrapper around the\n\
+shareable object.\n\
+\n\
+If the original object wasn't wrapped then it is returned.\n\
 ");
 
 static PyMethodDef xidwrapper_methods[] = {
     {"__xidata__",                _PyCFunction_CAST(xidwrapper___xidata__),
      METH_NOARGS, NULL},
     {"as_object",                 _PyCFunction_CAST(xidwrapper_as_object),
-     METH_VARARGS | METH_KEYWORDS, xidwrapper_as_object___doc__},
-    {NULL,              NULL}           /* sentinel */
+     METH_NOARGS, xidwrapper_as_object___doc__},
+    {"as_wrapped_object",
+     _PyCFunction_CAST(xidwrapper_as_wrapped_object),
+     METH_NOARGS, xidwrapper_as_wrapped_object___doc__},
+    {NULL, NULL}           /* sentinel */
 };
-
-static PyObject *
-xidwrapper_get_orig(PyObject *self, void *Py_UNUSED(closure))
-{
-    xidwrapper *wrapper = (xidwrapper *)self;
-    if (wrapper->orig == NULL) {
-        PyErr_SetString(PyExc_ValueError, "original object not available");
-        return NULL;
-    }
-    return Py_NewRef(wrapper->orig);
-}
 
 static PyObject *
 xidwrapper_get_iswrapped(PyObject *self, void *Py_UNUSED(closure))
 {
-    int iswrapped;
     xidwrapper *wrapper = (xidwrapper *)self;
-    if (wrapper->data != NULL) {
-        iswrapped = (_PyXIData_GetUnwrapper(wrapper->data, NULL) != NULL);
+    assert(wrapper->data != NULL);
+    if (wrapper->data == NULL) {
+        PyErr_SetString(PyExc_ValueError, "missing cross-interpreter data");
+        return NULL;
     }
-    else if (wrapper->used != NULL) {
-        iswrapped = (_PyXIData_GetUnwrapper(wrapper->used, NULL) != NULL);
-    }
-    else {
-        PyThreadState *tstate = PyThreadState_Get();
-        if (_xidwrapper_bind(tstate, wrapper) < 0) {
-            return NULL;
-        }
-        assert(wrapper->data != NULL);
-        iswrapped = (_PyXIData_GetUnwrapper(wrapper->data, NULL) != NULL);
-    }
+    int iswrapped = (_PyXIData_GetUnwrapper(wrapper->data, NULL) != NULL);
     if (iswrapped) {
         Py_RETURN_TRUE;
     }
     Py_RETURN_FALSE;
 }
 
-static PyObject *
-xidwrapper_get_reusable(PyObject *self, void *Py_UNUSED(closure))
-{
-    xidwrapper *wrapper = (xidwrapper *)self;
-    if (wrapper->orig != NULL) {
-        Py_RETURN_TRUE;
-    }
-    Py_RETURN_FALSE;
-}
-
 static PyGetSetDef xidwrapper_getsets[] = {
-    {"orig",         xidwrapper_get_orig, NULL, NULL},
     {"iswrapped",    xidwrapper_get_iswrapped, NULL, NULL},
-    {"reusable",     xidwrapper_get_reusable, NULL, NULL},
     {0}
 };
 
 PyTypeObject _PyXIDataWrapper_Type = {
     PyVarObject_HEAD_INIT(&PyType_Type, 0)
     .tp_name = XIDWRAPPER_CLASSNAME,
-    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_DISALLOW_INSTANTIATION,
     .tp_basicsize = sizeof(xidwrapper),
     .tp_dealloc = (destructor)xidwrapper_dealloc,
-    .tp_repr = xidwrapper_repr,
     .tp_doc = xidwrapper___doc__,
-    .tp_traverse = xidwrapper_traverse,
-    .tp_clear = xidwrapper_clear,
     .tp_methods = xidwrapper_methods,
     .tp_getset = xidwrapper_getsets,
-    .tp_new = xidwrapper_new,
     //.tp_xidata = xidwrapper_share,
 };
 
@@ -2055,14 +1845,10 @@ _PyXIDataWrapper_Check(PyObject *obj)
 
 
 PyObject *
-_PyXIDataWrapper_New(PyThreadState *tstate, PyObject *obj)
+_PyXIDataWrapper_New(PyThreadState *tstate, _PyXIData_t *xidata)
 {
-    if (obj == NULL) {
-        PyErr_SetString(PyExc_ValueError, "missing obj");
-        return NULL;
-    }
     xidwrapper *wrapper = _new_xidwrapper(
-                tstate, &_PyXIDataWrapper_Type, NULL, obj, 1, NULL, NULL);
+                            tstate, &_PyXIDataWrapper_Type, xidata, 1);
     if (wrapper == NULL) {
         return NULL;
     }
@@ -2070,74 +1856,32 @@ _PyXIDataWrapper_New(PyThreadState *tstate, PyObject *obj)
 }
 
 PyObject *
-_PyXIDataWrapper_NewWithoutFallback(PyThreadState *tstate, PyObject *obj)
+_PyXIDataWrapper_FromObject(PyThreadState *tstate, PyObject *obj,
+                            PyObject *wrap, xidata_fallback_t fallback)
 {
-    if (obj == NULL) {
-        PyErr_SetString(PyExc_ValueError, "missing obj");
+    _PyXIData_t *xidata = _PyXIData_New();
+    if (xidata == NULL) {
         return NULL;
     }
-    xidwrapper *wrapper = _new_xidwrapper(
-                tstate, &_PyXIDataWrapper_Type, NULL, obj, 0, NULL, NULL);
-    if (wrapper == NULL) {
-        return NULL;
-    }
-    return (PyObject *)wrapper;
-}
 
-PyObject *
-_PyXIDataWrapper_NewWithWrapFunc(PyThreadState *tstate,
-                                 PyObject *obj, xid_wrapfunc wrap)
-{
-    if (obj == NULL) {
-        PyErr_SetString(PyExc_ValueError, "missing obj");
+    int res;
+    if (wrap != NULL) {
+        // XXX Pass fallback.
+        res = _PyObject_GetXIDataWrappedWithObj(tstate, obj, wrap, xidata);
+    }
+    else {
+        res = _PyObject_GetXIData(tstate, obj, fallback, xidata);
+    }
+    if (res < 0) {
+        _PyXIData_Free(xidata);
         return NULL;
     }
-    if (wrap == NULL) {
-        PyErr_SetString(PyExc_ValueError, "missing wrap func");
-        return NULL;
-    }
-    xidwrapper *wrapper = _new_xidwrapper(
-                tstate, &_PyXIDataWrapper_Type, NULL, obj, 0, wrap, NULL);
-    if (wrapper == NULL) {
-        return NULL;
-    }
-    return (PyObject *)wrapper;
-}
 
-PyObject *
-_PyXIDataWrapper_NewWithWrapObj(PyThreadState *tstate,
-                                PyObject *obj, PyObject *wrap)
-{
-    if (obj == NULL) {
-        PyErr_SetString(PyExc_ValueError, "missing obj");
-        return NULL;
-    }
-    if (wrap == NULL) {
-        PyErr_SetString(PyExc_ValueError, "missing wrap func");
-        return NULL;
-    }
-    if (!PyCallable_Check(wrap)) {
-        PyErr_SetString(PyExc_TypeError, "wrap arg is not callable");
-        return NULL;
-    }
     xidwrapper *wrapper = _new_xidwrapper(
-                tstate, &_PyXIDataWrapper_Type, NULL, obj, 0, NULL, wrap);
+                            tstate, &_PyXIDataWrapper_Type, xidata, 1);
     if (wrapper == NULL) {
-        return NULL;
-    }
-    return (PyObject *)wrapper;
-}
-
-PyObject *
-_PyXIDataWrapper_FromData(PyThreadState *tstate, _PyXIData_t *data)
-{
-    if (data == NULL) {
-        PyErr_SetString(PyExc_ValueError, "missing data");
-        return NULL;
-    }
-    xidwrapper *wrapper = _new_xidwrapper(
-                tstate, &_PyXIDataWrapper_Type, data, NULL, 0, NULL, NULL);
-    if (wrapper == NULL) {
+        _xidata_clear(xidata);
+        _PyXIData_Free(xidata);
         return NULL;
     }
     return (PyObject *)wrapper;

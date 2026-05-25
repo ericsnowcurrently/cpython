@@ -95,6 +95,33 @@ unwrap_not_shareable(PyThreadState *tstate, _PyXI_failure *failure)
 }
 
 
+#define DEFAULT_FALLBACK_ARG _PyXIDATA_XIDATA_ONLY
+
+static int
+convert_xidata_fallback(PyObject *argobj, xidata_fallback_t *fallback)
+{
+    if (argobj == Py_True) {
+        *fallback = _PyXIDATA_FULL_FALLBACK;
+    }
+    else if (argobj == Py_False) {
+        *fallback = _PyXIDATA_XIDATA_ONLY;
+    }
+    else if (argobj == Py_None) {
+        *fallback = DEFAULT_FALLBACK_ARG;
+    }
+    else if (PyUnicode_Check(argobj)) {
+        // XXX Support str args, e.g. "xidata-only", "full"?
+        PyErr_SetString(PyExc_TypeError, "unsupported fallback arg");
+        return 1;
+    }
+    else {
+        PyErr_SetString(PyExc_TypeError, "unsupported fallback arg");
+        return 1;
+    }
+    return 0;
+}
+
+
 /* Cross-interpreter Buffer Views *******************************************/
 
 /* When a memoryview object is "shared" between interpreters,
@@ -1352,21 +1379,23 @@ _interpreters_is_shareable_impl(PyObject *module, PyObject *obj)
 static PyObject *
 object_as_shareable(PyObject *self, PyObject *args, PyObject *kwds)
 {
-    static char *kwlist[] = {"obj", "wrap", NULL};
+    static char *kwlist[] = {"obj", "wrap", "fallback", NULL};
     PyObject *obj;
     PyObject *wrapobj = NULL;
+    xidata_fallback_t fallback = DEFAULT_FALLBACK_ARG;
     if (!PyArg_ParseTupleAndKeywords(args, kwds,
-                                     "O|$O:as_shareable", kwlist,
-                                     &obj, &wrapobj)) {
+                                     "O|$O$O&:as_shareable", kwlist,
+                                     &obj, &wrapobj,
+                                     convert_xidata_fallback, &fallback)) {
         return NULL;
     }
-    // For now, this is a minimal wrapper around _PyXIDataWrapper_Type.
-    PyObject *wrappertype = (PyObject *)&_PyXIDataWrapper_Type;
-    return PyObject_Call(wrappertype, args, kwds);
+
+    PyThreadState *tstate = _PyThreadState_GET();
+    return _PyXIDataWrapper_FromObject(tstate, obj, wrapobj, fallback);
 }
 
 PyDoc_STRVAR(as_shareable_doc,
-"as_shareable(obj, *, wrap=None) -> CrossInterpreterObjectData\n\
+"as_shareable(obj, wrap=None, *, fallback=None) -> CrossInterpreterObjectData\n\
 \n\
 Return a wrapper around the cross-interpreter-safe data for the object.\n\
 \n\

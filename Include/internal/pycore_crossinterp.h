@@ -298,21 +298,12 @@ PyAPI_FUNC(int) _PyXIDataWrapper_CheckExact(PyObject *);
 
 PyAPI_FUNC(PyObject *) _PyXIDataWrapper_New(
         PyThreadState *,
-        PyObject *);
-PyAPI_FUNC(PyObject *) _PyXIDataWrapper_NewWithoutFallback(
-        PyThreadState *,
-        PyObject *);
-PyAPI_FUNC(PyObject *) _PyXIDataWrapper_FromWrapFunc(
-        PyThreadState *,
-        PyObject *,
-        xid_wrapfunc);
-PyAPI_FUNC(PyObject *) _PyXIDataWrapper_FromWrapObj(
-        PyThreadState *,
-        PyObject *,
-        PyObject *);  // same as _PyObject_GetXIDataWrappedWithObj()
-PyAPI_FUNC(PyObject *) _PyXIDataWrapper_FromData(
-        PyThreadState *,
         _PyXIData_t *);
+PyAPI_FUNC(PyObject *) _PyXIDataWrapper_FromObject(
+        PyThreadState *tstate,
+        PyObject *obj,
+        PyObject *wrap,
+        xidata_fallback_t fallback);
 
 
 /* cross-interpreter data registry */
