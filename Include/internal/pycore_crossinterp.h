@@ -133,7 +133,16 @@ PyAPI_FUNC(void) _PyXIData_Clear(PyInterpreterState *, _PyXIData_t *);
 
 typedef int xidata_fallback_t;
 #define _PyXIDATA_XIDATA_ONLY (0)
-#define _PyXIDATA_FULL_FALLBACK (1)
+#define _PyXIDATA_SPECIAL_METHOD (1)
+#define _PyXIDATA_FUNCTION (2)
+//#define _PyXIDATA_SCRIPT (3)
+//#define _PyXIDATA_MARSHAL (4)
+#define _PyXIDATA_PICKLE (5)
+#define _PyXIDATA_FULL_FALLBACK \
+    (_PyXIDATA_XIDATA_ONLY | \
+     _PyXIDATA_SPECIAL_METHOD | \
+     _PyXIDATA_FUNCTION | \
+     _PyXIDATA_PICKLE)
 
 // Technically, we don't need two different function types;
 // we could go with just the fallback one.  However, only container
@@ -246,11 +255,6 @@ typedef int (*xid_wrapfunc)(PyThreadState *, PyObject *,
                             PyObject **, struct _xidata_unwrapper *);
 
 // Like _PyObject_GetXIData(), but with a wrapper.
-PyAPI_FUNC(int) _PyObject_GetXIDataWrapped(
-        PyThreadState *tstate,
-        PyObject *,
-        xid_wrapfunc,
-        _PyXIData_t *);
 PyAPI_FUNC(int) _PyObject_GetXIDataWrappedWithObj(
         PyThreadState *tstate,
         PyObject *,

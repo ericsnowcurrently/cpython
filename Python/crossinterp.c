@@ -354,6 +354,14 @@ _xidata_clear(_PyXIData_t *xidata)
     Py_CLEAR(xidata->obj);
 }
 
+static int
+_xidata_copy(_PyXIData_t *src, _PyXIData_t *dst)
+{
+    // XXX Do more than a shallow copy for some fields?
+    *dst = *src;
+    return 0;
+}
+
 void
 _PyXIData_Init(_PyXIData_t *xidata,
                PyInterpreterState *interp,
@@ -646,14 +654,19 @@ _PyXIData_NewObjectNotUnwrapped(_PyXIData_t *data)
 
 static int
 unpack_wrap_result(PyThreadState *tstate, PyObject *resobj,
-                   PyObject **res_wrapped, PyObject **res_unwrap,
-                   _PyXIData_unwrapper_t **res_unwrapper)
+                   PyObject **res_wrapped, PyObject **res_unwrap)
 {
     assert(resobj != NULL);
     if (resobj == Py_None) {
         *res_wrapped = NULL;
         *res_unwrap = NULL;
-        *res_unwrapper = NULL;
+        return 0;
+    }
+    else if (_PyXIDataWrapper_CheckExact(resobj)) {
+        // This is a convenience shortcut.
+        // XXX Drop the shortcut?
+        *res_wrapped = Py_NewRef(resobj);
+        *res_unwrap = Py_NewRef(Py_None);
         return 0;
     }
 
@@ -661,122 +674,159 @@ unpack_wrap_result(PyThreadState *tstate, PyObject *resobj,
     PyObject *unwrap = NULL;
     if (PyTuple_Check(resobj)) {
         if (PyTuple_GET_SIZE(resobj) != 2) {
-            goto error;
+            return -1;
         }
         wrapped = Py_NewRef(PyTuple_GET_ITEM(resobj, 0));
         unwrap = Py_NewRef(PyTuple_GET_ITEM(resobj, 1));
     }
     else {
          if (PySequence_Length(resobj) != 2) {
-             goto error;
+             return -1;
          }
          wrapped = PySequence_GetItem(resobj, 0);
          if (wrapped == NULL) {
-             goto error;
+             return -1;
          }
          unwrap = PySequence_GetItem(resobj, 1);
          if (unwrap == NULL) {
-             goto error;
+             Py_DECREF(wrapped);
+             return -1;
          }
     }
 
-    // If the user doesn't want to wrap the object and only wants
-    // to unwrap then they will return the object as-is.
-    if (_PyObject_CheckXIData(tstate, wrapped) != 0) {
-        assert(PyErr_Occurred());
-        goto error;
+    // Make sure an unwrap func isn't provided for
+    // CrossInterpreterObjectData objects.
+    if (_PyXIDataWrapper_CheckExact(wrapped) && unwrap != Py_None) {
+        Py_DECREF(wrapped);
+        Py_DECREF(unwrap);
+        PyErr_Format(PyExc_ValueError,
+                     "got unexpected unwrap value %R", unwrap);
+        return -1;
     }
 
-    _PyXIData_unwrapper_t _unwrapper = {0};
-    _PyXIData_unwrapper_t *unwrapper = &_unwrapper;
-    if (unwrap == Py_None) {
-        Py_CLEAR(unwrap);
-        unwrapper = NULL;
-    }
-    else if (res_unwrapper == NULL || *res_unwrapper == NULL) {
-        unwrapper = NULL;
-    }
-    else {
-        if (xidata_unwrapper_from_object(tstate, unwrap, unwrapper) < 0) {
-            goto error;
-        }
+    // Make sure the object is cross-interpreter compatible.
+    if (_PyObject_CheckXIData(tstate, wrapped) != 0) {
+        assert(PyErr_Occurred());
+        Py_DECREF(wrapped);
+        Py_DECREF(unwrap);
+        return -1;
     }
 
     *res_wrapped = wrapped;
     *res_unwrap = unwrap;
-    if (res_unwrapper != NULL) {
-        if (unwrapper == NULL) {
-            *res_unwrapper = NULL;
+    return 0;
+}
+
+static int _xidata_is_empty(_PyXIData_t *);
+static _PyXIData_t * _xidwrapper_get_xidata(PyObject *);
+
+static int
+apply_wrap_result(PyThreadState *tstate, PyObject *wrapped, PyObject *unwrap,
+                  _PyXIData_t *xidata)
+{
+    // XXX Relax the "empty" assert?
+    assert(_xidata_is_empty(xidata));
+    assert(wrapped != NULL);
+    assert(unwrap != NULL);
+
+    // Apply the wrap() result.
+    _PyXIData_t *owned = xidata;
+    if (_PyXIDataWrapper_Check(wrapped)) {
+        // Copy the wrapped data as-is.
+        assert(unwrap == Py_None);
+        _PyXIData_t *wrapped_data = _xidwrapper_get_xidata(wrapped);
+        if (_xidata_copy(wrapped_data, xidata) < 0) {
+            goto error;
         }
-        else {
-            // The result takes ownership of the unwrapper data.
-            **res_unwrapper = *unwrapper;
+        owned = NULL;
+    }
+    else {
+        // The "wrapped" object is expected to be cross-interpreter
+        // compatible, so we can skip all fallbacks.
+        xidata_fallback_t fallback = _PyXIDATA_XIDATA_ONLY;
+        int res = _PyObject_GetXIData(tstate, wrapped, fallback, xidata);
+        Py_DECREF(wrapped);
+        if (res < 0) {
+            goto error;
+        }
+    }
+
+    // Apply the unwrapper, if any.
+    if (unwrap == Py_None) {
+        // There is no unwrapper.
+    }
+    else if (unwrap != NULL) {
+        _PyXIData_unwrapper_t _unwrapper = {0};
+        _PyXIData_unwrapper_t *unwrapper = &_unwrapper;
+        if (xidata_unwrapper_from_object(tstate, unwrap, unwrapper) < 0) {
+            goto error;
+        }
+        // If this succeeds then the xidata takes ownership
+        // of the unerapper data, so we don't clear it.
+        if (_PyXIData_SetUnwrapper(tstate, xidata, unwrapper) < 0) {
+            unwrapper_clear(unwrapper);
+            if (owned != NULL) {
+                _xidata_clear(owned);
+            }
+            goto error;
         }
     }
     return 0;
+    PyObject *cause;
 
 error:
-    Py_XDECREF(wrapped);
-    Py_XDECREF(unwrap);
+    cause = _PyErr_GetRaisedException(tstate);
+    assert(cause != NULL);
+    set_notshareableerror(tstate, cause, 0, "error while wrapping object");
+    Py_DECREF(cause);
     return -1;
 }
 
-static PyObject *
-try___xidata__(PyThreadState *tstate, PyObject *obj)
+static int
+call_xidata_wrap(PyThreadState *tstate,
+                 PyObject *obj, PyObject *wrapobj, const char *ctx,
+                 _PyXIData_t *xidata)
 {
-    PyObject *meth = _PyObject_LookupSpecial(obj, &_Py_ID(__xidata__));
-    if (meth == NULL) {
-        if (!PyErr_Occurred()) {
-            Py_RETURN_NONE;
-        }
-        return NULL;
+    // We do not use any fallbacks, since the wrapped object is expected
+    // to be cross-interpreter compatible and any unwrap func is
+    // expected to be stateless (and thus compatible).
+
+    // Call the wrapper.
+    // It must return a tuple of (C-shareable obj, unwrap func).
+    PyObject *resobj = PyObject_CallOneArg(wrapobj, obj);
+    if (resobj == NULL) {
+        return -1;
     }
-    PyObject *wrapper = PyObject_CallOneArg(meth, obj);
-    Py_DECREF(meth);
-    if (wrapper == NULL) {
-        return NULL;
+
+    // Unpack the result.
+    PyObject *wrapped = NULL;
+    PyObject *unwrap = NULL;
+    if (unpack_wrap_result(tstate, resobj, &wrapped, &unwrap) < 0) {
+        const char *msg = "expected %s to return a tuple of "
+                          "(wrapped obj, unwrap func), got %R";
+        PyErr_Format(PyExc_ValueError, msg, ctx, resobj);
+        Py_DECREF(resobj);
+        return -1;
     }
-    if (!_PyXIDataWrapper_Check(wrapper)) {
-        if (wrapper != Py_None) {
-            PyErr_Format(PyExc_TypeError,
-                         "expected __xidata__() to return " XIDWRAPPER_CLASSNAME
-                         ", got %R", wrapper);
-            Py_DECREF(wrapper);
-            return NULL;
-        }
-    }
-    return wrapper;
+    Py_CLEAR(resobj);
+
+    // Apply the result.
+    int res = apply_wrap_result(tstate, wrapped, unwrap, xidata);
+    Py_XDECREF(wrapped);
+    Py_XDECREF(unwrap);
+    return res;
 }
 
 static int
-try___xidata_wrap__(PyThreadState *tstate, PyObject *obj,
-                    PyObject **res_wrapped, PyObject **res_unwrap,
-                    _PyXIData_unwrapper_t **res_unwrapper)
+try___xidata__(PyThreadState *tstate, PyObject *obj, _PyXIData_t *xidata)
 {
-    // Return None if the special method is not there.
-    PyObject *meth = _PyObject_LookupSpecial(obj, &_Py_ID(__xidata_wrap__));
+    PyObject *meth = _PyObject_LookupSpecial(obj, &_Py_ID(__xidata__));
     if (meth == NULL) {
-        if (!PyErr_Occurred()) {
-            *res_wrapped = NULL;
-            *res_unwrap = NULL;
-            return 0;
-        }
         return -1;
     }
-    PyObject *wrapres = PyObject_CallOneArg(meth, obj);
+    int res = call_xidata_wrap(tstate, obj, meth,"__xidata__()",  xidata);
     Py_DECREF(meth);
-    if (wrapres == NULL) {
-        return -1;
-    }
-    if (unpack_wrap_result(
-                tstate, wrapres, res_wrapped, res_unwrap, res_unwrapper) < 0)
-    {
-        const char *msg = "expected __xidata_wrap__() to return a tuple of "
-                          "(wrapped obj, unwrap func), got %R";
-        _PyXIData_FormatNotShareableError(tstate, msg, wrapres);
-        return -1;
-    }
-    return 0;
+    return res;
 }
 
 
@@ -810,6 +860,7 @@ _PyObject_CheckXIData(PyThreadState *tstate, PyObject *obj)
     }
     _PyXIData_getdata_t getdata = lookup_getdata(&ctx, obj);
     if (getdata.basic == NULL && getdata.fallback == NULL) {
+        // XXX Also check for __xidata__?
         if (!_PyErr_Occurred(tstate)) {
             _set_xid_lookup_failure(tstate, obj, NULL, NULL);
         }
@@ -859,30 +910,26 @@ _get_xidata(PyThreadState *tstate,
         return -1;
     }
     Py_INCREF(obj);
+    int res = -1;
     _PyXIData_getdata_t getdata = lookup_getdata(&ctx, obj);
-    if (getdata.basic == NULL && getdata.fallback == NULL) {
-        if (PyErr_Occurred()) {
-            Py_DECREF(obj);
-            return -1;
-        }
-        // Fall back to obj
+    if (getdata.basic != NULL) {
+        res = getdata.basic(tstate, obj, xidata);
+    }
+    else if (getdata.fallback != NULL) {
+        res = getdata.fallback(tstate, obj, fallback, xidata);
+    }
+    else if (PyErr_Occurred()) {
         Py_DECREF(obj);
-        if (!_PyErr_Occurred(tstate)) {
-            _set_xid_lookup_failure(tstate, obj, NULL, NULL);
-        }
         return -1;
     }
-    int res = getdata.basic != NULL
-        ? getdata.basic(tstate, obj, xidata)
-        : getdata.fallback(tstate, obj, fallback, xidata);
-    Py_DECREF(obj);
-    if (res != 0) {
+    if (res < 0) {
         PyObject *cause = _PyErr_GetRaisedException(tstate);
-        assert(cause != NULL);
         _set_xid_lookup_failure(tstate, obj, NULL, cause);
         Py_XDECREF(cause);
+        Py_DECREF(obj);
         return -1;
     }
+    Py_DECREF(obj);
 
     // Fill in the blanks and validate the result.
     _PyXIData_INTERPID(xidata) = PyInterpreterState_GetID(interp);
@@ -906,197 +953,67 @@ _PyObject_GetXIData(PyThreadState *tstate,
                     PyObject *obj, xidata_fallback_t fallback,
                     _PyXIData_t *xidata)
 {
-    switch (fallback) {
-        case _PyXIDATA_XIDATA_ONLY:
-            return _get_xidata(tstate, obj, fallback, xidata);
-        case _PyXIDATA_FULL_FALLBACK:
-            if (_get_xidata(tstate, obj, fallback, xidata) == 0) {
+    assert((fallback & _PyXIDATA_XIDATA_ONLY) == _PyXIDATA_XIDATA_ONLY);
+    assert((fallback & ~_PyXIDATA_FULL_FALLBACK) == 0);
+
+    // First try the type's xidatafunc, if available.
+    if (_get_xidata(tstate, obj, fallback, xidata) == 0) {
+        return 0;
+    }
+    PyObject *exc = _PyErr_GetRaisedException(tstate);
+
+    // Try the various fallbacks, as requested.
+    if (fallback & _PyXIDATA_SPECIAL_METHOD) {
+        if (try___xidata__(tstate, obj, xidata) == 0) {
+            goto success;
+        }
+        _PyErr_Clear(tstate);
+    }
+    if (fallback & _PyXIDATA_FUNCTION) {
+        if (PyFunction_Check(obj)) {
+            if (_PyFunction_GetXIData(tstate, obj, xidata) == 0) {
                 return 0;
             }
-            PyObject *exc = _PyErr_GetRaisedException(tstate);
-            if (PyFunction_Check(obj)) {
-                if (_PyFunction_GetXIData(tstate, obj, xidata) == 0) {
-                    Py_DECREF(exc);
-                    return 0;
-                }
-                _PyErr_Clear(tstate);
-            }
-            // We could try _PyMarshal_GetXIData() but we won't for now.
-            if (_PyPickle_GetXIData(tstate, obj, xidata) == 0) {
-                Py_DECREF(exc);
-                return 0;
-            }
-            // Raise the original exception.
-            _PyErr_SetRaisedException(tstate, exc);
-            return -1;
-        default:
-#ifdef Py_DEBUG
-            Py_FatalError("unsupported xidata fallback option");
-#endif
-            _PyErr_SetString(tstate, PyExc_SystemError,
-                             "unsupported xidata fallback option");
-            return -1;
-    }
-}
-
-int
-_PyObject_GetXIDataWrapped(PyThreadState *tstate,
-                           PyObject *obj, xid_wrapfunc wrap,
-                           _PyXIData_t *data)
-{
-    // XXX Add fallback arg?
-    PyObject *wrapped = NULL;
-    _PyXIData_unwrapper_t _unwrapper = {0};
-    _PyXIData_unwrapper_t *unwrapper = &_unwrapper;
-    if (wrap != NULL) {
-        if (wrap(tstate, obj, &wrapped, unwrapper) < 0) {
-            // We leave the exception in place while we try the fallback,
-            // so any exception will have __context__ set.
+            _PyErr_Clear(tstate);
         }
+    }
+    // We could try _PyCode_GetScriptXIData() or the pure version
+    // but we won't for now.
+    // Likewise We could try _PyMarshal_GetXIData().
+    if (fallback & _PyXIDATA_PICKLE) {
+        if (_PyPickle_GetXIData(tstate, obj, xidata) == 0) {
+            Py_DECREF(exc);
+            return 0;
+        }
+        _PyErr_Clear(tstate);
     }
 
-    if (wrapped == NULL) {
-        // Fall back to __xidata__().
-        PyObject *wrapper = try___xidata__(tstate, obj);
-        if (wrapper == NULL) {
-            goto error;
-        }
-        if (wrapper == Py_None) {
-            // Try the next option.
-            Py_DECREF(wrapper);
-        }
-        else {
-            // XXX apply directly
-            PyErr_SetString(PyExc_NotImplementedError, "TBD");
-            return -1;
-        }
-
-        // Fall back to __xidata_wrap__().
-        PyObject *unwrap = NULL;
-        if (try___xidata_wrap__(
-                        tstate, obj, &wrapped, &unwrap, &unwrapper) < 0)
-        {
-            goto error;
-        }
-        if (wrapped == NULL) {
-            wrapped = Py_NewRef(obj);
-        }
-        if (unwrap == NULL) {
-            unwrapper = NULL;
-        }
-    }
-
-    // The fallback is done so raise the exception from wrap(), if any.
-    if (PyErr_Occurred()) {
-        goto error;
-    }
-
-    // Apply the wrap() result.
-    xidata_fallback_t fallback = _PyXIDATA_XIDATA_ONLY;
-    int res = _PyObject_GetXIData(tstate, wrapped, fallback, data);
-    Py_DECREF(wrapped);
-    if (res < 0) {
-        goto error;
-    }
-    if (unwrapper != NULL) {
-        if (_PyXIData_SetUnwrapper(tstate, data, unwrapper) < 0) {
-            _xidata_clear(data);
-            goto error;
-        }
-    }
-    return 0;
-
-error:
-    Py_XDECREF(wrapped);
-    if (unwrapper != NULL) {
-        unwrapper_clear(unwrapper);
-    }
-    PyObject *cause = _PyErr_GetRaisedException(tstate);
-    assert(cause != NULL);
-    set_notshareableerror(tstate, cause, 0, "error while wrapping object");
-    Py_DECREF(cause);
+    // None of the fallbacks worked, so we raise the original exception.
+    _PyErr_SetRaisedException(tstate, exc);
     return -1;
+
+success:
+    Py_DECREF(exc);
+    return 0;
 }
 
 int
 _PyObject_GetXIDataWrappedWithObj(PyThreadState *tstate,
                                   PyObject *obj, PyObject *wrapobj,
-//                                  xidata_fallback_t fallback,
-                                  _PyXIData_t *data)
+                                  _PyXIData_t *xidata)
 {
-    // XXX Add fallback arg?
-    // We do not fall back to special methods.  That is done
-    // only in _PyObject_GetXIDataWrapped().
     if (wrapobj == NULL || wrapobj == Py_None) {
         _PyErr_SetString(tstate, PyExc_ValueError, "missing wrap function");
         return -1;
     }
-    // Call the wrapper and handle the result.  It must return either
-    // a tuple of (C-shareable obj, unwrap func) or an instance of
-    // _PyXIDataWrapper_Type.
-    PyObject *resobj = PyObject_CallOneArg(wrapobj, obj);
-    if (resobj == NULL) {
-        goto error;
-    }
-
-    // Handle the wrapper case.
-    if (_PyXIDataWrapper_Check(resobj)) {
-        // XXX apply directly
-        return 0;
-    }
-
-    // Handle the normal case.
-    PyObject *wrapped = NULL;
-    PyObject *unwrap = NULL;
-    _PyXIData_unwrapper_t _unwrapper = {0};
-    _PyXIData_unwrapper_t *unwrapper = &_unwrapper;
-    if (unpack_wrap_result(
-                tstate, resobj, &wrapped, &unwrap, &unwrapper) < 0)
-    {
-        PyErr_Format(PyExc_ValueError,
-                     "wrap func returned unexpected value %R", resobj);
-        Py_DECREF(resobj);
-        goto error;
-    }
-    if (wrapped == NULL) {
-        wrapped = Py_NewRef(obj);
-    }
-    if (unwrap == NULL) {
-        assert(unwrapper->func == NULL);
-        unwrapper = NULL;
-    }
-    else {
-        Py_DECREF(unwrap);
-    }
-
-    // Apply the wrap() result.
-    xidata_fallback_t fallback = _PyXIDATA_XIDATA_ONLY;
-    int res = _PyObject_GetXIData(tstate, wrapped, fallback, data);
-    Py_DECREF(wrapped);
-    if (res < 0) {
-        if (unwrapper != NULL) {
-            unwrapper_clear(unwrapper);
-        }
-        goto error;
-    }
-    if (unwrapper != NULL) {
-        // If this succeeds then the xidata takes ownership
-        // of the unerapper data, so we don't clear it.
-        if (_PyXIData_SetUnwrapper(tstate, data, unwrapper) < 0) {
-            unwrapper_clear(unwrapper);
-            _xidata_clear(data);
-            goto error;
-        }
+    if (call_xidata_wrap(tstate, obj, wrapobj, "wrap func", xidata) < 0) {
+        PyObject *cause = _PyErr_GetRaisedException(tstate);
+        assert(cause != NULL);
+        set_notshareableerror(tstate, cause, 0, "error while wrapping object");
+        Py_DECREF(cause);
+        return -1;
     }
     return 0;
-    PyObject *cause;
-
-error:
-    cause = _PyErr_GetRaisedException(tstate);
-    assert(cause != NULL);
-    set_notshareableerror(tstate, cause, 0, "error while wrapping object");
-    Py_DECREF(cause);
-    return -1;
 }
 
 
@@ -1675,6 +1592,12 @@ _xidwrapper_free(xidwrapper *wrapper)
     }
     // Free it.
     PyObject_Free((PyObject *)wrapper);
+}
+
+static _PyXIData_t *
+_xidwrapper_get_xidata(PyObject *wrapper)
+{
+    return ((xidwrapper *)wrapper)->data;
 }
 
 // _PyXIDataWrapper_Type "tp slots"
