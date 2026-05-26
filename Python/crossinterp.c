@@ -562,6 +562,27 @@ _new_object_from_converted(_PyXIData_t *data)
     return converted_apply(tstate, (struct _converted *)data->data, data);
 }
 
+static int
+converted_unpack(struct _converted *converted, _PyXIData_t *xidata,
+                 PyObject **res_converted, PyObject **res_restore)
+{
+    assert(xidata->new_object == _new_object_from_converted);
+    PyObject *convertedobj = converted_orig_apply(&converted->orig, xidata);
+    if (convertedobj == NULL) {
+        return -1;
+    }
+    _PyXIData_unconverter_t *unconverter = &converted->unconverter;
+    assert(unconverter->func == (xid_unconvertfunc)_unconvert_with_object);
+    PyObject *restore = _PyXIData_NewObject(unconverter->data);
+    if (restore == NULL) {
+        Py_DECREF(convertedobj);
+        return -1;
+    }
+    *res_converted = convertedobj;
+    *res_restore = restore;
+    return 0;
+}
+
 // This takes "ownership" of the given unconverter data.
 int
 _PyXIData_SetUnconverter(PyThreadState *tstate, _PyXIData_t *data,
@@ -592,13 +613,26 @@ _PyXIData_GetUnconverter(_PyXIData_t *data, _PyXIData_converted_orig_t *orig)
 }
 
 PyObject *
-_PyXIData_NewObjectIgnoreConversion(_PyXIData_t *data)
+_PyXIData_NewObjectIgnoreConversion(_PyXIData_t *xidata)
 {
-    if (data->new_object == _new_object_from_converted) {
-        PyThreadState *tstate = _PyThreadState_GET();
-        return converted_apply(tstate, (struct _converted *)data->data, data);
+    PyObject *converted;
+    PyObject *restore;
+    if (xidata->new_object != _new_object_from_converted) {
+        converted = _PyXIData_NewObject(xidata);
+        if (converted == NULL) {
+            return NULL;
+        }
+        restore = Py_NewRef(Py_None);
     }
-    return _PyXIData_NewObject(data);
+    else {
+        if (converted_unpack(xidata->data, xidata, &converted, &restore) < 0) {
+            return NULL;
+        }
+    }
+    PyObject *res = PyTuple_Pack(2, converted, restore);
+    Py_DECREF(converted);
+    Py_DECREF(restore);
+    return res;
 }
 
 
@@ -1625,7 +1659,7 @@ Return an object corresponding to the original shareable object.\n\
 ");
 
 static PyObject *
-xidwrapper_as_wrapped_object(PyObject *self)
+xidwrapper_as_converted_object(PyObject *self)
 {
     xidwrapper *wrapper = (xidwrapper *)self;
     assert(wrapper->data != NULL);
@@ -1636,13 +1670,15 @@ xidwrapper_as_wrapped_object(PyObject *self)
     return _PyXIData_NewObjectIgnoreConversion(wrapper->data);
 }
 
-PyDoc_STRVAR(xidwrapper_as_wrapped_object___doc__,
-"as_wrapped_object($self) -> object\n\
+PyDoc_STRVAR(xidwrapper_as_converted_object___doc__,
+"as_converted_object($self) -> (object, restore)\n\
 \n\
-Return an object corresponding to the original wrapper around the\n\
-shareable object.\n\
+Return an object corresponding to the result of converting\n\
+the original object to a shareable one, along with a function\n\
+to \"unconvert\" it (like as_object() does).\n\
 \n\
-If the original object wasn't wrapped then it is returned.\n\
+If the original object wasn't converted then it is returned,\n\
+along with None.\n\
 ");
 
 static PyMethodDef xidwrapper_methods[] = {
@@ -1650,9 +1686,9 @@ static PyMethodDef xidwrapper_methods[] = {
      METH_NOARGS, NULL},
     {"as_object",                 _PyCFunction_CAST(xidwrapper_as_object),
      METH_NOARGS, xidwrapper_as_object___doc__},
-    {"as_wrapped_object",
-     _PyCFunction_CAST(xidwrapper_as_wrapped_object),
-     METH_NOARGS, xidwrapper_as_wrapped_object___doc__},
+    {"as_converted_object",
+     _PyCFunction_CAST(xidwrapper_as_converted_object),
+     METH_NOARGS, xidwrapper_as_converted_object___doc__},
     {NULL, NULL}           /* sentinel */
 };
 

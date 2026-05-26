@@ -393,12 +393,12 @@ CrossInterpreterData objects
    operation, like :meth:`Interpreter.prepare_main` only once, to
    avoid ...
 
-   .. attribute:: iswrapped
+   .. attribute:: isconverted
 
       (read-only)
 
       Returns ``True`` if the original object was converted to another.
-      If so, :meth:`as_object` and :meth:`as_wrapped_object` will
+      If so, :meth:`as_object` and :meth:`as_converted_object` will
       return different objects.
 
    .. method:: as_object(self)
@@ -407,15 +407,15 @@ CrossInterpreterData objects
       unwrapper as necessary.  This essentially restores the
       original object.
 
-   .. method:: as_wrapped_object(self)
+   .. method:: as_converted_object(self)
 
-      Returns (obj, unwrap) if the original object was "wrapped".
+      Returns (obj, restore) if the original object was "wrapped".
       "obj" is the actual object that was converted to cross-interpreter
-      data, corresponding to the result of wrapping the original object.
-      "unwrap" is the function to get the object corresponding to the
+      data, corresponding to the result of converting the original object.
+      "restore" is the function to get the object corresponding to the
       original, as described for :func:`as_shareable`.
 
-      Returns (obj, None) if the original object was not wrapped,
+      Returns (obj, None) if the original object was not converted,
       the same as :meth:`as_object`.
 
 .. versionadded:: 3.16
