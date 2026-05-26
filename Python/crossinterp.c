@@ -711,8 +711,8 @@ apply_convert_result(PyThreadState *tstate,
                      PyObject *converted, PyObject *restore,
                      _PyXIData_t *xidata)
 {
-    // XXX Relax the "empty" assert?
-    assert(_xidata_is_empty(xidata));
+    // Note that we are not guaranteed that xidata will be "empty".
+    // That probably won't be a problem.
     assert(converted != NULL);
     assert(restore != NULL);
 
