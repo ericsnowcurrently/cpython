@@ -102,25 +102,25 @@ convert_xidata_fallback(PyObject *argobj, xidata_fallback_t *fallback)
 {
     if (argobj == Py_True) {
         *fallback = _PyXIDATA_SPECIAL_METHOD;
-        return 0;
+        return 1;
     }
     else if (argobj == Py_False) {
         *fallback = _PyXIDATA_XIDATA_ONLY;
-        return 0;
+        return 1;
     }
     else if (argobj == Py_None) {
         *fallback = DEFAULT_FALLBACK_ARG;
-        return 0;
+        return 1;
     }
     else if (PyUnicode_Check(argobj)) {
         if (PyUnicode_CompareWithASCIIString(argobj, "full") == 0) {
             *fallback = _PyXIDATA_FULL_FALLBACK;
-            return 0;
+            return 1;
         }
         // XXX Support other str args, e.g. "xidata-only"?
     }
     PyErr_SetString(PyExc_TypeError, "unsupported fallback arg");
-    return 1;
+    return 0;
 }
 
 
@@ -1386,7 +1386,7 @@ object_as_shareable(PyObject *self, PyObject *args, PyObject *kwds)
     PyObject *convertobj = NULL;
     xidata_fallback_t fallback = DEFAULT_FALLBACK_ARG;
     if (!PyArg_ParseTupleAndKeywords(args, kwds,
-                                     "O|$O$O&:as_shareable", kwlist,
+                                     "O|O$O&:as_shareable", kwlist,
                                      &obj, &convertobj,
                                      convert_xidata_fallback, &fallback)) {
         return NULL;
