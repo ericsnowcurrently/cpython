@@ -1381,40 +1381,40 @@ _interpreters_is_shareable_impl(PyObject *module, PyObject *obj)
 static PyObject *
 object_as_shareable(PyObject *self, PyObject *args, PyObject *kwds)
 {
-    static char *kwlist[] = {"obj", "wrap", "fallback", NULL};
+    static char *kwlist[] = {"obj", "convert", "fallback", NULL};
     PyObject *obj;
-    PyObject *wrapobj = NULL;
+    PyObject *convertobj = NULL;
     xidata_fallback_t fallback = DEFAULT_FALLBACK_ARG;
     if (!PyArg_ParseTupleAndKeywords(args, kwds,
                                      "O|$O$O&:as_shareable", kwlist,
-                                     &obj, &wrapobj,
+                                     &obj, &convertobj,
                                      convert_xidata_fallback, &fallback)) {
         return NULL;
     }
 
     PyThreadState *tstate = _PyThreadState_GET();
-    return _PyXIDataWrapper_FromObject(tstate, obj, wrapobj, fallback);
+    return _PyXIDataWrapper_FromObject(tstate, obj, convertobj, fallback);
 }
 
 PyDoc_STRVAR(as_shareable_doc,
-"as_shareable(obj, wrap=None, *, fallback=None) -> CrossInterpreterObjectData\n\
+"as_shareable(obj, convert=None, *, fallback=None) -> CrossInterpreterObjectData\n\
 \n\
 Return a wrapper around the cross-interpreter-safe data for the object.\n\
 \n\
-If wrap is provided then it must be a function that takes the object\n\
-and returns (wrapped obj, unwrap func).  The wrapped object may be a\n\
-CrossInterpreterObjectData instance, in which case \"unwrap\" should\n\
-be None.  Otherwise, unwrap is essentially the inverse of the wrap\n\
-function, converting the wrapped object back to an equivalent of the\n\
-original.\n\
+If convert is provided then it must be a function that takes the object\n\
+and returns (converted obj, restore func).  The converted object may be\n\
+a CrossInterpreterObjectData instance, in which case \"restore\" should\n\
+be None.  Otherwise, restore is essentially the inverse of the convert\n\
+function, restoring the converted object back to an equivalent of the\n\
+original.  restore must be \"stateless\".\n\
 \n\
-If wrap is not provided then fallback determines what to do when the\n\
+If convert is not provided then fallback determines what to do when the\n\
 object's type does not natively support cross-interpreter data.  If\n\
 it is False then it doesn't try anything else.  If it is True or None\n\
 (the default) then it will try the type's __xidata__(), as a function,\n\
 and then pickling, in that order.\n\
 \n\
-If the object is not shareable, after accounting for the wrap and\n\
+If the object is not shareable, after accounting for the convert and\n\
 fallback args, then raise NotShareableError.\n\
 ");
 

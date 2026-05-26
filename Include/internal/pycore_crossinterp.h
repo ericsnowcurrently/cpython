@@ -120,7 +120,7 @@ PyAPI_FUNC(void) _PyXIData_Clear(PyInterpreterState *, _PyXIData_t *);
 // xidatafunc and then changing the "new_object" function.
 // We have _PyXIData_SET_NEW_OBJECT() here for that,
 // but might be better to have a function like
-// _PyXIData_AdaptToWrapper() instead.
+// "_PyXIData_AdaptToWrapper()" instead.
 #define _PyXIData_SET_NEW_OBJECT(DATA, FUNC) \
     do { \
         (DATA)->new_object = (FUNC); \
@@ -135,9 +135,9 @@ typedef int xidata_fallback_t;
 #define _PyXIDATA_XIDATA_ONLY (0)
 #define _PyXIDATA_SPECIAL_METHOD (1)
 #define _PyXIDATA_FUNCTION (2)
-//#define _PyXIDATA_SCRIPT (3)
-//#define _PyXIDATA_MARSHAL (4)
-#define _PyXIDATA_PICKLE (5)
+//#define _PyXIDATA_SCRIPT (4)
+//#define _PyXIDATA_MARSHAL (8)
+#define _PyXIDATA_PICKLE (16)
 #define _PyXIDATA_FULL_FALLBACK \
     (_PyXIDATA_XIDATA_ONLY | \
      _PyXIDATA_SPECIAL_METHOD | \
@@ -245,53 +245,45 @@ PyAPI_FUNC(int) _PyXIData_Release(_PyXIData_t *);
 PyAPI_FUNC(int) _PyXIData_ReleaseAndRawFree(_PyXIData_t *);
 
 
-/* xidata unwrappers */
+/* converting to cross-interpreter compatibility */
 
-/* wrapping cross-interpreter data */
+struct _xidata_unconverter;  // forward _PyXIData_unconverter_t
 
-struct _xidata_unwrapper;  // forward _PyXIData_unwrapper_t
+/* explicit xidata converters */
 
-typedef int (*xid_wrapfunc)(PyThreadState *, PyObject *,
-                            PyObject **, struct _xidata_unwrapper *);
-
-// Like _PyObject_GetXIData(), but with a wrapper.
-PyAPI_FUNC(int) _PyObject_GetXIDataWrappedWithObj(
+// Like _PyObject_GetXIData(), but with a convert func.
+PyAPI_FUNC(int) _PyObject_GetXIDataConverted(
         PyThreadState *tstate,
         PyObject *,
-        PyObject *,  // wrap(obj) -> (C-shareable obj, unwrap)
+        PyObject *,  // convert(obj) -> (C-shareable obj, restore)
         _PyXIData_t *);
 
 
-/* un-wrapping cross-interpreter data */
+/* un-converting cross-interpreter data */
 
-typedef PyObject *(*xid_unwrapfunc)(PyThreadState *, void *, PyObject *);
+typedef PyObject *(*xid_unconvertfunc)(PyThreadState *, void *, PyObject *);
 
-typedef struct _xidata_unwrapper {
-    xid_unwrapfunc func;
+typedef struct _xidata_unconverter {
+    xid_unconvertfunc func;
     void *data;
     xid_freefunc free;
-} _PyXIData_unwrapper_t;
+} _PyXIData_unconverter_t;
 
 typedef struct {
-    // The _PyXIData_t fields that are swapped out for an unwrapper:
+    // The _PyXIData_t fields that are swapped out for an unconverter:
     void *data;
     xid_newobjfunc new_object;
     xid_freefunc free;
-} _PyXIData_wrapped_orig_t;
+} _PyXIData_converted_orig_t;
 
-PyAPI_FUNC(int) _PyXIData_SetUnwrapper(
+PyAPI_FUNC(int) _PyXIData_SetUnconverter(
         PyThreadState *,
         _PyXIData_t *,
-        _PyXIData_unwrapper_t *);
-PyAPI_FUNC(_PyXIData_unwrapper_t *) _PyXIData_GetUnwrapper(
+        _PyXIData_unconverter_t *);
+PyAPI_FUNC(_PyXIData_unconverter_t *) _PyXIData_GetUnconverter(
         _PyXIData_t *,
-        _PyXIData_wrapped_orig_t *);
-
-//PyAPI_FUNC(int) _PyXIData_UnwrapperFromObj(
-//        PyThreadState *,
-//        PyObject *,
-//        _PyXIData_unwrapper_t *);
-
+        _PyXIData_converted_orig_t *);
+PyAPI_FUNC(PyObject *) _PyXIData_NewObjectIgnoreConversion(_PyXIData_t *);
 
 /* XIData wrapper objects */
 
