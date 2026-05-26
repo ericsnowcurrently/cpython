@@ -1693,7 +1693,7 @@ static PyMethodDef xidwrapper_methods[] = {
 };
 
 static PyObject *
-xidwrapper_get_iswrapped(PyObject *self, void *Py_UNUSED(closure))
+xidwrapper_get_isconverted(PyObject *self, void *Py_UNUSED(closure))
 {
     xidwrapper *wrapper = (xidwrapper *)self;
     assert(wrapper->data != NULL);
@@ -1701,15 +1701,15 @@ xidwrapper_get_iswrapped(PyObject *self, void *Py_UNUSED(closure))
         PyErr_SetString(PyExc_ValueError, "missing cross-interpreter data");
         return NULL;
     }
-    int iswrapped = (_PyXIData_GetUnconverter(wrapper->data, NULL) != NULL);
-    if (iswrapped) {
+    int isconverted = (_PyXIData_GetUnconverter(wrapper->data, NULL) != NULL);
+    if (isconverted) {
         Py_RETURN_TRUE;
     }
     Py_RETURN_FALSE;
 }
 
 static PyGetSetDef xidwrapper_getsets[] = {
-    {"iswrapped",    xidwrapper_get_iswrapped, NULL, NULL},
+    {"isconverted",    xidwrapper_get_isconverted, NULL, NULL},
     {0}
 };
 
