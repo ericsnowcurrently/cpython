@@ -95,30 +95,32 @@ unwrap_not_shareable(PyThreadState *tstate, _PyXI_failure *failure)
 }
 
 
-#define DEFAULT_FALLBACK_ARG _PyXIDATA_XIDATA_ONLY
+#define DEFAULT_FALLBACK_ARG _PyXIDATA_SPECIAL_METHOD
 
 static int
 convert_xidata_fallback(PyObject *argobj, xidata_fallback_t *fallback)
 {
     if (argobj == Py_True) {
-        *fallback = _PyXIDATA_FULL_FALLBACK;
+        *fallback = _PyXIDATA_SPECIAL_METHOD;
+        return 0;
     }
     else if (argobj == Py_False) {
         *fallback = _PyXIDATA_XIDATA_ONLY;
+        return 0;
     }
     else if (argobj == Py_None) {
         *fallback = DEFAULT_FALLBACK_ARG;
+        return 0;
     }
     else if (PyUnicode_Check(argobj)) {
-        // XXX Support str args, e.g. "xidata-only", "full"?
-        PyErr_SetString(PyExc_TypeError, "unsupported fallback arg");
-        return 1;
+        if (PyUnicode_CompareWithASCIIString(argobj, "full") == 0) {
+            *fallback = _PyXIDATA_FULL_FALLBACK;
+            return 0;
+        }
+        // XXX Support other str args, e.g. "xidata-only"?
     }
-    else {
-        PyErr_SetString(PyExc_TypeError, "unsupported fallback arg");
-        return 1;
-    }
-    return 0;
+    PyErr_SetString(PyExc_TypeError, "unsupported fallback arg");
+    return 1;
 }
 
 
