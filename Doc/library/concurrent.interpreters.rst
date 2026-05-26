@@ -352,9 +352,10 @@ This module defines the following functions:
    shareable data for the object.  This relies on the same protocol
    as :meth:`Interpreter.prepare_main` and :class:`Queue` and uses
    the same mechanism.  The main difference is that, by default,
-   this does not use any fallback.
+   this does not use any fallback other than
+   :meth:`~object.__xidata__`.
 
-   If the given object is not itself compatible with sharing then,
+   If the given object cannot be converted to with sharable data then,
    by default, ``as_shareable()`` raises :exc:`NotShareableError`.
    This can be avoided by providing a ``convert`` function
    or a fallback value.
@@ -365,8 +366,12 @@ This module defines the following functions:
 
    "fallback" indicates what to do if the object (or the converted
    object when "convert" is provided) is not sharing-compatible.
-   If ``True`` then it does what :meth:`Interpreter.prepare_main`
-   and :class:`Queue` do by default: serialize with pickle.
+   If ``True`` (or ``None``) then it only falls back to the type's
+   ``__xidata__()`` method, if available, as an implicit convert
+   func.  It may also be "full", which means it will do what
+   :meth:`Interpreter.prepare_main` and :class:`Queue`
+   do by default: try ``__xidata__()``, as a function, and then
+   serialize with pickle.
 
    If "obj" is a :class:`CrossInterpreterObjectData` then it is
    returned as-is.

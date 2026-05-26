@@ -1399,14 +1399,22 @@ PyDoc_STRVAR(as_shareable_doc,
 \n\
 Return a wrapper around the cross-interpreter-safe data for the object.\n\
 \n\
-If wrap is None (or True) then the default behavior applies, which is\n\
-to use the __xidata__ and __xidata_wrap__ special methods if available.\n\
-If wrap is False the the default behavior is skipped.  wrap may also\n\
-be a function or other callable that takes the object and returns\n\
-a tuple of (wrapped obj, unwrap func).\n\
+If wrap is provided then it must be a function that takes the object\n\
+and returns (wrapped obj, unwrap func).  The wrapped object may be a\n\
+CrossInterpreterObjectData instance, in which case \"unwrap\" should\n\
+be None.  Otherwise, unwrap is essentially the inverse of the wrap\n\
+function, converting the wrapped object back to an equivalent of the\n\
+original.\n\
 \n\
-If the object is not shareable, after accounting for the wrap arg,\n\
-then raise NotShareableError.");
+If wrap is not provided then fallback determines what to do when the\n\
+object's type does not natively support cross-interpreter data.  If\n\
+it is False then it doesn't try anything else.  If it is True or None\n\
+(the default) then it will try the type's __xidata__(), as a function,\n\
+and then pickling, in that order.\n\
+\n\
+If the object is not shareable, after accounting for the wrap and\n\
+fallback args, then raise NotShareableError.\n\
+");
 
 
 /*[clinic input]
