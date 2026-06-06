@@ -18,7 +18,6 @@ _interpreters = import_helper.import_module('_interpreters')
 from concurrent import interpreters
 from test.support import Py_GIL_DISABLED
 from test.support import force_not_colorized
-from test.test_crossinterp import SHAREABLE, NOT_SHAREABLE
 import test._crossinterp_definitions as defs
 from concurrent.interpreters import (
     InterpreterError, InterpreterNotFoundError, ExecutionFailed,
@@ -1177,7 +1176,100 @@ def call_func_complex(op, /, value=None, *args, exc=None, **kwargs):
         raise NotImplementedError(op)
 
 
-class TestInterpreterCall(TestBase):
+class SelfWrapper:
+    def __init__(self, converted, restore):
+        self._xidata = (converted, restore)
+    def __xidata__(self):
+        return self._xidata
+
+
+class ShareablesMixin:
+
+    from test.test_crossinterp import (
+        SHAREABLE, NOT_SHAREABLE, PICKLEABLE,
+        TUPLES_WITHOUT_EQUALITY, OBJECT, LAMBDA,
+    )
+
+    def obj_has_equality(self, obj):
+        if type(obj) in defs.CLASSES_WITHOUT_EQUALITY:
+            return False
+        elif isinstance(obj, tuple):
+            if obj in self.TUPLES_WITHOUT_EQUALITY:
+                return False
+            return True
+        elif obj is self.OBJECT:
+            return False
+        elif isinstance(obj, (
+            types.MethodWrapperType, types.MethodWrapperType,
+            types.BuiltinMethodType, types.MethodType,
+        )):
+            return False
+        else:
+            return True
+
+    def assert_equal_relaxed(self, obj1, obj2):
+        if isinstance(obj1, types.CodeType):
+            return self.assert_code_equal(obj1, obj2)
+        elif isinstance(obj1, types.FunctionType):
+            return self.assert_funcs_equal(obj1, obj2)
+        elif isinstance(obj1, ExceptionGroup):
+            return self.assert_mostly_equal(obj1, obj2)
+        elif isinstance(obj1, Exception):
+            return self.assert_exceptions_equal(obj1, obj2)
+        elif isinstance(obj1, BaseException):
+            return self.assert_mostly_equal(obj1, obj2)
+        elif not self.obj_has_equality(obj1):
+            return self.assert_mostly_equal(obj1, obj2)
+        elif not self.obj_has_equality(obj2):
+            return self.assert_mostly_equal(obj1, obj2)
+        else:
+            return self.assertEqual(obj1, obj2)
+
+    def assert_mostly_equal(self, obj1, obj2):
+        if obj2 is obj1:
+            return
+        self.assertEqual(type(obj1), type(obj2))
+
+    def assert_code_equal(self, code1, code2):
+        if code1 == code2:
+            return
+        self.assertEqual(code1.co_name, code2.co_name)
+        self.assertEqual(code1.co_flags, code2.co_flags)
+        self.assertEqual(code1.co_consts, code2.co_consts)
+        self.assertEqual(code1.co_varnames, code2.co_varnames)
+        self.assertEqual(code1.co_cellvars, code2.co_cellvars)
+        self.assertEqual(code1.co_freevars, code2.co_freevars)
+        self.assertEqual(code1.co_names, code2.co_names)
+        self.assertEqual(
+            _testinternalcapi.get_code_var_counts(code1),
+            _testinternalcapi.get_code_var_counts(code2),
+        )
+        self.assertEqual(code1.co_code, code2.co_code)
+
+    def assert_funcs_equal(self, func1, func2):
+        if func1 == func2:
+            return
+        self.assertIs(type(func1), type(func2))
+        self.assertEqual(func1.__name__, func2.__name__)
+        self.assertEqual(func1.__defaults__, func2.__defaults__)
+        self.assertEqual(func1.__kwdefaults__, func2.__kwdefaults__)
+        self.assertEqual(func1.__closure__, func2.__closure__)
+        self.assert_code_equal(func1.__code__, func2.__code__)
+        self.assertEqual(
+            _testinternalcapi.get_code_var_counts(func1),
+            _testinternalcapi.get_code_var_counts(func2),
+        )
+
+    def assert_exceptions_equal(self, exc1, exc2):
+        assert isinstance(exc1, Exception)
+        assert isinstance(exc2, Exception)
+        if exc1 == exc2:
+            return
+        self.assertIs(type(exc1), type(exc2))
+        self.assertEqual(exc1.args, exc2.args)
+
+
+class TestInterpreterCall(TestBase, ShareablesMixin):
 
     # signature
     #  - blank
@@ -1218,44 +1310,6 @@ class TestInterpreterCall(TestBase):
 
     def assert_fails_not_shareable(self):
         return self.assert_fails(interpreters.NotShareableError)
-
-    def assert_code_equal(self, code1, code2):
-        if code1 == code2:
-            return
-        self.assertEqual(code1.co_name, code2.co_name)
-        self.assertEqual(code1.co_flags, code2.co_flags)
-        self.assertEqual(code1.co_consts, code2.co_consts)
-        self.assertEqual(code1.co_varnames, code2.co_varnames)
-        self.assertEqual(code1.co_cellvars, code2.co_cellvars)
-        self.assertEqual(code1.co_freevars, code2.co_freevars)
-        self.assertEqual(code1.co_names, code2.co_names)
-        self.assertEqual(
-            _testinternalcapi.get_code_var_counts(code1),
-            _testinternalcapi.get_code_var_counts(code2),
-        )
-        self.assertEqual(code1.co_code, code2.co_code)
-
-    def assert_funcs_equal(self, func1, func2):
-        if func1 == func2:
-            return
-        self.assertIs(type(func1), type(func2))
-        self.assertEqual(func1.__name__, func2.__name__)
-        self.assertEqual(func1.__defaults__, func2.__defaults__)
-        self.assertEqual(func1.__kwdefaults__, func2.__kwdefaults__)
-        self.assertEqual(func1.__closure__, func2.__closure__)
-        self.assert_code_equal(func1.__code__, func2.__code__)
-        self.assertEqual(
-            _testinternalcapi.get_code_var_counts(func1),
-            _testinternalcapi.get_code_var_counts(func2),
-        )
-
-    def assert_exceptions_equal(self, exc1, exc2):
-        assert isinstance(exc1, Exception)
-        assert isinstance(exc2, Exception)
-        if exc1 == exc2:
-            return
-        self.assertIs(type(exc1), type(exc2))
-        self.assertEqual(exc1.args, exc2.args)
 
     def test_stateless_funcs(self):
         interp = interpreters.create()
@@ -1875,10 +1929,10 @@ class TestInterpreterCall(TestBase):
         self.assertIsNotNone(ctx.caught)
 
 
-class TestIsShareable(TestBase):
+class TestIsShareable(TestBase, ShareablesMixin):
 
     def test_default_shareables(self):
-        for obj in SHAREABLE:
+        for obj in self.SHAREABLE:
             with self.subTest(obj):
                 shareable = interpreters.is_shareable(obj)
                 self.assertTrue(shareable)
@@ -1894,7 +1948,7 @@ class TestIsShareable(TestBase):
             """A subclass of a shareable type."""
 
         for obj in [
-            *NOT_SHAREABLE,
+            *self.NOT_SHAREABLE,
             # user-defined types and objects
             Cheese,
             Cheese('Wensleydale'),
@@ -1909,21 +1963,308 @@ class TestIsShareable(TestBase):
                         interpreters.is_shareable(obj))
 
 
-class TestAsShareable(TestBase):
+class TestAsShareable(TestBase, ShareablesMixin):
+    # This also exercises CrossInterpreterObjectData.
+
+    def assert_wrapper(self, wrapper, obj):
+        if isinstance(obj, memoryview):
+            # XXX
+            return
+        self.assertIsInstance(wrapper,
+                              interpreters.CrossInterpreterObjectData)
+
+        roundtrip = wrapper.as_object()
+        self.assert_equal_relaxed(roundtrip, obj)
+        # XXX Compare identity for multiple calls?
+
+        converted, restore = wrapper.as_converted_object()
+        if wrapper.isconverted:
+            self.assertIsNotNone(restore)
+            restored = restore(converted)
+            self.assert_equal_relaxed(restored, obj)
+        else:
+            self.assertIsNone(restore)
+            self.assert_equal_relaxed(converted, obj)
 
     def test_shareable(self):
-        for obj in SHAREABLE:
+        for obj in self.SHAREABLE:
             with self.subTest(obj):
                 wrapper = interpreters.as_shareable(obj)
-                self.assertIsInstance(wrapper,
-                                      interpreters.CrossInterpreterObjectData)
-                # XXX Check wrapper.
+                self.assert_wrapper(wrapper, obj)
 
     def test_not_shareable(self):
-        for obj in NOT_SHAREABLE:
+        for obj in self.NOT_SHAREABLE:
             with self.subTest(repr(obj)):
                 with self.assertRaises(interpreters.NotShareableError):
                      interpreters.as_shareable(obj)
+
+#    def test_self_convertible(self):
+#        for converted, restore, expected in [
+#            (None, None, None),
+#        ]:
+#            with self.subTest(f'{(converted, restore)} -> {expected}'):
+#                obj = SelfWrapper(converted, restore)
+#                wrapper = interpreters.as_shareable(obj)
+#                self.assert_wrapper(wrapper, expected)
+
+    def test_convert(self):
+        obj = object()
+        for converted, restore, expected in [
+            (None, None, None),
+            ('spam', None, 'spam'),
+#            ('spam', (lambda c: c), 'spam'),
+        ]:
+            with self.subTest(f'{(converted, restore)} -> {expected}'):
+                convert = (lambda o: (converted, restore))
+                wrapper = interpreters.as_shareable(obj, convert)
+                self.assert_wrapper(wrapper, expected)
+
+    def test_no_fallback(self):
+        fallback = False
+        for obj in self.SHAREABLE:
+            with self.subTest(f'shareable {obj!r} (fallback {fallback})'):
+                wrapper = interpreters.as_shareable(obj, fallback=fallback)
+                self.assert_wrapper(wrapper, obj)
+        for obj in self.NOT_SHAREABLE:
+            with self.subTest(f'unshareable {obj!r} (fallback {fallback})'):
+                with self.assertRaises(interpreters.NotShareableError):
+                     interpreters.as_shareable(obj, fallback=fallback)
+
+        obj = SelfWrapper(None, None)
+        with self.subTest(f'unshareable {obj!r} (fallback {fallback})'):
+            with self.assertRaises(interpreters.NotShareableError):
+                 interpreters.as_shareable(obj, fallback=fallback)
+
+    def test_default_fallback(self):
+        for fallback in (True, None):
+            for obj in self.SHAREABLE:
+                with self.subTest(f'shareable {obj!r} (fallback {fallback})'):
+                    wrapper = interpreters.as_shareable(obj, fallback=fallback)
+                    self.assert_wrapper(wrapper, obj)
+            for obj in self.NOT_SHAREABLE:
+                with self.subTest(f'unshareable {obj!r} (fallback {fallback})'):
+                    with self.assertRaises(interpreters.NotShareableError):
+                         interpreters.as_shareable(obj, fallback=fallback)
+
+#        obj = SelfWrapper(None, None)
+#        with self.subTest(f'unshareable {obj!r} (fallback {fallback})'):
+#            wrapper = interpreters.as_shareable(obj, fallback=fallback)
+#            self.assert_wrapper(wrapper, None)
+
+    def test_full_fallback(self):
+        cls = type(self)
+        fallback = 'full'
+        for obj in cls.SHAREABLE:
+            with self.subTest(f'shareable {obj!r} (fallback {fallback})'):
+                wrapper = interpreters.as_shareable(obj, fallback=fallback)
+                self.assert_wrapper(wrapper, obj)
+        for obj in cls.NOT_SHAREABLE:
+            with self.subTest(f'unshareable {obj!r} (fallback {fallback})'):
+                if isinstance(obj, types.MappingProxyType):
+                    valid = False
+                elif obj in cls.PICKLEABLE:
+                    valid = True
+                elif obj is cls.LAMBDA:
+                    valid = True
+                elif (isinstance(obj, types.FunctionType)
+                        and obj in defs.STATELESS_FUNCTIONS):
+                    valid = True
+                else:
+                    valid = False
+
+                if valid:
+                    wrapper = interpreters.as_shareable(obj, fallback=fallback)
+                    self.assert_wrapper(wrapper, obj)
+                else:
+                    with self.assertRaises(interpreters.NotShareableError):
+                         interpreters.as_shareable(obj, fallback=fallback)
+
+    def test_recursive(self):
+        # A CrossInterpreterObjectData is turned back into the
+        # original object, not the wrapper.
+
+        obj1 = 'spamspamspam'
+        with self.subTest(repr(obj1)):
+            wrapper1 = interpreters.as_shareable(obj1)
+            self.assert_wrapper(wrapper1, obj1)
+            wrapper2 = interpreters.as_shareable(wrapper1)
+            self.assert_wrapper(wrapper2, obj1)
+
+        obj2 = (1, wrapper1, wrapper2)
+        with self.subTest(repr(obj2)):
+            wrapper3 = interpreters.as_shareable(obj2)
+            self.assert_wrapper(wrapper, (1, obj1, obj1))
+
+    def test_in_queue(self):
+        queue = interpreters.create_queue()
+
+        obj1 = 'spamspamspam'
+        with self.subTest(f'send {obj1!r} through a queue'):
+            wrapper = interpreters.as_shareable(obj1)
+            assert isinstance(wrapper, interpreters.CrossInterpreterObjectData)
+            queue.put(wrapper)
+            roundtrip = queue.get()
+            self.assertEqual(roundtrip, obj1)
+
+        wrapper = interpreters.as_shareable(obj1)
+        obj2 = (1, wrapper, None)
+        with self.subTest(f'send {obj2!r} through a queue'):
+            queue.put(wrapper)
+            roundtrip = queue.get()
+            self.assertEqual(roundtrip, (1, obj1, None))
+
+    def test_between_interpreters(self):
+        queue = interpreters.create_queue()
+        interp = interpreters.create()
+        interp.prepare_main(queue=queue)
+
+        obj1 = 'spamspamspam'
+        with self.subTest(f'send {obj1!r} to other interpreter'):
+            wrapper = interpreters.as_shareable(obj1)
+            self.assert_wrapper(wrapper, obj1)
+            queue.put(wrapper)
+            interp.exec(f"""if True:
+                obj = queue.get()
+                assert isinstance(obj, str), obj
+                assert obj == {obj1!r}, obj
+                """)
+        with self.subTest(f'get {obj1!r} from other interpreter'):
+            interp.exec(f"""if True:
+                from concurrent import interpreters
+                wrapper = interpreters.as_shareable({obj1!r})
+                assert isinstance(wrapper,
+                                  interpreters.CrossInterpreterObjectData)
+                queue.put(wrapper)
+                """)
+            received = queue.get()
+            self.assertIsInstance(received, str)
+            self.assertEqual(received, obj1)
+
+        wrapper = interpreters.as_shareable(obj1)
+        obj2 = (1, wrapper, None)
+        with self.subTest(f'send {obj2!r} to other interpreter'):
+            wrapper = interpreters.as_shareable(obj2)
+            self.assert_wrapper(wrapper, obj2)
+            queue.put(wrapper)
+            interp.exec(f"""if True:
+                obj = queue.get()
+                assert isinstance(obj, tuple), obj
+                assert isinstance(obj[1], str), obj
+                assert obj == (1, {obj1!r}, None), obj
+                """)
+        with self.subTest(f'get {obj1!r} from other interpreter'):
+            interp.exec(f"""if True:
+                from concurrent import interpreters
+                wrapper = interpreters.as_shareable({obj1!r})
+                obj = (1, wrapper, None)
+                queue.put(obj)
+                """)
+            received = queue.get()
+            self.assertIsInstance(received, tuple)
+            self.assertIsInstance(received[1], str)
+            self.assertEqual(received, (1, obj1, None))
+
+    def test_reuse_call_as_object_repeatedly_in_same_interp(self):
+        obj = 'spamspamspameggsspam'
+        count = 4
+        roundtrip = []
+        expected = [obj] * count
+
+        wrapper = interpreters.as_shareable(obj)
+        for _ in range(count):
+            roundtrip.append(
+                wrapper.as_object())
+        self.assertEqual(roundtrip, expected)
+
+    def test_reuse_use_wrapper_repeatedly(self):
+        obj = 'spamspamspameggsspam'
+        queue = interpreters.create_queue()
+        queue.put(obj)
+
+        wrapper = interpreters.as_shareable(obj)
+        queue.put(wrapper)
+        queue.put(wrapper)
+        queue.put(wrapper)
+
+        objects = [
+            queue.get(),
+            queue.get(),
+            queue.get(),
+            queue.get(),
+        ]
+        self.assertEqual(objects, [obj, obj, obj, obj])
+
+    def test_reuse_use_after_calling_as_object(self):
+        obj = 'spamspamspameggsspam'
+
+        with self.subTest('pass to queue'):
+            wrapper = interpreters.as_shareable(obj)
+            roundtrip1 = wrapper.as_object()
+
+            queue = interpreters.create_queue()
+            queue.put(wrapper)
+            roundtrip2 = queue.get()
+
+            self.assertEqual(roundtrip1, obj)
+            self.assertEqual(roundtrip2, obj)
+
+        with self.subTest('pass to prepare_main'):
+            wrapper = interpreters.as_shareable(obj)
+            roundtrip = wrapper.as_object()
+
+            interp = interpreters.create()
+            interp.prepare_main(obj=obj)
+
+            self.assertEqual(roundtrip, obj)
+            interp.exec(f'assert obj == {obj!r}')
+
+    def test_reuse_call_as_object_after_used(self):
+        obj = 'spamspamspameggsspam'
+
+        with self.subTest('passed to queue'):
+            wrapper = interpreters.as_shareable(obj)
+
+            queue = interpreters.create_queue()
+            queue.put(wrapper)
+
+            res = wrapper.as_object()
+            self.assertEqual(res, obj)
+
+        with self.subTest('popped from queue (same interp)'):
+            wrapper = interpreters.as_shareable(obj)
+
+            queue = interpreters.create_queue()
+            queue.put(wrapper)
+            roundtrip = queue.get()
+
+            res = wrapper.as_object()
+            self.assertEqual(res, obj)
+
+        with self.subTest('popped from queue (other interp)'):
+            wrapper = interpreters.as_shareable(obj)
+
+            interp = interpreters.create()
+            queue = interpreters.create_queue()
+            interp.prepare_main(queue=queue)
+
+            queue.put(wrapper)
+            interp.exec(f"""if True:
+                roundtrip = queue.get()
+                assert roundtrip == {obj!r}
+                """)
+
+            res = wrapper.as_object()
+            self.assertEqual(res, obj)
+
+        with self.subTest('passed to prepare_main()'):
+            wrapper = interpreters.as_shareable(obj)
+
+            interp = interpreters.create()
+            interp.prepare_main(obj=wrapper)
+            interp.exec(f'assert obj == {obj!r}')
+
+            res = wrapper.as_object()
+            self.assertEqual(res, obj)
 
 
 class LowLevelTests(TestBase):
