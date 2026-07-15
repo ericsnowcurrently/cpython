@@ -1548,19 +1548,30 @@ typedef struct {
     int owned;
 } xidwrapper;
 
+static int
+_xidwrapper_check_data(PyThreadState *tstate, _PyXIData_t *xidata)
+{
+    if (xidata == NULL) {
+        _PyErr_SetString(tstate, PyExc_ValueError,
+                         "missing cross-interpreter data");
+        return -1;
+    }
+    if (_check_xidata(tstate, xidata) < 0) {
+        return -1;
+    }
+    if (_xidata_is_empty(xidata)) {
+        _PyErr_SetString(tstate, PyExc_ValueError,
+                         "empty cross-interpreter data");
+        return -1;
+    }
+    return 0;
+}
+
 static xidwrapper *
 _new_xidwrapper(PyThreadState *tstate, PyTypeObject *wrappertype,
                 _PyXIData_t *xidata, int owned)
 {
-    if (xidata == NULL) {
-        PyErr_SetString(PyExc_ValueError, "missing cross-interpreter data");
-        return NULL;
-    }
-    if (_check_xidata(tstate, xidata) < 0) {
-        return NULL;
-    }
-    if (_xidata_is_empty(xidata)) {
-        PyErr_SetString(PyExc_ValueError, "empty cross-interpreter data");
+    if (_xidwrapper_check_data(tstate, xidata) < 0) {
         return NULL;
     }
 
