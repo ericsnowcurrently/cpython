@@ -82,6 +82,12 @@ struct _xidata {
     // to PyMem_RawFree (the default if not explicitly set to NULL).
     // The call will happen with the original interpreter activated.
     xid_freefunc free;
+
+    // Clear when released.
+    int owned;
+
+    // Free when released.
+    int _auto_free;
 };
 
 PyAPI_FUNC(_PyXIData_t *) _PyXIData_New(void);
@@ -242,7 +248,6 @@ PyAPI_FUNC(int) _PyFunction_GetXIData(
 
 PyAPI_FUNC(PyObject *) _PyXIData_NewObject(_PyXIData_t *);
 PyAPI_FUNC(int) _PyXIData_Release(_PyXIData_t *);
-PyAPI_FUNC(int) _PyXIData_ReleaseAndRawFree(_PyXIData_t *);
 
 
 /* converting to cross-interpreter compatibility */

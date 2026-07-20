@@ -313,6 +313,8 @@ _PyXIData_New(void)
     if (xid == NULL) {
         PyErr_NoMemory();
     }
+    // It will be automatically freed in PyXIData_Release().
+    xid->_auto_free = 1;
     return xid;
 }
 
@@ -475,7 +477,7 @@ xidata_unconverter_from_object(PyThreadState *tstate, PyObject *obj,
     *res_unconverter = (_PyXIData_unconverter_t){
         .func = (xid_unconvertfunc)_unconvert_with_object,
         .data = xidata,
-        .free = (xid_freefunc)_PyXIData_ReleaseAndRawFree,
+        .free = (xid_freefunc)_PyXIData_Release,
     };
     return 0;
 }
@@ -508,6 +510,7 @@ converted_orig_apply(_PyXIData_converted_orig_t *orig, _PyXIData_t *base)
     xidata.data = orig->data;
     xidata.new_object = orig->new_object;
     xidata.free = orig->free;
+    // XXX What if not re-usable?
     return _PyXIData_NewObject(&xidata);
 }
 
@@ -1486,16 +1489,19 @@ _xidata_is_empty(_PyXIData_t *xidata)
 static int
 _call_clear_xidata(void *data)
 {
-    _xidata_clear((_PyXIData_t *)data);
+    if (((_PyXIData_t *)data)->owned) {
+        _xidata_clear((_PyXIData_t *)data);
+    }
     return 0;
 }
 
-static int
-_xidata_release(_PyXIData_t *xidata, int rawfree)
+int
+_PyXIData_Release(_PyXIData_t *xidata)
+{
 {
     if ((xidata->data == NULL || xidata->free == NULL) && xidata->obj == NULL) {
         // Nothing to release!
-        if (rawfree) {
+        if (xidata->_auto_free) {
             PyMem_RawFree(xidata);
         }
         else {
@@ -1512,31 +1518,25 @@ _xidata_release(_PyXIData_t *xidata, int rawfree)
         // This function shouldn't have been called.
         // XXX Someone leaked some memory...
         assert(PyErr_Occurred());
-        if (rawfree) {
+        if (xidata->_auto_free) {
             PyMem_RawFree(xidata);
         }
         return -1;
     }
 
     // "Release" the data and/or the object.
-    if (rawfree) {
-        return _Py_CallInInterpreterAndRawFree(interp, _call_clear_xidata, xidata);
+    if (xidata->_auto_free) {
+        if (xidata->owned) {
+            return _Py_CallInInterpreterAndRawFree(interp, _call_clear_xidata, xidata);
+        }
+        else {
+            return _Py_CallInInterpreter(interp, _call_clear_xidata, xidata);
+
+        }
     }
-    else {
+    else if (xidata->owned) {
         return _Py_CallInInterpreter(interp, _call_clear_xidata, xidata);
     }
-}
-
-int
-_PyXIData_Release(_PyXIData_t *xidata)
-{
-    return _xidata_release(xidata, 0);
-}
-
-int
-_PyXIData_ReleaseAndRawFree(_PyXIData_t *xidata)
-{
-    return _xidata_release(xidata, 1);
 }
 
 
@@ -1954,12 +1954,10 @@ _format_TracebackException(PyObject *tbexc)
 
 
 static int
-_release_xid_data(_PyXIData_t *xidata, int rawfree)
+_release_xid_data(_PyXIData_t *xidata)
 {
     PyObject *exc = PyErr_GetRaisedException();
-    int res = rawfree
-        ? _PyXIData_ReleaseAndRawFree(xidata)
-        : _PyXIData_Release(xidata);
+    int res = _PyXIData_Release(xidata);
     if (res < 0) {
         /* The owning interpreter is already destroyed. */
         _PyXIData_Clear(NULL, xidata);
@@ -2903,8 +2901,8 @@ _sharednsitem_clear_value(_PyXI_namespace_item *item)
     _PyXIData_t *xidata = item->xidata;
     if (xidata != NULL) {
         item->xidata = NULL;
-        int rawfree = 1;
-        (void)_release_xid_data(xidata, rawfree);
+        assert(item->xidata->_auto_free);
+        (void)_release_xid_data(xidata);
     }
 }
 

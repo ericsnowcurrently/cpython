@@ -2568,6 +2568,7 @@ get_crossinterp_data(PyObject *self, PyObject *args, PyObject *kwargs)
     if (xidata == NULL) {
         return NULL;
     }
+    xidata->_auto_free = 0;
     if (strcmp(mode, "xidata") == 0) {
         if (_PyObject_GetXIDataNoFallback(tstate, obj, xidata) != 0) {
             goto error;
