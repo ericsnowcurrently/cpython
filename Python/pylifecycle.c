@@ -455,6 +455,8 @@ _Py_SetLocaleFromEnv(int category)
 
 /* runtime lifecycle status */
 
+// XXX Store "entered" status in a thread-local?
+
 static inline PyRuntime_status_t
 get_runtime_status(_PyRuntimeState *runtime)
 {
@@ -474,6 +476,99 @@ set_runtime_status2(_PyRuntimeState *runtime, PyRuntime_status_t status,
     return _Py_atomic_compare_exchange_uint8(&runtime->_lifecycle,
                                              &expected,
                                              status);
+}
+
+static inline int
+_runtime_has_fini_blockers(_PyRuntimeState *runtime)
+{
+    return _Py_atomic_load_int(&runtime->_num_fini_blockers) > 0;
+}
+
+static inline void
+_update_runtime_fini_blockers(_PyRuntimeState *runtime, int diff)
+{
+    int expected;
+    do {
+        expected = _Py_atomic_load_int(&runtime->_num_fini_blockers);
+        if (expected == 0) {
+            // The runtime must have been reset.
+            break;
+        }
+    } while (!_Py_atomic_compare_exchange_int(&runtime->_num_fini_blockers,
+                                              &expected,
+                                              expected + diff));
+}
+
+PyStatus
+_Py_EnterRuntime(_PyRuntimeState *runtime)
+{
+    const char *errmsg = NULL;
+    PyStatus status = _PyRuntime_Initialize();
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+    assert(runtime == &_PyRuntime);
+
+    _update_runtime_fini_blockers(runtime, 1);
+
+    // Wait for READY (or fail).
+    PyRuntime_status_t lifecycle = get_runtime_status(runtime);
+    if (lifecycle == Py_RUNTIME_STATUS_UNINITIALIZED) {
+        errmsg = "runtime must be initialized first";
+    }
+    else if (lifecycle == Py_RUNTIME_STATUS_INIT_FAILED) {
+        errmsg = "runtime initialization failed";
+    }
+    else if (lifecycle & Py_RUNTIME_STATUS_INIT) {
+        // Wait for init to finish.
+        while (lifecycle & Py_RUNTIME_STATUS_INIT) {
+            if (lifecycle == Py_RUNTIME_STATUS_INIT_FAILED) {
+                errmsg = "runtime initialization failed";
+                break;
+            }
+            // XXX sleep
+            lifecycle = get_runtime_status(runtime);
+        }
+    }
+    else if (lifecycle == Py_RUNTIME_STATUS_READY) {
+        // It is ready.
+    }
+    else if (lifecycle & Py_RUNTIME_STATUS_FINI) {
+        // Wait for PREP or STARTED.
+        while (lifecycle == Py_RUNTIME_STATUS_FINI_CHECK) {
+            // XXX sleep
+            lifecycle = get_runtime_status(runtime);
+        }
+        if (lifecycle == Py_RUNTIME_STATUS_FINI_STARTED) {
+            errmsg = "runtime finalizing";
+        }
+        else if (lifecycle == Py_RUNTIME_STATUS_FINI_STARTED) {
+            // There's still time to do stuff.
+        }
+        else {
+            // unreachable
+            assert(0);
+        }
+    }
+    else {
+        // unreachable
+        assert(0);
+    }
+
+    if (errmsg != NULL) {
+        _update_runtime_fini_blockers(runtime, -1);
+        return PyStatus_Error(errmsg);
+    }
+    return _PyStatus_OK();
+}
+
+PyStatus
+_Py_ExitRuntime(_PyRuntimeState *runtime)
+{
+    assert(get_runtime_status(runtime) == Py_RUNTIME_STATUS_READY);
+    assert(_runtime_has_fini_blockers(runtime));
+    _update_runtime_fini_blockers(runtime, -1);
+    return _PyStatus_OK();
 }
 
 
@@ -2527,7 +2622,6 @@ finish_interpreter_execution(PyThreadState *tstate)
         int should_continue = (interp_has_threads(interp)
                               || interp_has_atexit_callbacks(interp)
                               || interp_has_pending_calls(interp));
-
         if (!should_continue) {
             // We only want to prevent new guards once we're sure that we
             // won't be running another pre-finalization cycle.
@@ -2628,7 +2722,7 @@ _Py_Finalize(_PyRuntimeState *runtime)
         HEAD_LOCK(runtime);
         int has_subinterpreters = runtime_has_subinterpreters(runtime);
         HEAD_UNLOCK(runtime);
-        if (has_subinterpreters) {
+        if (has_subinterpreters || _runtime_has_fini_blockers(runtime)) {
             // Loop at least one more time.
             unlock_interpreter(interp);
             assert(get_runtime_status(runtime) == Py_RUNTIME_STATUS_FINI_CHECK);

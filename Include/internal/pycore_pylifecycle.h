@@ -111,6 +111,10 @@ PyAPI_FUNC(char*) _Py_SetLocaleFromEnv(int category);
 // Export for special main.c string compiling with source tracebacks
 int _PyRun_SimpleStringFlagsWithName(const char *command, const char* name, PyCompilerFlags *flags);
 
+// Entering Python in a thread.
+extern PyStatus _Py_EnterRuntime(_PyRuntimeState *);
+extern PyStatus _Py_ExitRuntime(_PyRuntimeState *);
+
 
 /* interpreter config */
 

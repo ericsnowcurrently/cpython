@@ -210,6 +210,7 @@ struct pyruntimestate {
 
     /* The current lifecycle status of the runtime. */
     PyRuntime_status_t _lifecycle;
+    int _num_fini_blockers;
 
     /* Is running Py_PreInitialize()? */
     int preinitializing;
