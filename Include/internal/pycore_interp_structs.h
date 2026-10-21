@@ -854,6 +854,7 @@ struct _is {
     /* Has been fully initialized via pylifecycle.c. */
     int _ready;
     int finalizing;
+    int locked;
 
     uintptr_t last_restart_version;
     struct pythreads {

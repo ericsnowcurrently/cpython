@@ -453,6 +453,52 @@ _Py_SetLocaleFromEnv(int category)
 }
 
 
+/* interpreter lifecycle state */
+
+#ifndef NDEBUG
+static int
+is_interpreter_locked(PyInterpreterState *interp)
+{
+    if (interp->locked) {
+        assert(PyMutex_IsLocked(&interp->ceval.pending.mutex));
+#ifdef Py_GIL_DISABLED
+        assert(interp->runtime->stoptheworld.world_stopped);
+#endif
+        return 1;
+    }
+    assert(!PyMutex_IsLocked(&interp->ceval.pending.mutex));
+    assert(!interp->runtime->stoptheworld.world_stopped);
+    return 0;
+}
+#endif
+
+static void
+lock_interpreter(PyInterpreterState *interp)
+{
+    /* Stop the world to prevent other threads from creating threads or
+     * atexit callbacks. On the default build, this is simply locked by
+     * the GIL.  For pending calls, we acquire the dedicated mutex, because
+     * Py_AddPendingCall() can be called without an attached thread state.
+     */
+    assert(!is_interpreter_locked(interp));
+    PyMutex_Lock(&interp->ceval.pending.mutex);
+    // XXX Only stop for the interpreter (via _PyEval_StopTheWorld)?
+    _PyEval_StopTheWorldAll(interp->runtime);
+    interp->locked = 1;
+}
+
+static void
+unlock_interpreter(PyInterpreterState *interp)
+{
+    assert(is_interpreter_locked(interp));
+    _PyEval_StartTheWorldAll(interp->runtime);
+    PyMutex_Unlock(&interp->ceval.pending.mutex);
+    interp->locked = 0;
+}
+
+
+/* interpreter config */
+
 static int
 interpreter_update_config(PyThreadState *tstate, int only_update_path_config)
 {
@@ -2327,6 +2373,7 @@ finish_interpreter_execution(PyThreadState *tstate)
     PyInterpreterState *interp = tstate->interp;
     _PyRuntimeState *runtime = interp->runtime;
     assert(_Py_atomic_load_uintptr(&interp->finalization_guards) != _PyInterpreterGuard_GUARDS_NOT_ALLOWED);
+
     /* Each of these functions can start one another, e.g. a pending call
      * could start a thread or vice versa. To ensure that we properly clean
      * call everything, we run these in a loop until none of them run anything. */
@@ -2381,14 +2428,8 @@ finish_interpreter_execution(PyThreadState *tstate)
             }
         }
 
-        /* Stop the world to prevent other threads from creating threads or
-         * atexit callbacks. On the default build, this is simply locked by
-         * the GIL. For pending calls, we acquire the dedicated mutex, because
-         * Py_AddPendingCall() can be called without an attached thread state.
-         */
-        PyMutex_Lock(&interp->ceval.pending.mutex);
-        // XXX Only stop for the interpreter (via _PyEval_StopTheWorld)?
-        _PyEval_StopTheWorldAll(runtime);
+        // Keep any possible new execution from starting.in the interpreter.
+        lock_interpreter(interp);
 
         HEAD_LOCK(runtime);
         uintptr_t guards_expected = 0;
@@ -2403,16 +2444,17 @@ finish_interpreter_execution(PyThreadState *tstate)
                                                     &guards_expected,
                                                     _PyInterpreterGuard_GUARDS_NOT_ALLOWED) == 1) {
                 HEAD_UNLOCK(runtime);
+                // The interpreter stays locked.
                 break;
             }
         }
         HEAD_UNLOCK(runtime);
-        _PyEval_StartTheWorldAll(runtime);
-        PyMutex_Unlock(&interp->ceval.pending.mutex);
+
+        // Let new interpreter execution continue.
+        unlock_interpreter(interp);
     }
-    assert(PyMutex_IsLocked(&interp->ceval.pending.mutex));
+    assert(is_interpreter_locked(interp));
     assert(_Py_atomic_load_uintptr(&interp->finalization_guards) == _PyInterpreterGuard_GUARDS_NOT_ALLOWED);
-    ASSERT_WORLD_STOPPED(interp);
 }
 
 static int
@@ -2449,13 +2491,14 @@ _Py_Finalize(_PyRuntimeState *runtime)
         int has_subinterpreters = runtime_has_subinterpreters(runtime);
         HEAD_UNLOCK(runtime);
         if (has_subinterpreters) {
-            _PyEval_StartTheWorldAll(runtime);
-            PyMutex_Unlock(&interp->ceval.pending.mutex);
+            // Loop at least one more time.
+            unlock_interpreter(interp);
         }
         else {
             break;
         }
     }
+    ASSERT_WORLD_STOPPED(runtime);
 
     assert(_PyThreadState_GET() == tstate);
     assert(tstate->interp == interp);
