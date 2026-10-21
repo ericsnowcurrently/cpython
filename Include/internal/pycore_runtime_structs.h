@@ -10,6 +10,62 @@ extern "C" {
 #include "pycore_interp_structs.h" // _PyGC_Head_UNUSED
 #include "pycore_obmalloc.h"      // struct _obmalloc_global_state
 
+
+/******* Runtime lifecycle status ******/
+
+/*
+The possible values for the status represent the possible states
+of the runtime's lifecycle.  The state graph:
+
+  UNINITIALIZED  <----------------
+     v                           |
+  INIT_START  -> (INIT_FAILED)   |
+     v                           |
+  READY                          |
+     v                           |
+  FINI_PREP  <---                |
+     v          |                |
+  FINI_CHECK ----                |
+     v                           |
+  FINI_STARTED -------------------
+
+Under READY (and FINI_PREP), threads can freely call into Python.
+Under UNINITIALIZED and FINI_STARTED (and INIT_FAILED), threads
+should *not* call into Python.  Doing so will cause that thread
+to block forever.
+
+Otherwise, threads that encounter INIT_START should wait for
+runtime init to finish.  For FINI_CHECK they should wait for
+the status to stabilize. */
+
+typedef uint8_t PyRuntime_status_t;
+
+// core states
+#define Py_RUNTIME_STATUS_UNINITIALIZED (0)
+#define Py_RUNTIME_STATUS_INIT (1<<0)
+#define Py_RUNTIME_STATUS_READY (1<<1)
+#define Py_RUNTIME_STATUS_FINI (1<<2)
+
+// state modifiers
+#define Py_RUNTIME_STATUS_PREP (1<<4)
+#define Py_RUNTIME_STATUS_STARTED (1<<5)
+#define Py_RUNTIME_STATUS_UNSTABLE (1<<6)
+#define Py_RUNTIME_STATUS_FAILED (1<<7)
+
+// substates
+#define Py_RUNTIME_STATUS_INIT_STARTED \
+    (Py_RUNTIME_STATUS_INIT | Py_RUNTIME_STATUS_STARTED)
+#define Py_RUNTIME_STATUS_INIT_FAILED \
+    (Py_RUNTIME_STATUS_INIT | Py_RUNTIME_STATUS_FAILED)
+#define Py_RUNTIME_STATUS_FINI_PREP \
+    (Py_RUNTIME_STATUS_FINI | Py_RUNTIME_STATUS_PREP)
+#define Py_RUNTIME_STATUS_FINI_STARTED \
+    (Py_RUNTIME_STATUS_FINI | Py_RUNTIME_STATUS_STARTED)
+#define Py_RUNTIME_STATUS_FINI_CHECK \
+    (Py_RUNTIME_STATUS_FINI_PREP | Py_RUNTIME_STATUS_FINI_STARTED \
+     | Py_RUNTIME_STATUS_UNSTABLE)
+
+
 /************ Runtime state ************/
 
 typedef struct {
@@ -151,6 +207,9 @@ struct pyruntimestate {
        In order to be effective, this must be set to 0 during or right
        after allocation. */
     int _initialized;
+
+    /* The current lifecycle status of the runtime. */
+    PyRuntime_status_t _lifecycle;
 
     /* Is running Py_PreInitialize()? */
     int preinitializing;

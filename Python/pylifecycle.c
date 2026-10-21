@@ -453,6 +453,30 @@ _Py_SetLocaleFromEnv(int category)
 }
 
 
+/* runtime lifecycle status */
+
+static inline PyRuntime_status_t
+get_runtime_status(_PyRuntimeState *runtime)
+{
+    return _Py_atomic_load_uint8(&runtime->_lifecycle);
+}
+
+static inline void
+set_runtime_status(_PyRuntimeState *runtime, PyRuntime_status_t status)
+{
+    _Py_atomic_store_uint8(&runtime->_lifecycle, status);
+}
+
+static inline int
+set_runtime_status2(_PyRuntimeState *runtime, PyRuntime_status_t status,
+                    PyRuntime_status_t expected)
+{
+    return _Py_atomic_compare_exchange_uint8(&runtime->_lifecycle,
+                                             &expected,
+                                             status);
+}
+
+
 /* interpreter lifecycle state */
 
 #ifndef NDEBUG
@@ -1701,6 +1725,13 @@ pyinit_main(PyThreadState *tstate)
 }
 
 
+static int
+_config_matches(_PyRuntimeState *runtime, const PyConfig *config)
+{
+    // XXX finish
+    return 1;
+}
+
 PyStatus
 Py_InitializeFromConfig(const PyConfig *config)
 {
@@ -1716,21 +1747,81 @@ Py_InitializeFromConfig(const PyConfig *config)
         return status;
     }
 
+    // Handle the lifecycle status.
+    PyRuntime_status_t expected = Py_RUNTIME_STATUS_UNINITIALIZED;
+    PyRuntime_status_t target = Py_RUNTIME_STATUS_INIT_STARTED;
+    if (!set_runtime_status2(runtime, target, expected)) {
+        PyRuntime_status_t lifecycle = get_runtime_status(runtime);
+        if (lifecycle == Py_RUNTIME_STATUS_READY) {
+            // XXX Previously, this passed through.
+            if (!_config_matches(runtime, config)) {
+                return _PyStatus_ERR(
+                        "runtime already initialized with a different config");
+            }
+            return _PyStatus_OK();
+        }
+        else if (lifecycle == Py_RUNTIME_STATUS_INIT_FAILED) {
+            return _PyStatus_ERR(
+                    "runtime already initialized (unsuccessfully)");
+        }
+        else if (lifecycle & Py_RUNTIME_STATUS_INIT) {
+            // XXX Previously, this passed through.
+            if (!_config_matches(runtime, config)) {
+                return _PyStatus_ERR(
+                        "runtime already initialized with a different config");
+            }
+            // Wait for init to finish.
+            while (lifecycle & Py_RUNTIME_STATUS_INIT) {
+                if (lifecycle == Py_RUNTIME_STATUS_INIT_FAILED) {
+                    return _PyStatus_ERR("runtime initialization failed");
+                }
+                // XXX sleep
+                lifecycle = get_runtime_status(runtime);
+            }
+            return _PyStatus_OK();
+        }
+        else if (lifecycle & Py_RUNTIME_STATUS_FINI) {
+            // Initialize once finalization has finished.
+            while (!set_runtime_status2(runtime, target, expected)) {
+                lifecycle = get_runtime_status(runtime);
+                if (!(lifecycle & Py_RUNTIME_STATUS_FINI)) {
+                    // This is highly unlikely to get hit.
+                    return Py_InitializeFromConfig(config);
+                }
+                // XXX sleep?
+            }
+            // We need to re-init the raw runtime state post-fini.
+            status = _PyRuntime_Initialize();
+            if (_PyStatus_EXCEPTION(status)) {
+                return status;
+            }
+        }
+        else {
+            // unreachable
+            assert(0);
+        }
+    }
+
     PyThreadState *tstate = NULL;
     status = pyinit_core(runtime, config, &tstate);
     if (_PyStatus_EXCEPTION(status)) {
-        return status;
+        goto error;
     }
     config = _PyInterpreterState_GetConfig(tstate->interp);
 
     if (config->_init_main) {
         status = pyinit_main(tstate);
         if (_PyStatus_EXCEPTION(status)) {
-            return status;
+            goto error;
         }
     }
 
+    set_runtime_status(runtime, Py_RUNTIME_STATUS_READY);
     return _PyStatus_OK();
+
+error:
+    set_runtime_status(runtime, Py_RUNTIME_STATUS_INIT_FAILED);
+    return status;
 }
 
 
@@ -2450,7 +2541,7 @@ finish_interpreter_execution(PyThreadState *tstate)
         }
         HEAD_UNLOCK(runtime);
 
-        // Let new interpreter execution continue.
+        // Let new execution continue.
         unlock_interpreter(interp);
     }
     assert(is_interpreter_locked(interp));
@@ -2465,6 +2556,43 @@ _Py_Finalize(_PyRuntimeState *runtime)
     /* Bail out early if already finalized (or never initialized). */
     if (!_PyRuntimeState_GetInitialized(runtime)) {
         return status;
+    }
+
+    // Handle the lifecycle status.
+    PyRuntime_status_t expected = Py_RUNTIME_STATUS_READY;
+    PyRuntime_status_t target = Py_RUNTIME_STATUS_FINI_PREP;
+    if (!set_runtime_status2(runtime, target, expected)) {
+        PyRuntime_status_t lifecycle = get_runtime_status(runtime);
+        if (lifecycle == Py_RUNTIME_STATUS_UNINITIALIZED) {
+            // The runtime was never initialized (or already finalized).
+            return status;
+        }
+        else if (lifecycle == Py_RUNTIME_STATUS_INIT_FAILED) {
+            // XXX Fail?
+            return status;
+        }
+        else if (lifecycle & Py_RUNTIME_STATUS_INIT) {
+            // Finalize once init has finished.
+            while (!set_runtime_status2(runtime, target, expected)) {
+                lifecycle = get_runtime_status(runtime);
+                if (lifecycle != Py_RUNTIME_STATUS_INIT_STARTED) {
+                    return _Py_Finalize(runtime);
+                }
+                // XXX sleep?
+            }
+        }
+        else if (lifecycle & Py_RUNTIME_STATUS_FINI) {
+            // Wait for fini to finish.
+            while (lifecycle & Py_RUNTIME_STATUS_FINI) {
+                // XXX sleep
+                lifecycle = get_runtime_status(runtime);
+            }
+            return status;
+        }
+        else {
+            // unreachable
+            assert(0);
+        }
     }
 
     /* Get final thread state pointer. */
@@ -2484,21 +2612,37 @@ _Py_Finalize(_PyRuntimeState *runtime)
          */
         finalize_subinterpreters();
 
-        // This call stops the world and takes the pending calls lock.
+        // Perform the interpreter's FINI_PREP step.
+        // When this returns, the interpreter has been locked
+        // and the world has been stopped.
         finish_interpreter_execution(tstate);
+        assert(is_interpreter_locked(interp));
 
+        // FINI_CHECK let's other threads know that the runtime may be
+        // about move to FINI_STARTED and that they should wait for the
+        // status to stabilize to FINI_PREP or FINI_STARTED.
+        assert(get_runtime_status(runtime) == Py_RUNTIME_STATUS_FINI_PREP);
+        set_runtime_status(runtime, Py_RUNTIME_STATUS_FINI_CHECK);
+
+        // Either the prep phase is complete or we need to try again.
         HEAD_LOCK(runtime);
         int has_subinterpreters = runtime_has_subinterpreters(runtime);
         HEAD_UNLOCK(runtime);
         if (has_subinterpreters) {
             // Loop at least one more time.
             unlock_interpreter(interp);
+            assert(get_runtime_status(runtime) == Py_RUNTIME_STATUS_FINI_CHECK);
+            set_runtime_status(runtime, Py_RUNTIME_STATUS_FINI_PREP);
         }
         else {
+            // At this point other threads are no longer safe to call into Python.
+            assert(get_runtime_status(runtime) == Py_RUNTIME_STATUS_FINI_CHECK);
+            set_runtime_status(runtime, Py_RUNTIME_STATUS_FINI_STARTED);
             break;
         }
     }
     ASSERT_WORLD_STOPPED(runtime);
+    assert(get_runtime_status(runtime) == Py_RUNTIME_STATUS_FINI_STARTED);
 
     assert(_PyThreadState_GET() == tstate);
     assert(tstate->interp == interp);
@@ -2703,6 +2847,11 @@ _Py_Finalize(_PyRuntimeState *runtime)
 
     call_ll_exitfuncs(runtime);
 
+    // Technically, runtime_ensure_finalized() could possibly effectively
+    // set the status to Py_RUNTIME_STATUS_UNINITIALIZED by resetting
+    // it to 0 (though it currently doesn't).  We set it here anyway
+    // so there's no uncertainty.
+    set_runtime_status(runtime, Py_RUNTIME_STATUS_UNINITIALIZED);
     runtime_ensure_finalized(runtime);
     return status;
 }
