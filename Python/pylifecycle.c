@@ -2277,6 +2277,7 @@ interp_has_threads(PyInterpreterState *interp)
     /* This needs to check for non-daemon threads only, otherwise we get stuck
      * in an infinite loop. */
     assert(interp != NULL);
+    // XXX Why does this need to hold the HEAD lock?
     ASSERT_HEAD_IS_LOCKED(interp->runtime);
     assert(interp->threads.head != NULL);
     if (interp->threads.head->next == NULL) {
@@ -2320,16 +2321,17 @@ runtime_has_subinterpreters(_PyRuntimeState *runtime)
 }
 
 static void
-make_pre_finalization_calls(PyThreadState *tstate, int subinterpreters)
+finish_interpreter_execution(PyThreadState *tstate)
 {
     assert(tstate != NULL);
     PyInterpreterState *interp = tstate->interp;
+    _PyRuntimeState *runtime = interp->runtime;
     assert(_Py_atomic_load_uintptr(&interp->finalization_guards) != _PyInterpreterGuard_GUARDS_NOT_ALLOWED);
     /* Each of these functions can start one another, e.g. a pending call
      * could start a thread or vice versa. To ensure that we properly clean
      * call everything, we run these in a loop until none of them run anything. */
     for (;;) {
-        assert(!interp->runtime->stoptheworld.world_stopped);
+        assert(!runtime->stoptheworld.world_stopped);
 
         // Wrap up existing "threading"-module-created, non-daemon threads.
         wait_for_thread_shutdown(tstate);
@@ -2347,17 +2349,7 @@ make_pre_finalization_calls(PyThreadState *tstate, int subinterpreters)
         * the threads created via Threading.
         */
 
-        _PyAtExit_Call(tstate->interp);
-
-        if (subinterpreters) {
-            /* Clean up any lingering subinterpreters.
-             * Two preconditions need to be met here:
-             * 1. This has to happen before _PyRuntimeState_SetFinalizing is
-             *    called, or else threads might get prematurely blocked.
-             * 2. The world must not be stopped, as finalizers can run.
-             */
-            finalize_subinterpreters();
-        }
+        _PyAtExit_Call(interp);
 
         // This is used as a throttle to prevent constant spinning while
         // on finalization guards.
@@ -2395,17 +2387,14 @@ make_pre_finalization_calls(PyThreadState *tstate, int subinterpreters)
          * Py_AddPendingCall() can be called without an attached thread state.
          */
         PyMutex_Lock(&interp->ceval.pending.mutex);
-        _PyEval_StopTheWorldAll(interp->runtime);
+        // XXX Only stop for the interpreter (via _PyEval_StopTheWorld)?
+        _PyEval_StopTheWorldAll(runtime);
 
-        HEAD_LOCK(interp->runtime);
-        int has_subinterpreters = subinterpreters
-                                    ? runtime_has_subinterpreters(interp->runtime)
-                                    : 0;
+        HEAD_LOCK(runtime);
         uintptr_t guards_expected = 0;
         int should_continue = (interp_has_threads(interp)
                               || interp_has_atexit_callbacks(interp)
-                              || interp_has_pending_calls(interp)
-                              || has_subinterpreters);
+                              || interp_has_pending_calls(interp));
 
         if (!should_continue) {
             // We only want to prevent new guards once we're sure that we
@@ -2413,12 +2402,12 @@ make_pre_finalization_calls(PyThreadState *tstate, int subinterpreters)
             if (_Py_atomic_compare_exchange_uintptr(&interp->finalization_guards,
                                                     &guards_expected,
                                                     _PyInterpreterGuard_GUARDS_NOT_ALLOWED) == 1) {
-                HEAD_UNLOCK(interp->runtime);
+                HEAD_UNLOCK(runtime);
                 break;
             }
         }
-        HEAD_UNLOCK(interp->runtime);
-        _PyEval_StartTheWorldAll(interp->runtime);
+        HEAD_UNLOCK(runtime);
+        _PyEval_StartTheWorldAll(runtime);
         PyMutex_Unlock(&interp->ceval.pending.mutex);
     }
     assert(PyMutex_IsLocked(&interp->ceval.pending.mutex));
@@ -2438,34 +2427,58 @@ _Py_Finalize(_PyRuntimeState *runtime)
 
     /* Get final thread state pointer. */
     PyThreadState *tstate = resolve_final_tstate(runtime);
+    PyInterpreterState *interp = tstate->interp;
 
     // Block some operations.
-    tstate->interp->finalizing = 1;
+    interp->finalizing = 1;
 
-    // This call stops the world and takes the pending calls lock.
-    make_pre_finalization_calls(tstate, /*subinterpreters=*/1);
+    // Wrap up all other runtime contexts (and atexit/pending calls).
+    for (;;) {
+        /* Clean up any lingering subinterpreters.
+         * Two preconditions need to be met here:
+         * 1. This has to happen before _PyRuntimeState_SetFinalizing is
+         *    called, or else threads might get prematurely blocked.
+         * 2. The world must not be stopped, as finalizers can run.
+         */
+        finalize_subinterpreters();
+
+        // This call stops the world and takes the pending calls lock.
+        finish_interpreter_execution(tstate);
+
+        HEAD_LOCK(runtime);
+        int has_subinterpreters = runtime_has_subinterpreters(runtime);
+        HEAD_UNLOCK(runtime);
+        if (has_subinterpreters) {
+            _PyEval_StartTheWorldAll(runtime);
+            PyMutex_Unlock(&interp->ceval.pending.mutex);
+        }
+        else {
+            break;
+        }
+    }
 
     assert(_PyThreadState_GET() == tstate);
+    assert(tstate->interp == interp);
 
     /* Copy the core config, PyInterpreterState_Delete() free
        the core config memory */
 #ifdef Py_REF_DEBUG
-    int show_ref_count = tstate->interp->config.show_ref_count;
+    int show_ref_count = interp->config.show_ref_count;
 #endif
 #ifdef Py_TRACE_REFS
-    int dump_refs = tstate->interp->config.dump_refs;
-    wchar_t *dump_refs_file = tstate->interp->config.dump_refs_file;
+    int dump_refs = interp->config.dump_refs;
+    wchar_t *dump_refs_file = interp->config.dump_refs_file;
 #endif
 #ifdef WITH_PYMALLOC
-    int malloc_stats = tstate->interp->config.malloc_stats;
+    int malloc_stats = interp->config.malloc_stats;
 #endif
 
     /* Ensure that remaining threads are detached */
-    ASSERT_WORLD_STOPPED(tstate->interp);
+    ASSERT_WORLD_STOPPED(interp);
 
     /* Remaining daemon threads will be trapped in PyThread_hang_thread
        when they attempt to take the GIL (ex: PyEval_RestoreThread()). */
-    _PyInterpreterState_SetFinalizing(tstate->interp, tstate);
+    _PyInterpreterState_SetFinalizing(interp, tstate);
     _PyRuntimeState_SetFinalizing(runtime, tstate);
     _PyRuntimeState_SetInitialized(runtime, 0);
     _PyRuntimeState_SetCoreInitialized(runtime, 0);
@@ -2482,7 +2495,7 @@ _Py_Finalize(_PyRuntimeState *runtime)
         _PyThreadState_SetShuttingDown(p);
     }
     _PyEval_StartTheWorldAll(runtime);
-    PyMutex_Unlock(&tstate->interp->ceval.pending.mutex);
+    PyMutex_Unlock(&interp->ceval.pending.mutex);
 
     /* Clear frames of other threads to call objects destructors. Destructors
        will be called in the current Python thread. Since
@@ -2530,7 +2543,7 @@ _Py_Finalize(_PyRuntimeState *runtime)
     PyGC_Collect();
 
     /* Destroy all modules */
-    _PyImport_FiniExternal(tstate->interp);
+    _PyImport_FiniExternal(interp);
     finalize_modules(tstate);
 
     /* Print debug stats if any */
@@ -2567,7 +2580,7 @@ _Py_Finalize(_PyRuntimeState *runtime)
 
     /* Finalize any remaining import state */
     // XXX Move these up to where finalize_modules() is currently.
-    _PyImport_FiniCore(tstate->interp);
+    _PyImport_FiniCore(interp);
     _PyImport_Fini();
 
     /* unload faulthandler module */
@@ -2592,11 +2605,11 @@ _Py_Finalize(_PyRuntimeState *runtime)
     }
 
     if (dump_refs) {
-        _Py_PrintReferences(tstate->interp, stderr);
+        _Py_PrintReferences(interp, stderr);
     }
 
     if (dump_refs_fp != NULL) {
-        _Py_PrintReferences(tstate->interp, dump_refs_fp);
+        _Py_PrintReferences(interp, dump_refs_fp);
     }
 #endif /* Py_TRACE_REFS */
 
@@ -2621,10 +2634,10 @@ _Py_Finalize(_PyRuntimeState *runtime)
      * An address can be used to find the repr of the object, printed
      * above by _Py_PrintReferences. */
     if (dump_refs) {
-        _Py_PrintReferenceAddresses(tstate->interp, stderr);
+        _Py_PrintReferenceAddresses(interp, stderr);
     }
     if (dump_refs_fp != NULL) {
-        _Py_PrintReferenceAddresses(tstate->interp, dump_refs_fp);
+        _Py_PrintReferenceAddresses(interp, dump_refs_fp);
         fclose(dump_refs_fp);
     }
 #endif /* Py_TRACE_REFS */
@@ -2635,7 +2648,7 @@ _Py_Finalize(_PyRuntimeState *runtime)
     }
 #endif
 
-    finalize_interp_delete(tstate->interp);
+    finalize_interp_delete(interp);
 
 #ifdef Py_REF_DEBUG
     if (show_ref_count) {
@@ -2851,7 +2864,7 @@ Py_EndInterpreter(PyThreadState *tstate)
     interp->finalizing = 1;
 
     // This call stops the world and takes the pending calls lock.
-    make_pre_finalization_calls(tstate, /*subinterpreters=*/0);
+    finish_interpreter_execution(tstate);
 
     ASSERT_WORLD_STOPPED(interp);
     /* Remaining daemon threads will automatically exit
