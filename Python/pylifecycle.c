@@ -123,7 +123,7 @@ GENERATE_DEBUG_SECTION(PyRuntime, _PyRuntimeState _PyRuntime)
 _Py_COMP_DIAG_POP
 
 
-static int runtime_initialized = 0;
+static uint8_t runtime_initialized = 0;
 
 PyStatus
 _PyRuntime_Initialize(void)
@@ -134,19 +134,24 @@ _PyRuntime_Initialize(void)
        every Py_Initialize() call, but doing so breaks the runtime.
        This is because the runtime state is not properly finalized
        currently. */
-    if (runtime_initialized) {
+    uint8_t expected = 0;
+    if (!_Py_atomic_compare_exchange_uint8(
+                &runtime_initialized, &expected, 1))
+    {
         return _PyStatus_OK();
     }
-    runtime_initialized = 1;
-
     return _PyRuntimeState_Init(&_PyRuntime);
 }
 
 void
 _PyRuntime_Finalize(void)
 {
-    _PyRuntimeState_Fini(&_PyRuntime);
-    runtime_initialized = 0;
+    uint8_t expected = 1;
+    if (_Py_atomic_compare_exchange_uint8(
+                &runtime_initialized, &expected, 0))
+    {
+        _PyRuntimeState_Fini(&_PyRuntime);
+    }
 }
 
 int
