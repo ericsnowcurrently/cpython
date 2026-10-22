@@ -478,6 +478,29 @@ set_runtime_status2(_PyRuntimeState *runtime, PyRuntime_status_t status,
                                              status);
 }
 
+static int
+_wait_runtime_fini_check(_PyRuntimeState *runtime, PyRuntime_status_t status)
+{
+    assert(status & Py_RUNTIME_STATUS_FINI);
+    // Wait for PREP or STARTED.
+    while (status == Py_RUNTIME_STATUS_FINI_CHECK) {
+        // XXX sleep
+        status = get_runtime_status(runtime);
+    }
+    if (status == Py_RUNTIME_STATUS_FINI_PREP) {
+        return 1;
+    }
+    else if (status == Py_RUNTIME_STATUS_FINI_STARTED) {
+        return 0;
+    }
+    else {
+        assert(0);  // unreachable?
+        return 0;
+    }
+}
+
+// runtime fini blockers
+
 static inline int
 _runtime_has_fini_blockers(_PyRuntimeState *runtime)
 {
@@ -497,6 +520,26 @@ _update_runtime_fini_blockers(_PyRuntimeState *runtime, int diff)
     } while (!_Py_atomic_compare_exchange_int(&runtime->_num_fini_blockers,
                                               &expected,
                                               expected + diff));
+}
+
+int
+_Py_CanEnterRuntime(_PyRuntimeState *runtime)
+{
+    PyStatus status = _PyRuntime_Initialize();
+    if (_PyStatus_EXCEPTION(status)) {
+        return 0;
+    }
+    assert(runtime == &_PyRuntime);
+    PyRuntime_status_t lifecycle = get_runtime_status(runtime);
+    if (lifecycle == Py_RUNTIME_STATUS_READY) {
+        return 1;
+    }
+    else if (lifecycle & Py_RUNTIME_STATUS_FINI) {
+        if (_wait_runtime_fini_check(runtime, lifecycle)) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 PyStatus
@@ -534,20 +577,8 @@ _Py_EnterRuntime(_PyRuntimeState *runtime)
         // It is ready.
     }
     else if (lifecycle & Py_RUNTIME_STATUS_FINI) {
-        // Wait for PREP or STARTED.
-        while (lifecycle == Py_RUNTIME_STATUS_FINI_CHECK) {
-            // XXX sleep
-            lifecycle = get_runtime_status(runtime);
-        }
-        if (lifecycle == Py_RUNTIME_STATUS_FINI_STARTED) {
+        if (!_wait_runtime_fini_check(runtime, lifecycle)) {
             errmsg = "runtime finalizing";
-        }
-        else if (lifecycle == Py_RUNTIME_STATUS_FINI_STARTED) {
-            // There's still time to do stuff.
-        }
-        else {
-            // unreachable
-            assert(0);
         }
     }
     else {
