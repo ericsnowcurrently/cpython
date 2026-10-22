@@ -2806,6 +2806,130 @@ done:
 /* Python "auto thread state" API. */
 /***********************************/
 
+//PyStatus
+//Py_LookUpInterpreter(uint64_t interpid, PyInterpreterState **p_interp) {
+//    PyInterpreterState *interp;
+////    PyInterpreterState *interp =_PyInterpreterState_LookUpID(interpid);
+//    _PyRuntimeState *runtime = &_PyRuntime;
+//    _PyRuntimeState_LockLifecycle(runtime);
+//    if (!_PyRuntimeState_GetInitialized(runtime)) {
+//    }
+//    HEAD_LOCK(runtime);
+//    interp = interp_look_up_id(runtime, interpid);
+//    HEAD_UNLOCK(runtime);
+//
+//    ...
+//    *p_interp = interp;
+//    return _PyStatus_OK();
+//}
+
+#define Py_ENTER_GIVEN (0)
+#define Py_ENTER_FIRST_CREATED (1)
+#define Py_ENTER_LAST_CREATED (2)
+#define Py_ENTER_LAST_USED (3)
+#define Py_ENTER_LAST_USED_IN_THREAD (4)
+
+
+//static PyStatus
+//_ensure_tstate(_PyRuntimeState *runtime, PyInterpreterState *interp,
+//               PyThreadState **p_tstate)
+//{
+//    PyThreadState *tstate = NULL;
+//
+//    uintptr 
+//    if (interp == NULL) {
+//        interp = (void *)Py_ENTER_LAST_INTERP_USED_IN_THREAD;
+//    }
+//
+//    int kind;
+//    if (p_tstate == NULL) {
+//        kind = Py_ENTER_LAST_TSTATE_USED;
+//    }
+//   
+//    = (int);
+//    i
+//    switch (
+//}
+//
+//PyStatus
+//Py_EnterInterpreterID(uint64_t interpid, PyThreadState **p_tstate)
+//{
+//    _PyRuntimeState *runtime = &_PyRuntime;
+//    PyStatus status = _PyRuntime_BlockFini(runtime);
+//    if (PyStatus_EXCEPTION(status)) {
+//        return status;
+//    }
+//
+//    PyInterpreterState *interp;
+//    HEAD_LOCK(runtime);
+//    interp = interp_look_up_id(runtime, interpid);
+//    assert(!PyErr_Occurred());
+//    HEAD_UNLOCK(runtime);
+//    if (interp == NULL) {
+//        _PyRuntime_UnblockFini(runtime);
+//        return PyStatus_Err("interpreter not found");
+//    }
+//
+//    status = _ensure_tstate(runtime, interp, p_tstate);
+//    if (PyStatus_EXCEPTION(status)) {
+//        _PyRuntime_UnblockFini(runtime);
+//        return status;
+//    }
+//
+//    return _PyStatus_OK();
+//}
+//
+//PyStatus
+//Py_EnterInterpreter(PyInterpreterState *interp, PyThreadState **p_tstate)
+//{
+//    _PyRuntimeState *runtime = &_PyRuntime;
+//    PyStatus status = _PyRuntime_BlockFini(runtime);
+//    if (PyStatus_EXCEPTION(status)) {
+//        return status;
+//    }
+//
+//    status = _ensure_tstate(runtime, interp, p_tstate);
+//    if (PyStatus_EXCEPTION(status)) {
+//        _PyRuntime_UnblockFini(runtime);
+//        return status;
+//    }
+//
+//    return _PyStatus_OK();
+//}
+//
+//PyStatus
+//Py_EnterThread(PyThreadState **p_tstate)
+//{
+//    _PyRuntimeState *runtime = &_PyRuntime;
+//    PyStatus status = _PyRuntime_BlockFini(runtime);
+//    if (PyStatus_EXCEPTION(status)) {
+//        return status;
+//    }
+//
+//    status = _ensure_tstate(runtime, NULL, p_tstate);
+//    if (PyStatus_EXCEPTION(status)) {
+//        _PyRuntime_UnblockFini(runtime);
+//        return status;
+//    }
+//
+//    return _PyStatus_OK();
+//}
+
+//PyStatus
+//Py_Enter(uint64 interpid, PyInterpreterState *interp, PyThreadState **p_tstate)
+//{
+//    if (p_tstate == PY_ENTER_
+//    ...
+//}
+
+//PyStatus
+//Py_Exit(PyThreadState *tstate)
+//{
+//    ...
+//}
+
+
+
 /* Internal initialization/finalization functions called by
    Py_Initialize/Py_FinalizeEx
 */
@@ -2903,6 +3027,98 @@ get_main_interp_guard(void)
     return guard;
 }
 
+
+
+
+
+#define Py_ENTER_GIVEN (0)
+#define Py_ENTER_FIRST_CREATED (1)
+#define Py_ENTER_LAST_CREATED (2)
+#define Py_ENTER_LAST_USED (3)
+#define Py_ENTER_LAST_USED_IN_THREAD (4)
+
+static PyThreadState *
+gilstate_get_tstate(_PyRuntimeState *runtime, PyInterpreterState *interp,
+                    int target)
+{
+    PyThreadState *tstate = NULL;
+    switch (target) {
+    case Py_ENTER_LAST_USED:
+        tstate = gilstate_get();
+        if (interp != NULL && tstate->interp != interp) {
+            // XXX Figure out interp-specific last used.
+            assert(0);
+        }
+        break;
+    case Py_ENTER_LAST_CREATED:
+        if (interp == NULL) {
+            // XXX Use the most recent interp.
+            assert(0);
+        }
+        tstate = get_last_tstate(interp, tid);
+        break;
+    case Py_ENTER_FIRST_CREATED:
+        if (interp == NULL) {
+            interp = PyInterpreterState_GetMain();
+        }
+        tstate = get_first_tstate(interp, tid);
+        break;
+    case Py_ENTER_GIVEN:
+        break;
+    default:
+        assert(0);  // unreachable
+    }
+    return tstate;
+}
+
+static PyThreadState *
+gilstate_create_tstate(_PyRuntimeState *runtime, PyInterpreterState *interp)
+{
+    if (interp == NULL) {
+        // XXX Use PyInterpreterState_EnsureThreadState()?
+        interp = runtime->gilstate.autoInterpreterState;
+    }
+    PyThreadState *tstate = new_threadstate(interp,
+                                            _PyThreadState_WHENCE_C_API);
+    if (tstate != NULL) {
+        bind_tstate(tstate);
+        bind_gilstate_tstate(tstate);
+    }
+    return tstate;
+}
+
+
+
+
+static PyStatus
+ensure_tstate(_PyRuntimeState *runtime, PyInterpreterState *interp, int target,
+              PyThreadState **p_tstate, int *p_created)
+{
+    assert(_Py_CanEnterRuntime(runtime));
+    int created = 0;
+    PyThreadState *tstate = gilstate_get_tstate(runtime, interp, target);
+    if (tstate == NULL) {
+        if (target == Py_ENTER_GIVEN) {
+            assert(p_tstate != NULL);
+            tstate = *p_tstate;
+        }
+        if (tstate == NULL) {
+            tstate = gilstate_create_tstate(runtime, interp);
+            if (tstate == NULL) {
+                return PyStatus_Err("could not create thread state");
+            }
+            created = 1;
+        }
+    }
+    if (p_tstate != NULL) {
+        *p_tstate = tstate;
+    }
+    if (p_created != NULL) {
+        *p_created = created;
+    }
+    return PyStatus_OK();
+}
+
 PyGILState_STATE
 PyGILState_Ensure(void)
 {
@@ -2911,38 +3127,22 @@ PyGILState_Ensure(void)
        spells out other issues.  Embedders are expected to have
        called Py_Initialize(). */
 
-    PyThreadState *tcur = gilstate_get();
-    int has_gil;
-    if (tcur == NULL) {
-        /* Create a new Python thread state for this thread */
-        PyInterpreterGuard *guard = get_main_interp_guard();
-        if (guard == NULL) {
-            // The main interpreter has finished, so we don't have
-            // any intepreter to make a thread state for. Hang the
-            // thread to act as failure.
-            PyThread_hang_thread();
-        }
-        tcur = new_threadstate(guard->interp,
-                               _PyThreadState_WHENCE_C_API);
-        if (tcur == NULL) {
-            Py_FatalError("Couldn't create thread-state for new thread");
-        }
-        bind_tstate(tcur);
-        bind_gilstate_tstate(tcur);
-
-        /* This is our thread state!  We'll need to delete it in the
-           matching call to PyGILState_Release(). */
-        assert(tcur->gilstate_counter == 1);
-        tcur->gilstate_counter = 0;
-        has_gil = 0; /* new thread state is never current */
-        PyInterpreterGuard_Close(guard);
-    }
-    else {
-        has_gil = holds_gil(tcur);
+    _PyRuntimeState *runtime = &_PyRuntime;
+    PyStatus status = _Py_EnterRuntime(runtime);
+    if (PyStatus_EXCEPTION(status)) {
+        PyThread_hang_thread();
     }
 
+    status = ensure_tstate(runtime, NULL, Py_ENTER_LAST_USED,
+                           &tstate, &created);
+    if (PyStatus_EXCEPTION(status)) {
+        PyThread_hang_thread();
+//        Py_FatalError("Couldn't create thread-state for new thread");
+    }
+
+    int has_gil = (!created && holds_gil(tstate));
     if (!has_gil) {
-        PyEval_RestoreThread(tcur);
+        PyEval_RestoreThread(tstate);
     }
 
     /* Update our counter in the thread-state - no need for locks:
