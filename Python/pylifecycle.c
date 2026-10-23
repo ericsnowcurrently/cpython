@@ -123,11 +123,18 @@ GENERATE_DEBUG_SECTION(PyRuntime, _PyRuntimeState _PyRuntime)
 _Py_COMP_DIAG_POP
 
 
-static uint8_t runtime_initialized = 0;
+static uint8_t static_runtime_initialized = 0;
 
-PyStatus
-_PyRuntime_Initialize(void)
+//static int
+//static_runtime_is_initialized(void)
+//{
+//    return _Py_atomic_load_uint8(&static_runtime_initialized);
+//}
+
+static PyStatus
+static_runtime_ensure_initialized(void)
 {
+    _PyRuntimeState *runtime = &_PyRuntime;
     /* XXX We only initialize once in the process, which aligns with
        the static initialization of the former globals now found in
        _PyRuntime.  However, _PyRuntime *should* be initialized with
@@ -136,22 +143,56 @@ _PyRuntime_Initialize(void)
        currently. */
     uint8_t expected = 0;
     if (!_Py_atomic_compare_exchange_uint8(
-                &runtime_initialized, &expected, 1))
+                &static_runtime_initialized, &expected, 1))
     {
         return _PyStatus_OK();
     }
-    return _PyRuntimeState_Init(&_PyRuntime);
+    return _PyRuntimeState_Init(runtime);
+}
+
+static void
+static_runtime_ensure_finalized(void)
+{
+    _PyRuntimeState *runtime = &_PyRuntime;
+    uint8_t expected = 1;
+    if (_Py_atomic_compare_exchange_uint8(
+                &static_runtime_initialized, &expected, 0))
+    {
+        _PyRuntimeState_Fini(runtime);
+    }
+}
+
+//static int
+//runtime_is_initialized(_PyRuntimeState *runtime)
+//{
+//    assert(runtime == &_PyRuntime);
+//    return static_runtime_is_initialized();
+//}
+
+static PyStatus
+runtime_ensure_initialized(_PyRuntimeState *runtime)
+{
+    assert(runtime == &_PyRuntime);
+    return static_runtime_ensure_initialized();
+}
+
+static void
+runtime_ensure_finalized(_PyRuntimeState *runtime)
+{
+    assert(runtime == &_PyRuntime);
+    static_runtime_ensure_finalized();
+}
+
+PyStatus
+_PyRuntime_Initialize(void)
+{
+    return static_runtime_ensure_initialized();
 }
 
 void
 _PyRuntime_Finalize(void)
 {
-    uint8_t expected = 1;
-    if (_Py_atomic_compare_exchange_uint8(
-                &runtime_initialized, &expected, 0))
-    {
-        _PyRuntimeState_Fini(&_PyRuntime);
-    }
+    static_runtime_ensure_finalized();
 }
 
 int
@@ -1055,11 +1096,11 @@ _Py_PreInitializeFromPyArgv(const PyPreConfig *src_config, const _PyArgv *args)
         return _PyStatus_ERR("preinitialization config is NULL");
     }
 
-    status = _PyRuntime_Initialize();
+    _PyRuntimeState *runtime = &_PyRuntime;
+    status = runtime_ensure_initialized(runtime);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
-    _PyRuntimeState *runtime = &_PyRuntime;
 
     if (runtime->preinitialized) {
         /* If it's already configured: ignored the new configuration */
@@ -1122,11 +1163,11 @@ _Py_PreInitializeFromConfig(const PyConfig *config,
 {
     assert(config != NULL);
 
-    PyStatus status = _PyRuntime_Initialize();
+    _PyRuntimeState *runtime = &_PyRuntime;
+    PyStatus status = runtime_ensure_initialized(runtime);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
-    _PyRuntimeState *runtime = &_PyRuntime;
 
     if (runtime->preinitialized) {
         /* Already initialized: do nothing */
@@ -1623,11 +1664,11 @@ Py_InitializeFromConfig(const PyConfig *config)
 
     PyStatus status;
 
-    status = _PyRuntime_Initialize();
+    _PyRuntimeState *runtime = &_PyRuntime;
+    status = runtime_ensure_initialized(runtime);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
-    _PyRuntimeState *runtime = &_PyRuntime;
 
     PyThreadState *tstate = NULL;
     status = pyinit_core(runtime, config, &tstate);
@@ -1678,7 +1719,8 @@ Py_Initialize(void)
 PyStatus
 _Py_InitializeMain(void)
 {
-    PyStatus status = _PyRuntime_Initialize();
+    _PyRuntimeState *runtime = &_PyRuntime;
+    PyStatus status = runtime_ensure_initialized(runtime);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
@@ -2605,7 +2647,7 @@ _Py_Finalize(_PyRuntimeState *runtime)
 
     call_ll_exitfuncs(runtime);
 
-    _PyRuntime_Finalize();
+    runtime_ensure_finalized(runtime);
     return status;
 }
 
@@ -2641,11 +2683,11 @@ new_interpreter(PyThreadState **tstate_p,
 {
     PyStatus status;
 
-    status = _PyRuntime_Initialize();
+    _PyRuntimeState *runtime = &_PyRuntime;
+    status = runtime_ensure_initialized(runtime);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
-    _PyRuntimeState *runtime = &_PyRuntime;
 
     if (!_PyRuntimeState_GetInitialized(runtime)) {
         return _PyStatus_ERR("Py_Initialize must be called first");
