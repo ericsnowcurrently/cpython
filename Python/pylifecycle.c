@@ -459,8 +459,6 @@ _Py_SetLocaleFromEnv(int category)
 
 /* runtime lifecycle status */
 
-// XXX Store "entered" status in a thread-local?
-
 static inline PyRuntime_status_t
 get_runtime_status(_PyRuntimeState *runtime)
 {
@@ -609,32 +607,7 @@ unblock_runtime_fini(_PyRuntimeState *runtime)
 }
 
 
-//PyStatus
-//_Py_EnterRuntime(_PyRuntimeState *runtime)
-//{
-//    PyStatus status = _PyRuntime_Initialize();
-//    if (_PyStatus_EXCEPTION(status)) {
-//        return status;
-//    }
-//    assert(runtime == &_PyRuntime);
-//    return block_runtime_fini(runtime);
-//}
-//
-//PyStatus
-//_Py_ExitRuntime(_PyRuntimeState *runtime)
-//{
-//    PyStatus status = _PyRuntime_Initialize();
-//    if (_PyStatus_EXCEPTION(status)) {
-//        return status;
-//    }
-//    assert(runtime == &_PyRuntime);
-//    return unblock_runtime(runtime);
-//}
-
-
-
-
-// runtime activation contexts */
+/* runtime activation contexts */
 
 /*
 Use cases:
@@ -1215,6 +1188,68 @@ Py_ResumeRuntimeInThread(void)
 //    _PyRuntimeState *runtime = &_PyRuntime;
 //    return leave_runtime(runtime, entered);
 //}
+
+
+/* interpreter lifecycle status */
+
+static inline PyRuntime_status_t
+get_interp_status(PyInterpreterState *interp)
+{
+    return _Py_atomic_load_uint8(&interp->_lifecycle);
+}
+
+static inline void
+set_interp_status(PyInterpreterState *interp, PyRuntime_status_t status)
+{
+    _Py_atomic_store_uint8(&interp->_lifecycle, status);
+}
+
+static inline int
+set_interp_status2(PyInterpreterState *interp, PyRuntime_status_t status,
+                   PyRuntime_status_t expected)
+{
+    return _Py_atomic_compare_exchange_uint8(&interp->_lifecycle,
+                                             &expected,
+                                             status);
+}
+
+static int
+_wait_interp_fini_check(PyInterpreterState *interp, PyRuntime_status_t status)
+{
+    assert(status & Py_RUNTIME_STATUS_FINI);
+    // Wait for PREP or STARTED.
+    while (status == Py_RUNTIME_STATUS_FINI_CHECK) {
+        // XXX sleep
+        status = get_interp_status(interp);
+    }
+    if (status == Py_RUNTIME_STATUS_FINI_PREP) {
+        return 1;
+    }
+    else if (status == Py_RUNTIME_STATUS_FINI_STARTED) {
+        return 0;
+    }
+    else {
+        assert(0);  // unreachable?
+        return 0;
+    }
+}
+
+static int
+is_interp_available(PyInterpreterState *interp)
+{
+    assert(runtime_is_initialized(interp->runtime));
+    assert(interp->runtime == &_PyRuntime);
+    PyRuntime_status_t lifecycle = get_interp_status(interp);
+    if (lifecycle == Py_RUNTIME_STATUS_READY) {
+        return 1;
+    }
+    else if (lifecycle & Py_RUNTIME_STATUS_FINI) {
+        if (_wait_interp_fini_check(interp, lifecycle)) {
+            return 1;
+        }
+    }
+    return 0;
+}
 
 
 /* interpreter lifecycle state */
