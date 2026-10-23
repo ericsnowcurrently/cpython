@@ -1611,6 +1611,7 @@ static void
 add_threadstate(PyInterpreterState *interp, PyThreadState *tstate,
                 PyThreadState *next)
 {
+    assert((interp->threads.head == NULL) == (interp->threads.tail == NULL));
     assert(interp->threads.head != tstate);
     if (next != NULL) {
         assert(next->prev == NULL || next->prev == tstate);
@@ -1619,6 +1620,9 @@ add_threadstate(PyInterpreterState *interp, PyThreadState *tstate,
     tstate->next = next;
     assert(tstate->prev == NULL);
     interp->threads.head = tstate;
+    if (interp->threads.tail == NULL) {
+        interp->threads.tail = tstate;
+    }
 }
 
 static PyThreadState *
@@ -1898,6 +1902,9 @@ tstate_delete_common(PyThreadState *tstate, int release_gil)
     if (tstate->next) {
         tstate->next->prev = tstate->prev;
     }
+    else {
+        interp->threads.tail = tstate->prev;
+    }
     if (tstate->state != _Py_THREAD_SUSPENDED) {
         // Any ongoing stop-the-world request should not wait for us because
         // our thread is getting deleted.
@@ -2032,6 +2039,7 @@ _PyThreadState_RemoveExcept(PyThreadState *tstate)
     }
     tstate->prev = tstate->next = NULL;
     interp->threads.head = tstate;
+    interp->threads.tail = tstate;
     HEAD_UNLOCK(runtime);
 
     return list;
@@ -2867,7 +2875,7 @@ done:
 //    HEAD_UNLOCK(runtime);
 //    if (interp == NULL) {
 //        _PyRuntime_UnblockFini(runtime);
-//        return PyStatus_Err("interpreter not found");
+//        return PyStatus_Error("interpreter not found");
 //    }
 //
 //    status = _ensure_tstate(runtime, interp, p_tstate);
@@ -3027,52 +3035,147 @@ get_main_interp_guard(void)
     return guard;
 }
 
-
-
-
-
-#define Py_ENTER_GIVEN (0)
-#define Py_ENTER_FIRST_CREATED (1)
-#define Py_ENTER_LAST_CREATED (2)
-#define Py_ENTER_LAST_USED (3)
-#define Py_ENTER_LAST_USED_IN_THREAD (4)
-
-static PyThreadState *
-gilstate_get_tstate(_PyRuntimeState *runtime, PyInterpreterState *interp,
-                    int target)
+//-----
+static inline PyThreadState *
+get_last_used_tstate(_PyRuntimeState *runtime, PyInterpreterState *interp)
 {
-    PyThreadState *tstate = NULL;
-    switch (target) {
-    case Py_ENTER_LAST_USED:
-        tstate = gilstate_get();
-        if (interp != NULL && tstate->interp != interp) {
-            // XXX Figure out interp-specific last used.
-            assert(0);
-        }
-        break;
-    case Py_ENTER_LAST_CREATED:
-        if (interp == NULL) {
-            // XXX Use the most recent interp.
-            assert(0);
-        }
-        tstate = get_last_tstate(interp, tid);
-        break;
-    case Py_ENTER_FIRST_CREATED:
-        if (interp == NULL) {
-            interp = PyInterpreterState_GetMain();
-        }
-        tstate = get_first_tstate(interp, tid);
-        break;
-    case Py_ENTER_GIVEN:
-        break;
-    default:
-        assert(0);  // unreachable
+    PyThreadState *tstate = gilstate_get();
+    if (tstate != NULL && interp != NULL && tstate->interp != interp) {
+        // XXX Figure out interp-specific last used.
+        assert(0);
+        tstate = NULL;
     }
     return tstate;
 }
 
+//-----
+
+//static PyThreadState *
+//get_first_tstate(_PyRuntimeState *runtime, PyInterpreterState *interp,
+//                 unsigned long tid)
+//{
+//    if (interp == NULL) {
+//        // XXX Try the last used/created, in order, until TID matches?
+//        return NULL;
+//    }
+//    HEAD_LOCK(runtime);
+//    PyThreadState *tstate = interp->threads.tail;
+//    if (tid) {
+//        while (tstate != NULL) {
+//            if (tstate->thread_id == tid) {
+//                break
+//            }
+//            tstate = tstate->prev;
+//        }
+//    }
+//    HEAD_UNLOCK(runtime);
+//    return tstate;
+//}
+//
+//static PyThreadState *
+//get_last_tstate(_PyRuntimeState *runtime, PyInterpreterState *interp,
+//                unsigned long tid)
+//{
+//    if (interp == NULL) {
+//        // XXX Try the last used/created, in order, until TID matches?
+//        interp = find_interp(runtime, Py_RUNTIME_FIND_LAST_USED);
+////        interp = find_interp(runtime, Py_RUNTIME_FIND_LAST_CREATED);
+//        tstate = get_last_tstate(interp, tid);
+//        return NULL;
+//    }
+//    HEAD_LOCK(runtime);
+//    PyThreadState *tstate = interp->threads.head;
+//    if (tid) {
+//        while (tstate != NULL) {
+//            if (tstate->thread_id == tid) {
+//                break
+//            }
+//            tstate = tstate->next;
+//        }
+//    }
+//    HEAD_UNLOCK(runtime);
+//    return tstate;
+//}
+//-----
+
+static int Py_runtime_find_target_t;
+
+#define Py_RUNTIME_FIND_TSTATE_BITS (3)
+#define Py_RUNTIME_FIND_TSTATE_MASK (Py_RUNTIME_FIND_TSTATE_BITS - 1)
+
+#define Py_RUNTIME_FIND_GIVEN (0)
+#define Py_RUNTIME_FIND_FIRST_CREATED (1)
+#define Py_RUNTIME_FIND_LAST_CREATED (2)
+#define Py_RUNTIME_FIND_LAST_USED (3)
+
+#define Py_RUNTIME_FIND_TSTATE_TARGET(TSTATE, INTERP) \
+    (TSTATE + (INTERP << Py_RUNTIME_FIND_TSTATE_BITS)
+
+static PyInterpreterState *
+find_interp(_PyRuntimeState *runtime, Py_runtime_find_target_t target)
+{
+    Py_runtime_find_target_t target_interp = (
+                            target >> _Py_RUNTIME_FIND_TSTATE_BITS);
+    if (target_interp) {
+        target = target_interp;
+    }
+    ...
+}
+
+//static PyThreadState *
+//find_tstate(_PyRuntimeState *runtime, PyInterpreterState *interp,
+//            Py_runtime_find_target_t target)
+//{
+//    PyThreadState *tstate = NULL;
+//    Py_runtime_find_target_t target_interp = (
+//                            target >> _Py_RUNTIME_FIND_TSTATE_BITS);
+//    target = target & Py_RUNTIME_FIND_TSTATE_MASK;
+//
+//    assert(interp == NULL || !target_interp);
+//    if (interp == NULL && target_interp) {
+//        interp = find_interp(runtime, target_interp);
+//    }
+//
+//    PyThread_ident_t tid = PyThread_get_thread_ident_ex();
+//    switch (target) {
+//    case Py_RUNTIME_FIND_LAST_USED:
+//        tstate = get_last_used_tstate(runtime, interp);
+//        break;
+//    case Py_RUNTIME_FIND_FIRST_CREATED:
+//        if (interp != NULL) {
+//            tstate = get_first_tstate(runtime, interp, tid);
+//        }
+//        else {
+//            // XXX Try all the last used/created interpreter, in order, until TID matches?
+//            interp = find_interp(runtime, Py_RUNTIME_FIND_LAST_USED);
+////            interp = find_interp(runtime, Py_RUNTIME_FIND_LAST_CREATED);
+//            tstate = get_last_tstate(interp, tid);
+//        }
+//        break;
+//    case Py_RUNTIME_FIND_LAST_CREATED:
+//        if (interp != NULL) {
+//            tstate = get_last_tstate(runtime, interp, tid);
+//        }
+//        else {
+//        }
+//        break;
+//    case Py_ENTER_GIVEN:
+//        break;
+//    default:
+//        assert(0);  // unreachable
+//    }
+//    return tstate;
+//}
+
+
 static PyThreadState *
-gilstate_create_tstate(_PyRuntimeState *runtime, PyInterpreterState *interp)
+find_tstate(_PyRuntimeState *runtime, PyInterpreterState *interp,
+            Py_runtime_find_target_t target)
+{
+}
+
+static PyThreadState *
+create_tstate(_PyRuntimeState *runtime, PyInterpreterState *interp)
 {
     if (interp == NULL) {
         // XXX Use PyInterpreterState_EnsureThreadState()?
@@ -3087,37 +3190,112 @@ gilstate_create_tstate(_PyRuntimeState *runtime, PyInterpreterState *interp)
     return tstate;
 }
 
+//static PyStatus
+//ensure_tstate(_PyRuntimeState *runtime, PyInterpreterState *interp, int target,
+//              PyThreadState **p_tstate, int *p_created)
+//{
+//    assert(_Py_CanEnterRuntime(runtime));
+//    int created = 0;
+//    PyThreadState *tstate = find_tstate(runtime, interp, target);
+//    if (tstate == NULL) {
+//        if (target == Py_ENTER_GIVEN) {
+//            assert(p_tstate != NULL);
+//            tstate = *p_tstate;
+//        }
+//        if (tstate == NULL) {
+//            tstate = create_tstate(runtime, interp);
+//            if (tstate == NULL) {
+//                return PyStatus_Error("could not create thread state");
+//            }
+//            created = 1;
+//        }
+//    }
+//    if (p_tstate != NULL) {
+//        *p_tstate = tstate;
+//    }
+//    if (p_created != NULL) {
+//        *p_created = created;
+//    }
+//    return PyStatus_OK();
+//}
+
+//static PyStatus
+//ensure_tstate(_PyRuntimeState *runtime, PyInterpreterState *interp,
+//              PyThreadState **p_tstate, int *p_created)
+//{
+//    assert(_Py_CanEnterRuntime(runtime));
+//    int created = 0;
+//    PyThreadState *tstate = gilstate_get();
+//
+//
+//
+//    PyThreadState *tstate = get_last_used_tstate(runtime, interp);
+//    if (tstate == NULL) {
+//        if (target == Py_ENTER_GIVEN) {
+//            assert(p_tstate != NULL);
+//            tstate = *p_tstate;
+//        }
+//        if (tstate == NULL) {
+//            tstate = create_tstate(runtime, interp);
+//            if (tstate == NULL) {
+//                return PyStatus_Error("could not create thread state");
+//            }
+//            created = 1;
+//        }
+//    }
+//    if (p_tstate != NULL) {
+//        *p_tstate = tstate;
+//    }
+//    if (p_created != NULL) {
+//        *p_created = created;
+//    }
+//    return PyStatus_OK();
+//}
+//
+//typedef uint64_t Py_entered_t;
+//
+//_Py_thread_local Py_entered_t _Py_tss_runtime_entered = 0;
+//
+//PyStatus
+//Py_EnterPython(void)
+//{
+//    if (_Py_tss_runtime_entered) {
+//        return PyStatus_Error("Python already entered");
+//    }
+//    _Py_tss_runtime_entered = 1;
+//    return _PyStatus_OK();
+//}
+//
+//PyStatus
+//Py_LeavePython()
+//{
+//}
+//
+//Py_entered_t
+//Py_EnsurePythonEntered(void)
+//{
+//    if (_Py_tss_runtime_entered) {
+//        _Py_tss_runtime_entered += 1;
+//        return _Py_tss_runtime_entered;
+//    }
+//    return Py_EnterPython();
+//}
 
 
+PyThreadState * Py_PythonEntered(void);
+PyStatus Py_EnterPython(PyThreadState *tstate);
+PyStatus Py_LeavePython(void);
+int Py_PythonPausedInThread(void);
+PyStatus Py_PausePythonInThread(void);
+PyStatus Py_ResumePythonInThread(void);
 
-static PyStatus
-ensure_tstate(_PyRuntimeState *runtime, PyInterpreterState *interp, int target,
-              PyThreadState **p_tstate, int *p_created)
-{
-    assert(_Py_CanEnterRuntime(runtime));
-    int created = 0;
-    PyThreadState *tstate = gilstate_get_tstate(runtime, interp, target);
-    if (tstate == NULL) {
-        if (target == Py_ENTER_GIVEN) {
-            assert(p_tstate != NULL);
-            tstate = *p_tstate;
-        }
-        if (tstate == NULL) {
-            tstate = gilstate_create_tstate(runtime, interp);
-            if (tstate == NULL) {
-                return PyStatus_Err("could not create thread state");
-            }
-            created = 1;
-        }
-    }
-    if (p_tstate != NULL) {
-        *p_tstate = tstate;
-    }
-    if (p_created != NULL) {
-        *p_created = created;
-    }
-    return PyStatus_OK();
-}
+
+//PyGILState_STATE
+//PyGILState_Ensure(void)
+//{
+//    Py_E
+//}
+
 
 PyGILState_STATE
 PyGILState_Ensure(void)
