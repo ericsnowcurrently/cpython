@@ -499,6 +499,38 @@ _wait_runtime_fini_check(_PyRuntimeState *runtime, PyRuntime_status_t status)
     }
 }
 
+static int
+is_runtime_available(_PyRuntimeState *runtime)
+{
+    assert(runtime_initialized);
+//    PyStatus status = _PyRuntime_Initialize();
+//    if (_PyStatus_EXCEPTION(status)) {
+//        return 0;
+//    }
+    assert(runtime == &_PyRuntime);
+    PyRuntime_status_t lifecycle = get_runtime_status(runtime);
+    if (lifecycle == Py_RUNTIME_STATUS_READY) {
+        return 1;
+    }
+    else if (lifecycle & Py_RUNTIME_STATUS_FINI) {
+        if (_wait_runtime_fini_check(runtime, lifecycle)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int
+_Py_CanEnterRuntime(_PyRuntimeState *runtime)
+{
+    PyStatus status = runtime_ensure_initialized(runtime);
+    if (_PyStatus_EXCEPTION(status)) {
+        return 0;
+    }
+    assert(runtime == &_PyRuntime);
+    return is_runtime_available(runtime);
+}
+
 // runtime fini blockers
 
 static inline int
@@ -522,36 +554,10 @@ _update_runtime_fini_blockers(_PyRuntimeState *runtime, int diff)
                                               expected + diff));
 }
 
-int
-_Py_CanEnterRuntime(_PyRuntimeState *runtime)
-{
-    PyStatus status = runtime_ensure_initialized(runtime);
-    if (_PyStatus_EXCEPTION(status)) {
-        return 0;
-    }
-    assert(runtime == &_PyRuntime);
-    PyRuntime_status_t lifecycle = get_runtime_status(runtime);
-    if (lifecycle == Py_RUNTIME_STATUS_READY) {
-        return 1;
-    }
-    else if (lifecycle & Py_RUNTIME_STATUS_FINI) {
-        if (_wait_runtime_fini_check(runtime, lifecycle)) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-PyStatus
-_Py_EnterRuntime(_PyRuntimeState *runtime)
+static PyStatus
+block_runtime_fini(_PyRuntimeState *runtime)
 {
     const char *errmsg = NULL;
-    PyStatus status = runtime_ensure_initialized(runtime);
-    if (_PyStatus_EXCEPTION(status)) {
-        return status;
-    }
-    assert(runtime == &_PyRuntime);
-
     _update_runtime_fini_blockers(runtime, 1);
 
     // Wait for READY (or fail).
@@ -593,14 +599,198 @@ _Py_EnterRuntime(_PyRuntimeState *runtime)
     return _PyStatus_OK();
 }
 
-PyStatus
-_Py_ExitRuntime(_PyRuntimeState *runtime)
+static PyStatus
+unblock_runtime(_PyRuntimeState *runtime)
 {
     assert(get_runtime_status(runtime) == Py_RUNTIME_STATUS_READY);
     assert(_runtime_has_fini_blockers(runtime));
     _update_runtime_fini_blockers(runtime, -1);
     return _PyStatus_OK();
 }
+
+
+//PyStatus
+//_Py_EnterRuntime(_PyRuntimeState *runtime)
+//{
+//    PyStatus status = _PyRuntime_Initialize();
+//    if (_PyStatus_EXCEPTION(status)) {
+//        return status;
+//    }
+//    assert(runtime == &_PyRuntime);
+//    return block_runtime_fini(runtime);
+//}
+//
+//PyStatus
+//_Py_ExitRuntime(_PyRuntimeState *runtime)
+//{
+//    PyStatus status = _PyRuntime_Initialize();
+//    if (_PyStatus_EXCEPTION(status)) {
+//        return status;
+//    }
+//    assert(runtime == &_PyRuntime);
+//    return unblock_runtime(runtime);
+//}
+
+
+
+
+// runtime activation contexts */
+
+/*
+Use cases:
+ + C callbacks
+ + helper functions that are used both within Python and not
+ */
+
+_Py_thread_local struct {
+    uint64_t depth;
+    uint64_t paused;
+    uint64_t interpid;
+//    PyInterpreterState *interp;
+    PyThreadState *tstate;
+} _Py_tss_runtime_entered = {0};
+
+typedef struct _py_entered Py_entered_t;
+
+static inline PyStatus
+runtime_enter_thread(_PyRuntimeState *runtime, Py_entered_t **p_entered)
+{
+    if (_Py_tss_runtime_entered.depth == 0) {
+        PyStatus status = block_runtime_fini(runtime);
+        if (PyStatus_EXCEPTION(status)) {
+            return status;
+        }
+    }
+    _Py_tss_runtime_entered.depth += 1;
+    if (p_entered != NULL) {
+        *p_entered = (Py_entered_t *)_Py_tss_runtime_entered.depth;
+    }
+    return _PyStatus_OK();
+}
+
+static inline PyStatus
+runtime_leave_thread(_PyRuntimeState *runtime, Py_entered_t *entered)
+{
+    assert(entered < 0 || entered == _Py_tss_runtime_entered.depth);
+    if (_Py_tss_runtime_entered.depth == 0) {
+        return PyStatus_Error("Python not entered");
+    }
+    if (_Py_tss_runtime_entered.depth == 1) {
+        PyStatus status = unblock_runtime_fini(runtime);
+        if (PyStatus_EXCEPTION(status)) {
+            return status;
+        }
+    }
+    _Py_tss_runtime_entered.depth -= 1;
+    return _PyStatus_OK();
+}
+
+static inline PyStatus
+runtime_pause_in_thread(_PyRuntimeState *runtime, Py_entered_t *entered,
+                        Py_entered_t **p_paused)
+{
+//    _runtime_has_fini_blockers(runtime)
+    if (_Py_tss_runtime_entered.paused == 0) {
+        PyStatus status = unblock_runtime_fini(runtime);
+        if (PyStatus_EXCEPTION(status)) {
+            return status;
+        }
+    }
+    _Py_tss_runtime_entered.paused += 1;
+    if (p_paused != NULL) {
+        *p_paused = _Py_tss_runtime_entered.paused;
+    }
+    return _PyStatus_OK();
+}
+
+static inline PyStatus
+runtime_unpause_thread(_PyRuntimeState *runtime, Py_entered_t *entered,
+                       Py_entered_t *paused)
+{
+}
+
+//PyStatus Py_PauseRuntimeDueToExternal(void);
+//PyStatus Py_ResumeRuntimeDueToExternal(void);
+//PyStatus Py_PauseInterpreterDueToExternal(void);
+//PyStatus Py_ResumeInterpreterDueToExternal(void);
+//PyStatus Py_PausePythonDueToExternal(void);
+//PyStatus Py_ResumePythonDueToExternal(void);
+
+// Call into Python without an interpreter.
+int Py_RuntimeEntered(void);
+PyStatus Py_EnterRuntime(void);
+PyStatus Py_LeaveRuntime(void);
+int Py_RuntimePausedInThread(void);
+PyStatus Py_PauseRuntimeInThread(void);
+PyStatus Py_ResumeRuntimeInThread(void);
+
+#define Py_ENTER_RUNTIME(RET_STATUS) \
+    { \
+        int _entered = PyRuntimeEntered(); \
+        if (_entered) { \
+            RET_STATUS = PyStatus_Ok(); \
+        } \
+        else { \
+            RET_STATUS = Py_EnterRuntime(); \
+        }
+#define Py_LEAVE_RUNTIME(RET_STATUS) \
+        if (!_entered) { \
+            RET_STATUS = Py_LeaveRuntime(); \
+        } \
+    }
+
+// Call into Python with an interpreter but not a tstate.
+uint64_t Py_InterpreterEntered(void);
+PyStatus Py_EnterInterpreter(uint64_t interpid, PyInterpreterState **p_interp);
+PyStatus Py_LeaveInterpreter(void);
+int Py_InterpreterPausedInThread(void);
+PyStatus Py_PauseInterpreterInThread(void);
+PyStatus Py_ResumeInterpreterInThread(void);
+//PyStatus Py_SwitchInterpreter(...);
+
+// Call into Python with a tstate.
+PyThreadState * Py_PythonEntered(void);
+PyStatus Py_EnterPython(PyThreadState *tstate);
+PyStatus Py_LeavePython(void);
+int Py_PythonPausedInThread(void);
+PyStatus Py_PausePythonInThread(void);
+PyStatus Py_ResumePythonInThread(void);
+
+//int
+//Py_RuntimeEntered(void)
+//{
+//    return _Py_tss_runtime_entered.depth > 0;
+//}
+//
+//PyStatus
+//Py_EnterPython(void)
+//{
+//    if (_Py_tss_runtime_entered.depth) {
+//        return PyStatus_Error("Python already entered");
+//    }
+//    _PyRuntimeState *runtime = &_PyRuntime;
+//    return enter_runtime(runtime, NULL);
+//}
+//
+//PyStatus
+//Py_LeavePython(void)
+//{
+//    return leave_runtime(runtime, 1);
+//}
+//
+//PyStatus
+//Py_CallbackEnterPython(Py_entered_t **p_entered)
+//{
+//    _PyRuntimeState *runtime = &_PyRuntime;
+//    return enter_runtime(runtime, p_entered);
+//}
+//
+//PyStatus
+//Py_CallbackLeavePython(Py_entered_t *entered)
+//{
+//    _PyRuntimeState *runtime = &_PyRuntime;
+//    return leave_runtime(runtime, entered);
+//}
 
 
 /* interpreter lifecycle state */

@@ -861,6 +861,7 @@ struct _is {
         uint64_t next_unique_id;
         /* The linked list of threads, newest first. */
         PyThreadState *head;
+        PyThreadState *tail;
         _PyThreadStateImpl *preallocated;
         /* The thread currently executing in the __main__ module, if any. */
         PyThreadState *main;
