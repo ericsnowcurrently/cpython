@@ -525,7 +525,7 @@ _update_runtime_fini_blockers(_PyRuntimeState *runtime, int diff)
 int
 _Py_CanEnterRuntime(_PyRuntimeState *runtime)
 {
-    PyStatus status = _PyRuntime_Initialize();
+    PyStatus status = runtime_ensure_initialized(runtime);
     if (_PyStatus_EXCEPTION(status)) {
         return 0;
     }
@@ -546,7 +546,7 @@ PyStatus
 _Py_EnterRuntime(_PyRuntimeState *runtime)
 {
     const char *errmsg = NULL;
-    PyStatus status = _PyRuntime_Initialize();
+    PyStatus status = runtime_ensure_initialized(runtime);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
@@ -1917,7 +1917,7 @@ Py_InitializeFromConfig(const PyConfig *config)
                 // XXX sleep?
             }
             // We need to re-init the raw runtime state post-fini.
-            status = _PyRuntime_Initialize();
+            status = runtime_ensure_initialized(runtime);
             if (_PyStatus_EXCEPTION(status)) {
                 return status;
             }
