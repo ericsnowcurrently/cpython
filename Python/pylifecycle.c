@@ -125,11 +125,13 @@ _Py_COMP_DIAG_POP
 
 static uint8_t static_runtime_initialized = 0;
 
-//static int
-//static_runtime_is_initialized(void)
-//{
-//    return _Py_atomic_load_uint8(&static_runtime_initialized);
-//}
+#ifndef NDEBUG
+static int
+static_runtime_is_initialized(void)
+{
+    return _Py_atomic_load_uint8(&static_runtime_initialized);
+}
+#endif
 
 static PyStatus
 static_runtime_ensure_initialized(void)
@@ -162,12 +164,14 @@ static_runtime_ensure_finalized(void)
     }
 }
 
-//static int
-//runtime_is_initialized(_PyRuntimeState *runtime)
-//{
-//    assert(runtime == &_PyRuntime);
-//    return static_runtime_is_initialized();
-//}
+#ifndef NDEBUG
+static int
+runtime_is_initialized(_PyRuntimeState *runtime)
+{
+    assert(runtime == &_PyRuntime);
+    return static_runtime_is_initialized();
+}
+#endif
 
 static PyStatus
 runtime_ensure_initialized(_PyRuntimeState *runtime)
@@ -502,11 +506,7 @@ _wait_runtime_fini_check(_PyRuntimeState *runtime, PyRuntime_status_t status)
 static int
 is_runtime_available(_PyRuntimeState *runtime)
 {
-    assert(runtime_initialized);
-//    PyStatus status = _PyRuntime_Initialize();
-//    if (_PyStatus_EXCEPTION(status)) {
-//        return 0;
-//    }
+    assert(runtime_is_initialized(runtime));
     assert(runtime == &_PyRuntime);
     PyRuntime_status_t lifecycle = get_runtime_status(runtime);
     if (lifecycle == Py_RUNTIME_STATUS_READY) {
@@ -600,7 +600,7 @@ block_runtime_fini(_PyRuntimeState *runtime)
 }
 
 static PyStatus
-unblock_runtime(_PyRuntimeState *runtime)
+unblock_runtime_fini(_PyRuntimeState *runtime)
 {
     assert(get_runtime_status(runtime) == Py_RUNTIME_STATUS_READY);
     assert(_runtime_has_fini_blockers(runtime));
@@ -642,6 +642,327 @@ Use cases:
  + helper functions that are used both within Python and not
  */
 
+//typedef uint64_t _Py_interp_t;
+//#define _Py_NO_INTERPRETER UINT64_MAX
+//
+//typedef uint64_t _Py_tstate_t;
+//#define _Py_NO_TSTATE UINT64_MAX
+//
+//typedef uint8_t _Py_runtime_level_t;
+//#define _RUNTIME_LEVEL_NONE (0)
+//#define _RUNTIME_LEVEL_GLOBAL (1)
+//#define _RUNTIME_LEVEL_INTERP (2)
+//#define _RUNTIME_LEVEL_TSTATE (3)
+
+//static _Py_runtime_level_t
+//resolve_runtime_level(_Py_interp_t interpid,
+//                      PyThreadState *tstate,
+////                      _Py_tstate_t *tstateid,
+//                      int attached)
+//{
+//    if (attached) {
+//        return _RUNTIME_LEVEL_ATTACHED;
+//    }
+//    else if (tstate != NULL) {
+//        return _RUNTIME_LEVEL_TSTATE;
+//    }
+//    else if (interp != NULL) {
+//        return _RUNTIME_LEVEL_INTERP;
+//    }
+//    else {
+//        return _RUNTIME_LEVEL_GLOBAL;
+//    }
+//}
+
+//struct paused_in_thread;
+//
+//struct paused_in_thread {
+//    _Py_runtime_level_t level;
+//    _Py_interp_t interpid;
+//    PyThreadState *tstate;
+////    _Py_tstate_t tstateid;
+//    int attached;
+//    paused_in_thread *prev;
+//};
+//
+//_Py_thread_local struct {
+//    _Py_runtime_level_t level;
+//    _Py_interp_t interpid;
+////    _Py_tstate_t tstateid;
+//    int attached;
+//    PyInterpreterState *interp;
+//    PyThreadState *tstate;
+//    struct paused_in_thread *paused;
+//    size_t num_paused;
+//#define _MAX_PAUSED (10)
+//    struct paused_in_thread _paused[_MAX_PAUSED];
+//} _Py_tss_runtime_entered = {0};
+//
+//static PyStatus
+//_apply_pause(_Py_runtime_level_t level)
+//{
+//    struct paused_in_thread *paused;
+//    size_t i = _Py_tss_runtime_entered.num_paused;
+//    if (i < _MAX_PAUSED) {
+//        paused = &_Py_tss_runtime_entered.num_paused._paused[i];
+//        _Py_tss_runtime_entered.num_paused += 1;
+//    }
+//    else {
+//        // XXX Allocate?
+//        return PyStatus_Error("pause depth reached");
+//    }
+//    *paused = (struct paused_in_thread){
+//
+//    };
+//    paused->prev = _Py_tss_runtime_entered.paused;
+//    _Py_tss_runtime_entered.paused = paused;
+//    return _PyStatus_OK();
+//}
+//
+//static PyStatus
+//_apply_unpause(void)
+//{
+//    if (_Py_tss_runtime_entered.num_paused == 0) {
+//        return PyStatus_Error("no pause to resume");
+//    }
+//    assert(_Py_tss_runtime_entered.num_paused <= _MAX_PAUSED);
+//    struct paused_in_thread *paused = _Py_tss_runtime_entered.paused;
+//    _Py_tss_runtime_entered.paused = paused.prev;
+//    *paused = (struct paused_in_thread){0};
+//    _Py_tss_runtime_entered.num_paused -= 1;
+//    return _PyStatus_OK();
+//}
+//
+//static int
+//runtime_is_entered(void)
+//{
+//    return _Py_tss_runtime_entered.level >= _RUNTIME_LEVEL_GLOBAL;
+//}
+//
+//static PyInterpreterState *
+//interp_entered(void)
+//{
+//    return _Py_tss_runtime_entered.interp;
+////    if (_Py_tss_runtime_entered.interpid == _Py_NO_INTERPRETER) {
+////        return NULL;
+////    }
+////    _PyInterpreterState_LookUpID(_Py_tss_runtime_entered.interpid);
+//}
+//
+//static int
+//interp_is_attached(void)
+//{
+//    return _Py_tss_runtime_entered.attached;
+//}
+//
+//static PyThreadState *
+//tstate_entered(void)
+//{
+//    return _Py_tss_runtime_entered.tstate;
+//}
+
+//static int
+//runtime_is_entered(_PyRuntimeState *runtime, _Py_runtime_level_t level)
+//{
+//    return _Py_tss_runtime_entered.level <= level;
+//}
+//
+//static PyStatus
+//runtime_enter_thread(_PyRuntimeState *runtime,
+//                     _Py_interp_t interpid,
+//                     PyThreadState *tstate,
+////                     _Py_tstate_t *tstate,
+//                     int attached)
+//{
+//    _Py_runtime_level_t level = resolve_runtime_level(
+//                                        interpid, tstate, attached);
+//    if (attached) {
+//        if (_Py_tss_runtime_entered.level 
+//        level = _RUNTIME_LEVEL_ATTACHED;
+//    }
+//    else if (tstate != NULL) {
+//        level = _RUNTIME_LEVEL_TSTATE;
+//    }
+//    else if (interp != NULL) {
+//        level = _RUNTIME_LEVEL_INTERP;
+//    }
+//    else {
+//        level = _RUNTIME_LEVEL_GLOBAL;
+//    }
+////    _Py_runtime_level_t level = resolve_runtime_level(
+////                                        interpid, tstate, attached);
+//    if (_Py_tss_runtime_entered.level >= level) {
+//        return PyStatus_Error("Python already entered");
+//    }
+//}
+//
+//static PyStatus
+//runtime_enter_thread(_PyRuntimeState *runtime)
+//{
+//    if (_Py_tss_runtime_entered.level == _RUNTIME_LEVEL_NONE) {
+//        PyStatus status = block_runtime_fini(runtime);
+//        if (_PyStatus_EXCEPTION(status)) {
+//            return status;
+//        }
+//        _Py_tss_runtime_entered.level = _RUNTIME_LEVEL_GLOBAL;
+//    }
+//    else {
+//        assert(_Py_tss_runtime_entered.level >= _RUNTIME_LEVEL_GLOBAL);
+//        return PyStatus_Error("Python already entered");
+//    }
+//    return _PyStatus_OK();
+//}
+//
+//static PyStatus
+//runtime_leave_thread(_PyRuntimeState *runtime)
+//{
+//    switch (_Py_tss_runtime_entered.level) {
+//    case _RUNTIME_LEVEL_NONE:
+//        return PyStatus_Error("Python not entered");
+//    case _RUNTIME_LEVEL_GLOBAL:
+//        _Py_FALLTHROUGH;
+//    case _RUNTIME_LEVEL_INTERP:
+//        _Py_FALLTHROUGH;
+//    case _RUNTIME_LEVEL_TSTATE:
+//        _Py_FALLTHROUGH;
+//    case _RUNTIME_LEVEL_ATTACHED:
+//        break;
+//    default:
+//        assert(0);  // unreachable
+//    }
+//    _Py_tss_runtime_entered.attached = NULL;
+//    _Py_tss_runtime_entered.tstate = NULL;
+//    _Py_tss_runtime_entered.interpid = _Py_NO_INTERPRETER;
+//    _Py_tss_runtime_entered.level = _RUNTIME_LEVEL_NONE;
+//
+//    PyStatus status = unblock_runtime_fini(runtime);
+//    if (_PyStatus_EXCEPTION(status)) {
+//        return status;
+//    }
+//
+//    if (_Py_tss_runtime_entered.depth == 0) {
+//        return PyStatus_Error("Python not entered");
+//    }
+//    if (_Py_tss_runtime_entered.depth == 1) {
+//        PyStatus status = unblock_runtime_fini(runtime);
+//        if (_PyStatus_EXCEPTION(status)) {
+//            return status;
+//        }
+//    }
+//    _Py_tss_runtime_entered.depth -= 1;
+//    return _PyStatus_OK();
+//}
+//
+//static int
+//is_runtime_paused_in_thread(_PyRuntimeState *runtime)
+//{
+//}
+//
+//static PyStatus
+//runtime_pause_in_thread(_PyRuntimeState *runtime, Py_entered_t *entered,
+//                        Py_entered_t **p_paused)
+//{
+////    _runtime_has_fini_blockers(runtime)
+//    if (_Py_tss_runtime_entered.paused == 0) {
+//        PyStatus status = unblock_runtime_fini(runtime);
+//        if (_PyStatus_EXCEPTION(status)) {
+//            return status;
+//        }
+//    }
+//    _Py_tss_runtime_entered.paused += 1;
+//    if (p_paused != NULL) {
+//        *p_paused = _Py_tss_runtime_entered.paused;
+//    }
+//    return _PyStatus_OK();
+//}
+//
+//static PyStatus
+//runtime_unpause_in_thread(_PyRuntimeState *runtime, Py_entered_t *entered,
+//                          Py_entered_t *paused)
+//{
+//    ...
+//}
+
+_Py_thread_local struct {
+    int runtime;
+    int paused;
+} _Py_tss_runtime_entered = {0};
+
+static int
+runtime_is_entered(_PyRuntimeState *runtime)
+{
+    return _Py_tss_runtime_entered.runtime;
+}
+
+static PyStatus
+runtime_enter_thread(_PyRuntimeState *runtime)
+{
+    if (_Py_tss_runtime_entered.runtime) {
+        return PyStatus_Error("Python already entered");
+    }
+    PyStatus status = block_runtime_fini(runtime);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+    _Py_tss_runtime_entered.runtime = 1;
+    return _PyStatus_OK();
+}
+
+static PyStatus
+runtime_leave_thread(_PyRuntimeState *runtime)
+{
+    if (!_Py_tss_runtime_entered.runtime) {
+        return PyStatus_Error("Python not entered");
+    }
+    PyStatus status = unblock_runtime_fini(runtime);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+    _Py_tss_runtime_entered.runtime = 0;
+    return _PyStatus_OK();
+}
+
+static int
+runtime_is_paused_in_thread(_PyRuntimeState *runtime)
+{
+    return _Py_tss_runtime_entered.paused;
+}
+
+static PyStatus
+runtime_pause_in_thread(_PyRuntimeState *runtime)
+{
+    if (!_Py_tss_runtime_entered.runtime) {
+        return PyStatus_Error("Python not entered");
+    }
+    if (_Py_tss_runtime_entered.paused) {
+        return PyStatus_Error("Python already paused");
+    }
+    PyStatus status = unblock_runtime_fini(runtime);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+    _Py_tss_runtime_entered.paused = 1;
+    return _PyStatus_OK();
+}
+
+static PyStatus
+runtime_unpause_in_thread(_PyRuntimeState *runtime)
+{
+    if (!_Py_tss_runtime_entered.runtime) {
+        return PyStatus_Error("Python not entered");
+    }
+    if (!_Py_tss_runtime_entered.paused) {
+        return PyStatus_Error("Python not paused");
+    }
+    PyStatus status = unblock_runtime_fini(runtime);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+    _Py_tss_runtime_entered.paused = 0;
+    return _PyStatus_OK();
+}
+
+/*
 _Py_thread_local struct {
     uint64_t depth;
     uint64_t paused;
@@ -652,12 +973,19 @@ _Py_thread_local struct {
 
 typedef struct _py_entered Py_entered_t;
 
-static inline PyStatus
+static int
+//runtime_is_entered(_PyRuntimeState *runtime)
+runtime_is_entered(void)
+{
+    return _Py_tss_runtime_entered.depth > 0;
+}
+
+static PyStatus
 runtime_enter_thread(_PyRuntimeState *runtime, Py_entered_t **p_entered)
 {
     if (_Py_tss_runtime_entered.depth == 0) {
         PyStatus status = block_runtime_fini(runtime);
-        if (PyStatus_EXCEPTION(status)) {
+        if (_PyStatus_EXCEPTION(status)) {
             return status;
         }
     }
@@ -668,7 +996,7 @@ runtime_enter_thread(_PyRuntimeState *runtime, Py_entered_t **p_entered)
     return _PyStatus_OK();
 }
 
-static inline PyStatus
+static PyStatus
 runtime_leave_thread(_PyRuntimeState *runtime, Py_entered_t *entered)
 {
     assert(entered < 0 || entered == _Py_tss_runtime_entered.depth);
@@ -677,7 +1005,7 @@ runtime_leave_thread(_PyRuntimeState *runtime, Py_entered_t *entered)
     }
     if (_Py_tss_runtime_entered.depth == 1) {
         PyStatus status = unblock_runtime_fini(runtime);
-        if (PyStatus_EXCEPTION(status)) {
+        if (_PyStatus_EXCEPTION(status)) {
             return status;
         }
     }
@@ -685,14 +1013,19 @@ runtime_leave_thread(_PyRuntimeState *runtime, Py_entered_t *entered)
     return _PyStatus_OK();
 }
 
-static inline PyStatus
+static int
+is_runtime_paused_in_thread(_PyRuntimeState *runtime)
+{
+}
+
+static PyStatus
 runtime_pause_in_thread(_PyRuntimeState *runtime, Py_entered_t *entered,
                         Py_entered_t **p_paused)
 {
 //    _runtime_has_fini_blockers(runtime)
     if (_Py_tss_runtime_entered.paused == 0) {
         PyStatus status = unblock_runtime_fini(runtime);
-        if (PyStatus_EXCEPTION(status)) {
+        if (_PyStatus_EXCEPTION(status)) {
             return status;
         }
     }
@@ -703,58 +1036,149 @@ runtime_pause_in_thread(_PyRuntimeState *runtime, Py_entered_t *entered,
     return _PyStatus_OK();
 }
 
-static inline PyStatus
-runtime_unpause_thread(_PyRuntimeState *runtime, Py_entered_t *entered,
-                       Py_entered_t *paused)
+static PyStatus
+runtime_unpause_in_thread(_PyRuntimeState *runtime, Py_entered_t *entered,
+                          Py_entered_t *paused)
 {
+    ...
+}
+*/
+
+/*
+TODO:
+
+* implement core funcs
+* add PyInterpreterState._lifecycle
+* add PyThreadState._lifecycle
+* re-implement PyGILState_*()
+* compare with PEP 788
+* ...
+
+Later:
+
+* update Py_NewInterpreter() to not need Py_Initialize() first.
+
+ */
+
+int
+Py_RuntimeEntered(void)
+{
+    _PyRuntimeState *runtime = &_PyRuntime;
+    PyStatus status = runtime_ensure_initialized(runtime);
+    if (_PyStatus_EXCEPTION(status)) {
+        return 0;
+    }
+//    return is_runtime_available(runtime);
+    return runtime_is_entered(runtime);
 }
 
-//PyStatus Py_PauseRuntimeDueToExternal(void);
-//PyStatus Py_ResumeRuntimeDueToExternal(void);
-//PyStatus Py_PauseInterpreterDueToExternal(void);
-//PyStatus Py_ResumeInterpreterDueToExternal(void);
-//PyStatus Py_PausePythonDueToExternal(void);
-//PyStatus Py_ResumePythonDueToExternal(void);
-
-// Call into Python without an interpreter.
-int Py_RuntimeEntered(void);
-PyStatus Py_EnterRuntime(void);
-PyStatus Py_LeaveRuntime(void);
-int Py_RuntimePausedInThread(void);
-PyStatus Py_PauseRuntimeInThread(void);
-PyStatus Py_ResumeRuntimeInThread(void);
-
-#define Py_ENTER_RUNTIME(RET_STATUS) \
-    { \
-        int _entered = PyRuntimeEntered(); \
-        if (_entered) { \
-            RET_STATUS = PyStatus_Ok(); \
-        } \
-        else { \
-            RET_STATUS = Py_EnterRuntime(); \
-        }
-#define Py_LEAVE_RUNTIME(RET_STATUS) \
-        if (!_entered) { \
-            RET_STATUS = Py_LeaveRuntime(); \
-        } \
+PyStatus
+Py_EnterRuntime(void)
+{
+    _PyRuntimeState *runtime = &_PyRuntime;
+    PyStatus status = runtime_ensure_initialized(runtime);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
     }
+    return runtime_enter_thread(runtime);
+}
 
-// Call into Python with an interpreter but not a tstate.
-uint64_t Py_InterpreterEntered(void);
-PyStatus Py_EnterInterpreter(uint64_t interpid, PyInterpreterState **p_interp);
-PyStatus Py_LeaveInterpreter(void);
-int Py_InterpreterPausedInThread(void);
-PyStatus Py_PauseInterpreterInThread(void);
-PyStatus Py_ResumeInterpreterInThread(void);
+PyStatus
+Py_LeaveRuntime(void)
+{
+    _PyRuntimeState *runtime = &_PyRuntime;
+    PyStatus status = runtime_ensure_initialized(runtime);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+    return runtime_leave_thread(runtime);
+}
+
+int
+Py_RuntimePausedInThread(void)
+{
+    _PyRuntimeState *runtime = &_PyRuntime;
+    PyStatus status = runtime_ensure_initialized(runtime);
+    if (_PyStatus_EXCEPTION(status)) {
+        return 0;
+    }
+    return runtime_is_paused_in_thread(runtime);
+}
+
+PyStatus
+Py_PauseRuntimeInThread(void)
+{
+    _PyRuntimeState *runtime = &_PyRuntime;
+    PyStatus status = runtime_ensure_initialized(runtime);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+    if (!runtime_is_entered(runtime)) {
+        return PyStatus_Error("runtime not active in thread");
+    }
+    if (runtime_is_paused_in_thread(runtime)) {
+        return PyStatus_Error("runtime already paused in thread");
+    }
+    return runtime_pause_in_thread(runtime);
+}
+
+PyStatus
+Py_ResumeRuntimeInThread(void)
+{
+    _PyRuntimeState *runtime = &_PyRuntime;
+    PyStatus status = runtime_ensure_initialized(runtime);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+    if (!runtime_is_entered(runtime)) {
+        return PyStatus_Error("runtime not active in thread");
+    }
+    if (!runtime_is_paused_in_thread(runtime)) {
+        return PyStatus_Error("runtime not paused in thread");
+    }
+    return runtime_unpause_in_thread(runtime);
+}
+
+//int
+//Py_InterpreterEntered(uint64_t *p_interpid, PyInterpreterState **p_interp)
+//{
+//}
+//
+//PyStatus
+//Py_EnterInterpreter(uint64_t interpid, PyInterpreterState **p_interp)
+//{
+//}
+//
+//PyStatus
+//Py_LeaveInterpreter(void)
+//{
+//}
+//
+//int
+//Py_InterpreterPausedInThread(void)
+//{
+//}
+//
+//PyStatus
+//Py_PauseInterpreterInThread(void)
+//{
+//}
+//
+//PyStatus
+//Py_ResumeInterpreterInThread(void)
+//{
+//}
+//
 //PyStatus Py_SwitchInterpreter(...);
 
 // Call into Python with a tstate.
-PyThreadState * Py_PythonEntered(void);
-PyStatus Py_EnterPython(PyThreadState *tstate);
-PyStatus Py_LeavePython(void);
-int Py_PythonPausedInThread(void);
-PyStatus Py_PausePythonInThread(void);
-PyStatus Py_ResumePythonInThread(void);
+//int Py_PythonEntered(PyThreadState **p_tstate);
+//PyStatus Py_EnterPython(PyThreadState *tstate);
+//PyStatus Py_LeavePython(void);
+//int Py_PythonPausedInThread(void);
+//PyStatus Py_PausePythonInThread(void);
+//PyStatus Py_ResumePythonInThread(void);
+
 
 //int
 //Py_RuntimeEntered(void)
@@ -1477,12 +1901,12 @@ PyStatus
 _Py_PreInitializeFromPyArgv(const PyPreConfig *src_config, const _PyArgv *args)
 {
     PyStatus status;
+    _PyRuntimeState *runtime = &_PyRuntime;
 
     if (src_config == NULL) {
         return _PyStatus_ERR("preinitialization config is NULL");
     }
 
-    _PyRuntimeState *runtime = &_PyRuntime;
     status = runtime_ensure_initialized(runtime);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
@@ -3202,8 +3626,8 @@ new_interpreter(PyThreadState **tstate_p,
                 const PyInterpreterConfig *config, long whence)
 {
     PyStatus status;
-
     _PyRuntimeState *runtime = &_PyRuntime;
+
     status = runtime_ensure_initialized(runtime);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
